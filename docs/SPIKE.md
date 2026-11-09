@@ -56,15 +56,16 @@ Date: 2026-11-09 · `gpui-kit` 0.9.0 (GPUI `gpui-pre` 0.3.11) · Rust 1.98.0 · 
 5. **pi version.** pi 0.79.6 is installed, and the spec's RPC notes are for v0.83. That doesn't affect M0, but it
    should be upgraded (or its own `docs/rpc.md` read) before M1.
 
-## Not verified — needs your eyes
+## Manual check (macOS) — all passed
 
-I couldn't capture the spike window: the terminal has no Screen Recording permission, so screenshots show only the
-desktop. The performance numbers are real, but these need a manual look (`cargo run --release` in `spike/`):
+Checked by hand by the user on 2026-11-09 (the terminal couldn't screenshot the window, so these were confirmed by
+eye, not by me):
 
-- [ ] Rust is syntax-highlighted (keywords, strings and comments in different colours).
-- [ ] Folding arrows appear in the gutter and collapse blocks.
-- [ ] Multi-cursor works (GPUI Kit's binding), and in-file search (Cmd/Ctrl+F) finds text.
-- [ ] Typing and scrolling feel right by hand. On close, the spike prints the input-latency histogram for your session.
+- [x] Rust syntax highlighting, including deep in the file and while scrolling fast.
+- [x] Folding from the gutter chevrons.
+- [x] Multi-cursor (Cmd+Alt+↓ / Alt+click) and block selection.
+- [x] In-file search (Cmd+F) and replace (Cmd+Shift+F).
+- [x] Typing, scrolling and undo feel right by hand.
 
 ## Run it yourself
 
