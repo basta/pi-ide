@@ -51,6 +51,8 @@ Override or add bindings in `~/.config/pide/keymap.json` (Find Action → "Prefe
 
 Each pi session shows its model (and thinking level) at the top right of the chat; click it to switch that session to another model.
 
+**Changes** (in the pi panel) lists the files a session changed; click one for a side-by-side or inline diff against the file before pi touched it. **Revert** undoes the whole file; the ↶ button beside each change in the diff undoes just that change.
+
 ## Previews
 
 - **View → Markdown Preview** opens a live preview beside a Markdown file.

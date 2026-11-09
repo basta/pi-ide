@@ -3,11 +3,15 @@
 
 use std::path::PathBuf;
 
+use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::diff::{Diff, DiffFile, DiffMode, DiffState};
+use gpui_kit::component::diff::{
+    Diff, DiffFile, DiffGutterMarker, DiffLinePosition, DiffMode, DiffSide, DiffState,
+};
 use gpui_kit::component::dock::{
     DockPlacement, PanelEvent, PanelState, TabGroup, panel_handle, register_panel,
 };
+use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ActiveTheme, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -74,6 +78,11 @@ pub struct DiffPanel {
     state: Entity<DiffState>,
     mode: DiffMode,
     stats: (usize, usize),
+    /// Texts the diff shows (before-snapshot, file now), its hunks, and the
+    /// diff's file path (for gutter markers): each hunk gets a revert button.
+    texts: Option<std::sync::Arc<(String, String)>>,
+    hunks: Vec<pide_core::changes::Hunk>,
+    diff_path: SharedString,
     error: Option<SharedString>,
     focus: FocusHandle,
     group: Option<WeakEntity<TabGroup>>,
@@ -111,6 +120,9 @@ impl DiffPanel {
                 .new(|cx| DiffState::new(Vec::<DiffFile>::new(), cx).with_mode(DiffMode::Split)),
             mode: DiffMode::Split,
             stats: (0, 0),
+            texts: None,
+            hunks: Vec::new(),
+            diff_path: SharedString::default(),
             error: None,
             focus: cx.focus_handle(),
             group: None,
@@ -153,10 +165,15 @@ impl DiffPanel {
             } else {
                 DiffFile::parse(&patch).map_err(|e| format!("{e:?}"))
             };
-            (files, stats)
+            let hunks = if now.is_some() {
+                pide_core::changes::hunks(&before, &after)
+            } else {
+                Vec::new()
+            };
+            (files, stats, hunks, (before, after))
         });
         self._load = Some(cx.spawn(async move |this, cx| {
-            let (files, stats) = work.await;
+            let (files, stats, hunks, texts) = work.await;
             let _ = this.update(cx, |this, cx| {
                 match files {
                     Ok(files) => {
@@ -169,14 +186,51 @@ impl DiffPanel {
                         } else {
                             None
                         };
+                        this.diff_path =
+                            files.first().map(|f| f.path().clone()).unwrap_or_default();
                         this.state.update(cx, |s, cx| s.set_files(files, cx));
                     }
                     Err(e) => this.error = Some(format!("Can't show this diff: {e}").into()),
                 }
                 this.stats = stats;
+                this.hunks = hunks;
+                this.texts = Some(std::sync::Arc::new(texts));
                 cx.notify();
             });
         }));
+    }
+
+    /// Put one hunk back the way it was before pi (writes the file, like the
+    /// whole-file revert; an open, unedited tab reloads).
+    fn revert_hunk(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(req), Some(texts), Some(hunk)) = (
+            self.req.clone(),
+            self.texts.clone(),
+            self.hunks.get(ix).cloned(),
+        ) else {
+            return;
+        };
+        let write = cx.background_executor().spawn(async move {
+            // Only if the file is still what the diff shows.
+            let now = pide_core::changes::snapshot(&req.path).unwrap_or_default();
+            if now != texts.1 {
+                return Err(
+                    "the file changed since this diff was shown; refresh and try again".to_string(),
+                );
+            }
+            let text = pide_core::changes::revert_hunk(&texts.0, &texts.1, &hunk);
+            std::fs::write(&req.path, text).map_err(|e| e.to_string())
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let r = write.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                if let Err(e) = r {
+                    window.push_notification(Notification::error(format!("Not reverted: {e}")), cx);
+                }
+                this.reload(cx);
+            });
+        })
+        .detach();
     }
 
     fn set_mode(&mut self, mode: DiffMode, cx: &mut Context<Self>) {
@@ -315,7 +369,62 @@ impl Render for DiffPanel {
                     div().flex_1().overflow_hidden().child(
                         Diff::new(&self.state)
                             .line_number(true)
-                            .syntax_highlight(true),
+                            .syntax_highlight(true)
+                            .when(!self.hunks.is_empty(), |d| {
+                                // A revert button on each hunk's first line: the
+                                // new side, or the old side for a pure deletion.
+                                let markers: Vec<DiffGutterMarker> = self
+                                    .hunks
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(i, h)| {
+                                        let pos = if h.after.is_empty() {
+                                            DiffLinePosition::new(
+                                                self.diff_path.clone(),
+                                                DiffSide::Original,
+                                                h.before.start + 1,
+                                            )
+                                        } else {
+                                            DiffLinePosition::new(
+                                                self.diff_path.clone(),
+                                                DiffSide::Modified,
+                                                h.after.start + 1,
+                                            )
+                                        };
+                                        DiffGutterMarker::new(("revert-hunk", i), pos)
+                                            .with_label("Revert this change")
+                                    })
+                                    .collect();
+                                let index: std::rc::Rc<Vec<(DiffSide, usize)>> = std::rc::Rc::new(
+                                    markers
+                                        .iter()
+                                        .map(|m| (m.position().side(), m.position().line()))
+                                        .collect(),
+                                );
+                                let panel = cx.weak_entity();
+                                d.gutter_markers(markers).render_gutter_marker(
+                                    move |marker, _, _| {
+                                        let key =
+                                            (marker.position().side(), marker.position().line());
+                                        let ix = index.iter().position(|k| *k == key).unwrap_or(0);
+                                        let panel = panel.clone();
+                                        Button::new(marker.id().clone())
+                                            .ghost()
+                                            .xsmall()
+                                            .label("↶")
+                                            .tooltip(marker.label().clone())
+                                            .on_click(move |_, window, cx| {
+                                                let panel = panel.clone();
+                                                // Not inside the diff's own update.
+                                                window.defer(cx, move |window, cx| {
+                                                    let _ = panel.update(cx, |p, cx| {
+                                                        p.revert_hunk(ix, window, cx)
+                                                    });
+                                                });
+                                            })
+                                    },
+                                )
+                            }),
                     ),
                 )
             })

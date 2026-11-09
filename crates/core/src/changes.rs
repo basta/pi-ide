@@ -83,9 +83,77 @@ pub fn revert(path: &Path, before: Option<&str>) -> std::io::Result<()> {
     }
 }
 
+/// One changed region: line ranges (0-based, end exclusive) in before and after.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Hunk {
+    pub before: std::ops::Range<usize>,
+    pub after: std::ops::Range<usize>,
+}
+
+/// The changed regions between two texts, line by line (no context).
+pub fn hunks(before: &str, after: &str) -> Vec<Hunk> {
+    let diff = similar::TextDiff::from_lines(before, after);
+    diff.grouped_ops(0)
+        .into_iter()
+        .filter_map(|group| {
+            let first = group.first()?;
+            let last = group.last()?;
+            Some(Hunk {
+                before: first.old_range().start..last.old_range().end,
+                after: first.new_range().start..last.new_range().end,
+            })
+        })
+        .collect()
+}
+
+/// `after` with one hunk put back the way it was in `before`.
+pub fn revert_hunk(before: &str, after: &str, hunk: &Hunk) -> String {
+    let old: Vec<&str> = before.split_inclusive('\n').collect();
+    let new: Vec<&str> = after.split_inclusive('\n').collect();
+    let mut out = String::with_capacity(after.len());
+    for l in &new[..hunk.after.start.min(new.len())] {
+        out.push_str(l);
+    }
+    for l in &old[hunk.before.start.min(old.len())..hunk.before.end.min(old.len())] {
+        out.push_str(l);
+    }
+    for l in &new[hunk.after.end.min(new.len())..] {
+        out.push_str(l);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn hunks_revert_one_at_a_time() {
+        let before = "a\nb\nc\nd\ne\nf\ng\n";
+        let after = "a\nB\nc\nd\ne\nf\ng\nh\n";
+        let hs = hunks(before, after);
+        assert_eq!(
+            hs,
+            vec![
+                Hunk {
+                    before: 1..2,
+                    after: 1..2
+                },
+                Hunk {
+                    before: 7..7,
+                    after: 7..8
+                }
+            ]
+        );
+        assert_eq!(
+            revert_hunk(before, after, &hs[0]),
+            "a\nb\nc\nd\ne\nf\ng\nh\n"
+        );
+        assert_eq!(revert_hunk(before, after, &hs[1]), "a\nB\nc\nd\ne\nf\ng\n");
+        // A deletion comes back.
+        let hs = hunks("x\ny\nz\n", "x\nz\n");
+        assert_eq!(revert_hunk("x\ny\nz\n", "x\nz\n", &hs[0]), "x\ny\nz\n");
+    }
 
     #[::core::prelude::v1::test]
     fn stats_count_lines() {
