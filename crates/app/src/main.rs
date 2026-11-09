@@ -1,5 +1,6 @@
 //! pide: windows (one per project), dock layout, keymap, wiring. `pide [dir]`.
 
+mod menus;
 mod palette;
 mod projects;
 mod shell;
@@ -67,6 +68,7 @@ fn main() {
         watch_keymap(cx);
         pide_runtime::monitor::start(cx).detach();
         projects::init(keymap_errors, cx);
+        menus::init(cx); // after every command is registered
 
         match arg.or_else(|| projects::last_project(cx)) {
             Some(root) => projects::open(root, cx),

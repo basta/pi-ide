@@ -45,6 +45,7 @@ fn layout_file(root: &Path) -> PathBuf {
 
 pub struct Shell {
     services: Services,
+    menu_bar: Entity<gpui_kit::component::menu::AppMenuBar>,
     dock: Entity<DockArea>,
     _skin: Rc<DockSkin>,
     focus: FocusHandle,
@@ -108,6 +109,7 @@ impl Shell {
 
         let this = Self {
             services: services.clone(),
+            menu_bar: crate::menus::bar(cx),
             dock,
             _skin: skin,
             focus: cx.focus_handle(),
@@ -247,6 +249,16 @@ impl Render for Shell {
             }))
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
+            .child(
+                h_flex()
+                    .w_full()
+                    .flex_shrink_0()
+                    .px_1()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .bg(cx.theme().title_bar)
+                    .child(self.menu_bar.clone()),
+            )
             .child(div().flex_1().w_full().overflow_hidden().child(self.dock.clone()))
             .child(self.render_status_bar(cx))
     }
