@@ -6,8 +6,8 @@ The spec lives in the claude.ai doc "pi IDE — Implementation Spec". Current st
 ## Build requirements
 
 - Rust >= 1.92 (developed on 1.98). Versions are pinned in `docs/VERSIONS.md`.
-- macOS: Xcode command line tools.
-- Linux (primary target): a Wayland or X11 session with a working Vulkan driver. GPUI Kit may also need
+- macOS (primary target, Apple Silicon): Xcode command line tools.
+- Linux (secondary): a Wayland or X11 session with a working Vulkan driver. GPUI Kit may also need
   `libwebkit2gtk-4.1-dev` at build time. Recommended: `mold` for linking. Full package list to be confirmed in M1.
 
 ## Layout

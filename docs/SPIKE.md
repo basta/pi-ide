@@ -3,9 +3,8 @@
 **Verdict: the editor is fast enough to build on, on this machine.** No frame took longer than 16 ms in any scripted phase:
 scrolling, fast scrolling, typing in the middle of the file, or a 1,000-line paste. Memory stays around 115 MB.
 
-**Caveat that matters:** this was measured on **macOS 15.0, Apple M1, Metal**, not on the spec's primary target
-(Linux, Vulkan). It shows GPUI Kit's editor design holds up. It does not show the Linux renderer does. Re-run the same
-benchmark on your Linux machine before signing off (see "Run it yourself").
+Measured on **macOS 15.0, Apple M1, Metal**. As of 2026-11-09, macOS (Apple Silicon) is the primary target, so this
+is the run that counts. Linux is secondary; re-run the benchmark there when Linux matters (see "Run it yourself").
 
 Date: 2026-11-09 · `gpui-kit` 0.9.0 (GPUI `gpui-pre` 0.3.11) · Rust 1.98.0 · release build.
 
@@ -38,7 +37,7 @@ Date: 2026-11-09 · `gpui-kit` 0.9.0 (GPUI `gpui-pre` 0.3.11) · Rust 1.98.0 · 
 - **Memory (RSS).** 49 MB with the window open → 112 MB after the first parse and layout → 117 MB after all phases.
 - **Startup.** Process start to first frame: 1,050 ms on the very first (cold) launch, then **208–296 ms warm**.
   Reading the file takes 1 ms and building `EditorState` takes 1–4 ms; the rest is app, window and GPU setup.
-  M1's target is under 1 s; the cold launch misses it slightly, so re-check on Linux.
+  M1's target is under 1 s; the very first cold launch misses it slightly. Watch it in M1.
 - **Worst frame in the whole run:** 45.9 ms. It wasn't in any measured phase, so it's the first frame
   (initial layout and font loading) before the benchmark started.
 
@@ -81,5 +80,4 @@ NVIDIA on Wayland is the riskiest setup.
 
 ## Recommendation
 
-Go ahead with M1 on GPUI Kit's editor, once the benchmark has been re-run on your Linux machine.
-If Linux shows frames over 32 ms while scrolling, stop and revisit before building panels on top of it.
+Go ahead with M1 on GPUI Kit's editor. If a later Linux run shows frames over 32 ms while scrolling, revisit then.
