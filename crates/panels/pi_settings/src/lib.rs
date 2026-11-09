@@ -316,6 +316,26 @@ impl PiSettings {
 // ---------------------------------------------------------------------------
 // Rendering
 
+/// `/Users/ja/x` -> `~/x`, for display.
+fn tilde(path: &std::path::Path) -> String {
+    match std::env::var_os("HOME").map(PathBuf::from) {
+        Some(home) if path.starts_with(&home) => format!("~/{}", path.strip_prefix(&home).unwrap().display()),
+        _ => path.display().to_string(),
+    }
+}
+
+/// The command name pi gives a skill (its folder) or prompt (its file name).
+fn resource_name(kind: &str, path: &std::path::Path) -> String {
+    let stem = |p: &std::path::Path| p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    match kind {
+        "skill" if path.file_name().is_some_and(|n| n == "SKILL.md") => {
+            format!("skill:{}", path.parent().map(|d| stem(d)).unwrap_or_default())
+        }
+        "skill" => format!("skill:{}", stem(path)),
+        _ => stem(path),
+    }
+}
+
 fn section_box(cx: &App) -> Div {
     let theme = cx.theme();
     v_flex().gap_2().p_3().rounded(theme.radius).border_1().border_color(theme.border)
@@ -519,7 +539,8 @@ impl PiSettings {
         let mut col = v_flex().gap_3().child(
             h_flex()
                 .justify_between()
-                .child(muted("What pi loads in this project: skills, prompt templates (slash commands) and extension commands.", cx))
+                .gap_3()
+                .child(muted("What pi loads in this project: skills, prompt templates (slash commands) and extension commands.", cx).flex_1().min_w_0())
                 .child(Button::new("refresh-cmds").small().label("Refresh").on_click(cx.listener(|this, _, _, cx| this.load_commands(true, cx)))),
         );
         let cmds = match &self.commands {
@@ -530,10 +551,15 @@ impl PiSettings {
         for (kind, title, key) in [("skill", "Skills", "skills"), ("prompt", "Prompt templates", "prompts"), ("extension", "Extension commands", "")] {
             let items: Vec<&PiCommand> = cmds.iter().filter(|c| c.source == kind).collect();
             let disabled = if key.is_empty() { vec![] } else { config::disabled_resources(self.snap.list(scope, key).as_deref()) };
+            let has_disabled = !disabled.is_empty();
             let mut rows = v_flex().gap_1();
             for c in &items {
                 let path = c.source_info.path.clone();
-                let from = if c.source_info.origin == "package" { c.source_info.source.clone() } else { c.source_info.scope.clone() };
+                let from = match (c.source_info.origin.as_str(), c.source_info.scope.as_str()) {
+                    ("package", _) => c.source_info.source.clone(),
+                    (_, "temporary") => "built-in".to_string(),
+                    (_, scope) => scope.to_string(),
+                };
                 let mut row = h_flex().gap_3().py_0p5();
                 if !key.is_empty() {
                     let this = cx.entity().downgrade();
@@ -573,17 +599,19 @@ impl PiSettings {
                                 this.load_commands(true, cx);
                             });
                         }))
-                        .child(mono(format!("{} (off for {})", path.display(), scope.label().to_lowercase()), cx)),
+                        .child(div().w(px(180.)).flex_none().font_family(cx.theme().mono_font_family.clone()).text_sm().text_color(cx.theme().muted_foreground).child(format!("/{}", resource_name(kind, &path))))
+                        .child(muted(format!("off for {}", scope.label().to_lowercase()), cx).flex_1())
+                        .child(mono(tilde(&path), cx).min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap()),
                 );
             }
             col = col.child(
                 section_box(cx)
                     .child(h_flex().gap_2().child(div().font_weight(FontWeight::SEMIBOLD).child(title)).child(muted(items.len().to_string(), cx)))
-                    .when(items.is_empty(), |this| {
+                    .when(items.is_empty() && !has_disabled, |this| {
                         this.child(muted(
                             match kind {
-                                "skill" => format!("None. Put skills in {}/skills/ or install a package.", self.cfg.dir(scope).display()),
-                                "prompt" => format!("None. Put Markdown files in {}/prompts/.", self.cfg.dir(scope).display()),
+                                "skill" => format!("None. Put skills in {}/skills/ or install a package.", tilde(&self.cfg.dir(scope))),
+                                "prompt" => format!("None. Put Markdown files in {}/prompts/.", tilde(&self.cfg.dir(scope))),
                                 _ => "None.".into(),
                             },
                             cx,
@@ -638,9 +666,19 @@ impl PiSettings {
                             )
                         });
                     }))
-                    .child(div().w(px(140.)).font_weight(FontWeight::SEMIBOLD).text_sm().child(s.name.clone()))
-                    .child(v_flex().flex_1().min_w_0().child(mono(s.target.clone(), cx)).when_some(s.description.clone(), |t, d| t.child(muted(d, cx))))
-                    .child(muted(format!("{} · {}", if s.http { "http" } else { "stdio" }, s.scope.label()), cx))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(div().font_weight(FontWeight::SEMIBOLD).text_sm().child(s.name.clone()))
+                                    .child(muted(format!("{} · {}", if s.http { "http" } else { "stdio" }, s.scope.label()), cx)),
+                            )
+                            .child(mono(s.target.clone(), cx))
+                            .when_some(s.description.clone(), |t, d| t.child(muted(d, cx))),
+                    )
                     .child(Button::new(SharedString::from(format!("mcp-rm-{:?}-{}", s.scope, s.name))).xsmall().ghost().label("Remove").on_click(
                         move |_, window, cx| {
                             let name = name2.clone();
@@ -761,9 +799,20 @@ impl PiSettings {
                             .cursor_pointer()
                             .hover(|s| s.bg(theme.list_hover))
                             .when(is_current, |s| s.bg(theme.list_active))
-                            .child(div().w(px(120.)).text_sm().text_color(theme.muted_foreground).child(m.provider.clone()))
-                            .child(div().flex_1().text_sm().font_family(theme.mono_font_family.clone()).child(m.id.clone()))
-                            .child(mono(format!("{}{}", m.context, if m.thinking { " · thinking" } else { "" }), cx))
+                            .child(div().w(px(120.)).flex_none().text_sm().text_color(theme.muted_foreground).child(m.provider.clone()))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .whitespace_nowrap()
+                                    .text_sm()
+                                    .font_family(theme.mono_font_family.clone())
+                                    .child(m.id.clone()),
+                            )
+                            .when_some(m.note.clone(), |t, n| t.child(div().flex_none().text_xs().text_color(theme.warning).child(n)))
+                            .child(mono(format!("{}{}", m.context, if m.thinking { " · thinking" } else { "" }), cx).flex_none())
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 let (p, id) = (p.clone(), id.clone());
                                 this.edit_settings(move |m| {
@@ -811,7 +860,7 @@ impl PiSettings {
                             v_flex()
                                 .child(div().font_weight(FontWeight::SEMIBOLD).child(f.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()))
                                 .child(muted(f.role, cx))
-                                .child(mono(f.path.display().to_string(), cx)),
+                                .child(mono(tilde(&f.path), cx)),
                         )
                         .child(Button::new(SharedString::from(format!("i-{}", f.path.display()))).small().label(if exists { "Open" } else { "Create" }).on_click(
                             cx.listener(move |this, _, window, cx| {
@@ -973,7 +1022,7 @@ impl Render for PiSettings {
             })
             .when(scope == Scope::Project, |this| {
                 this.child(div().px_4().pt_2().child(muted(
-                    format!("Project settings live in {}/.pi and apply once you trust the project in pi.", self.cfg.root.display()),
+                    format!("Project settings live in {}/.pi and apply once you trust the project in pi.", tilde(&self.cfg.root)),
                     cx,
                 )))
             })

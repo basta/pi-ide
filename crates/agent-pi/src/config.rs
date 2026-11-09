@@ -405,6 +405,8 @@ pub struct Model {
     pub id: String,
     pub context: String,
     pub thinking: bool,
+    /// Why pi can't use it right now (a custom provider whose key isn't set).
+    pub note: Option<String>,
 }
 
 /// Parse `pi --list-models` (a whitespace table under a `provider model …` header).
@@ -421,9 +423,33 @@ pub fn parse_models(out: &str) -> Vec<Model> {
                 id: cols[1].into(),
                 context: cols[2].into(),
                 thinking: cols[4] == "yes",
+                note: None,
             })
         })
         .collect()
+}
+
+/// Models from custom providers in `models.json`. pi lists only models whose key
+/// it can find, so these fill the gap with a note on what's missing.
+pub fn custom_models(models_json: &Map<String, Value>, env: impl Fn(&str) -> bool) -> Vec<Model> {
+    let Some(providers) = models_json.get("providers").and_then(Value::as_object) else { return vec![] };
+    let mut out = Vec::new();
+    for (provider, p) in providers {
+        let key = p.get("apiKey").and_then(Value::as_str).unwrap_or("");
+        let note = key.strip_prefix('$').filter(|var| !env(var)).map(|var| format!("needs ${var}"));
+        for m in p.get("models").and_then(Value::as_array).into_iter().flatten() {
+            let Some(id) = m.get("id").and_then(Value::as_str) else { continue };
+            let context = m.get("contextWindow").and_then(Value::as_u64).map(|c| format!("{}K", c / 1000)).unwrap_or_default();
+            out.push(Model {
+                provider: provider.clone(),
+                id: id.to_string(),
+                context,
+                thinking: m.get("reasoning").and_then(Value::as_bool).unwrap_or(false),
+                note: note.clone(),
+            });
+        }
+    }
+    out
 }
 
 pub const THINKING_LEVELS: &[&str] = &["off", "minimal", "low", "medium", "high", "xhigh", "max"];
@@ -441,7 +467,15 @@ pub fn list_models(cwd: &Path) -> Result<Vec<Model>> {
         .current_dir(cwd)
         .env("PATH", std::env::join_paths(pide_runtime::process::search_path()).unwrap_or_default())
         .output()?;
-    Ok(parse_models(&String::from_utf8_lossy(&out.stdout)))
+    let mut models = parse_models(&String::from_utf8_lossy(&out.stdout));
+    // Custom providers pi left out (no key in this environment).
+    let custom = read_json(&PiConfig::new(cwd).agent_dir.join("models.json")).unwrap_or_default();
+    for m in custom_models(&custom, |var| std::env::var_os(var).is_some()) {
+        if !models.iter().any(|x| x.provider == m.provider && x.id == m.id) {
+            models.insert(0, m);
+        }
+    }
+    Ok(models)
 }
 
 // ---------------------------------------------------------------------------
@@ -619,6 +653,19 @@ mod tests {
         let m = parse_models(out);
         assert_eq!(m.len(), 2);
         assert_eq!((m[1].provider.as_str(), m[1].id.as_str(), m[1].thinking), ("e-infra", "glm-5.2", false));
+    }
+
+    #[test]
+    fn custom_provider_models_note_a_missing_key() {
+        let file = json!({ "providers": {
+            "e-infra": { "apiKey": "$EINFRA_API_KEY", "models": [{ "id": "glm-5.2", "contextWindow": 200000, "reasoning": true }] },
+            "local": { "apiKey": "literal", "models": [{ "id": "m" }] }
+        }});
+        let m = custom_models(file.as_object().unwrap(), |_| false);
+        let glm = m.iter().find(|m| m.id == "glm-5.2").unwrap();
+        assert_eq!((glm.context.as_str(), glm.thinking, glm.note.as_deref()), ("200K", true, Some("needs $EINFRA_API_KEY")));
+        assert_eq!(m.iter().find(|m| m.id == "m").unwrap().note, None);
+        assert!(custom_models(file.as_object().unwrap(), |_| true).iter().all(|m| m.note.is_none()));
     }
 
     #[test]
