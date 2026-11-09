@@ -1145,7 +1145,8 @@ impl AgentChat {
         v_flex()
             .flex_1()
             .min_w_0()
-            .h_full()
+            .min_h_0()
+            .overflow_hidden()
             .when(wide, |this| {
                 this.child(
                     h_flex()
@@ -1195,7 +1196,7 @@ impl AgentChat {
             )
             .when(show_changes, |this| this.child(div().flex_1().min_h_0().child(self.render_changes(&agent, cx))))
             .when(!show_changes, |this| this.child(
-                div().id(("chat-scroll", id.as_u64())).flex_1().overflow_y_scroll().track_scroll(&scroll).child(
+                div().id(("chat-scroll", id.as_u64())).flex_1().min_h_0().overflow_y_scroll().track_scroll(&scroll).child(
                     v_flex()
                         .p_3()
                         .gap_3()
@@ -1243,6 +1244,7 @@ impl AgentChat {
             )
             .child(
                 v_flex()
+                    .flex_shrink_0()
                     .gap_1()
                     .p_2()
                     .border_t_1()
@@ -1402,6 +1404,7 @@ impl Render for AgentChat {
         } else {
             v_flex()
                 .size_full()
+                .overflow_hidden()
                 .child(self.render_tabs(cx))
                 .child(if self.show_list {
                     self.render_list(cx).into_any_element()
