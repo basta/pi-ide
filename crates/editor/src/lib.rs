@@ -148,6 +148,20 @@ pub fn init(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
+        CommandSpec::new("editor.quick_doc", "Code: Quick Documentation")
+            .key("f1")
+            .in_context(pide_core::commands::EDITOR),
+        lsp::quick_documentation,
+    );
+    cx.bind_keys([KeyBinding::new(
+        "ctrl-j",
+        pide_core::RunCommand {
+            id: "editor.quick_doc".into(),
+        },
+        Some(pide_core::commands::EDITOR),
+    )]);
+    CommandRegistry::register(
+        cx,
         CommandSpec::new("nav.back", "Navigate: Back")
             .key("cmd-[")
             .in_context(pide_core::commands::EDITOR),

@@ -1046,3 +1046,41 @@ pub(crate) fn reformat(window: &mut Window, cx: &mut App) {
         })
         .detach();
 }
+
+/// Quick Documentation (F1 / Ctrl+J): the hover for the symbol at the cursor,
+/// without the mouse.
+pub(crate) fn quick_documentation(window: &mut Window, cx: &mut App) {
+    use gpui_kit::component::input::RopeExt as _;
+    let Some(panel) = crate::active_panel(window, cx) else {
+        return;
+    };
+    let (editor, providers) = {
+        let p = panel.read(cx);
+        (p.editor.clone(), p.providers.clone())
+    };
+    let Some(providers) = providers else { return };
+    let (rope, offset) = {
+        let e = editor.read(cx);
+        (e.text().clone(), e.cursor())
+    };
+    let task = providers.hover(&rope, offset, window, cx);
+    window
+        .spawn(cx, async move |cx| {
+            let Ok(Some(hover)) = task.await else { return };
+            let _ = cx.update(|_, cx| {
+                editor.update(cx, |e, cx| {
+                    // Same text as asked about, or the popup would point at the wrong place.
+                    if e.text().len() != rope.len() {
+                        return;
+                    }
+                    let range = hover
+                        .range
+                        .map(|r| rope.position_to_offset(&r.start)..rope.position_to_offset(&r.end))
+                        .or_else(|| rope.word_range(offset))
+                        .unwrap_or(offset..offset);
+                    e.present_hover(range, hover, cx);
+                })
+            });
+        })
+        .detach();
+}

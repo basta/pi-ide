@@ -84,6 +84,7 @@ fn menus() -> Vec<Menu> {
                 cmd("Go to Symbol…", "editor.go_to_symbol"),
                 cmd("Show Quick Fixes", "editor.quick_fix"),
                 cmd("Parameter Info", "editor.parameter_info"),
+                cmd("Quick Documentation", "editor.quick_doc"),
                 MenuItem::separator(),
                 cmd("Rename…", "editor.rename"),
                 cmd("Reformat File", "editor.reformat"),
