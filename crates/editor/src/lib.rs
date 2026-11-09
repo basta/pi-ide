@@ -138,6 +138,8 @@ pub struct EditorPanel {
     focus: FocusHandle,
     group: Option<WeakEntity<TabGroup>>,
     applied_revision: u64,
+    /// The dock's active tab in its group. `set_active` can arrive before the file has loaded.
+    is_active: bool,
     load_error: Option<SharedString>,
     deleted: bool,
     diff: Option<Entity<DiffState>>,
@@ -184,6 +186,7 @@ impl EditorPanel {
             focus,
             group: None,
             applied_revision: 0,
+            is_active: false,
             load_error: None,
             deleted: false,
             diff: None,
@@ -223,7 +226,10 @@ impl EditorPanel {
         });
         // Re-render (tab title, bars) whenever the buffer changes.
         self._subs.push(cx.observe(&buffer, |_, _, cx| cx.notify()));
-        self.buffer = Some(buffer);
+        self.buffer = Some(buffer.clone());
+        if self.is_active {
+            self.workspace.update(cx, |w, cx| w.set_active(Some(buffer), cx));
+        }
         cx.emit(PanelEvent::LayoutChanged); // path is now known for dump()
         cx.notify();
     }
@@ -348,6 +354,7 @@ impl gpui_kit::component::dock::BasePanel for EditorPanel {
     }
 
     fn set_active(&mut self, active: bool, _: &mut Window, cx: &mut Context<Self>) {
+        self.is_active = active;
         if active {
             let buffer = self.buffer.clone();
             self.workspace.update(cx, |w, cx| w.set_active(buffer, cx));
