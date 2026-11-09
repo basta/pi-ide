@@ -233,6 +233,8 @@ pub struct Package {
     /// As written in settings (`npm:pi-search-hub`, `git:github.com/a/b@v1`, `./local`).
     pub source: String,
     pub name: String,
+    /// For lists: the npm/git name, or a local package's folder name.
+    pub display: String,
     pub kind: &'static str,
     pub installed_at: Option<PathBuf>,
     pub version: Option<String>,
@@ -278,8 +280,14 @@ pub fn packages(cfg: &PiConfig, scope: Scope, settings: &Map<String, Value>) -> 
             .filter(|p| p.exists());
             let manifest = installed_at.as_ref().and_then(|p| read_json(&p.join("package.json")).ok()).unwrap_or_default();
             let resources = installed_at.as_ref().map(|p| package_resources(p, &manifest)).unwrap_or_default();
+            let display = if kind == "local" {
+                Path::new(&name).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| name.clone())
+            } else {
+                name.clone()
+            };
             Package {
                 scope,
+                display,
                 version: manifest.get("version").and_then(Value::as_str).map(str::to_string),
                 description: manifest.get("description").and_then(Value::as_str).map(str::to_string),
                 source,

@@ -382,24 +382,41 @@ impl PiSettings {
                             .child(
                                 h_flex()
                                     .gap_2()
-                                    .child(div().font_weight(FontWeight::SEMIBOLD).child(p.name.clone()))
+                                    .child(div().font_weight(FontWeight::SEMIBOLD).child(p.display.clone()))
                                     .child(muted(format!("{} {}", p.kind, p.version.clone().unwrap_or_default()), cx)),
                             )
                             .child(
                                 h_flex()
                                     .gap_2()
-                                    .child(Button::new(SharedString::from(format!("upd-{}", p.source))).small().label("Update").disabled(busy).on_click(
-                                        cx.listener(move |this, _, _, cx| {
-                                            this.run_pi(format!("Updating {src_u}"), vec!["update".into(), src_u.clone()], cx)
-                                        }),
-                                    ))
-                                    .child(Button::new(SharedString::from(format!("rm-{}", p.source))).small().danger().label("Remove").disabled(busy).on_click(
-                                        cx.listener(move |this, _, _, cx| {
-                                            let mut args = vec!["remove".into(), src_r.clone()];
-                                            args.extend(local2.clone());
-                                            this.run_pi(format!("Removing {src_r}"), args, cx)
-                                        }),
-                                    )),
+                                    .when(p.kind != "local", |this| {
+                                        this.child(Button::new(SharedString::from(format!("upd-{}", p.source))).small().label("Update").disabled(busy).on_click(
+                                            cx.listener(move |this, _, _, cx| {
+                                                this.run_pi(format!("Updating {src_u}"), vec!["update".into(), src_u.clone()], cx)
+                                            }),
+                                        ))
+                                    })
+                                    .child(Button::new(SharedString::from(format!("rm-{}", p.source))).small().danger().label("Remove").disabled(busy).on_click({
+                                        let me = cx.entity().downgrade();
+                                        let shown = p.display.clone();
+                                        move |_, window, cx| {
+                                            let (me, src, local, shown) = (me.clone(), src_r.clone(), local2.clone(), shown.clone());
+                                            window.open_alert_dialog(cx, move |alert, _, _| {
+                                                let (me, src, local) = (me.clone(), src.clone(), local.clone());
+                                                alert
+                                                    .title(format!("Remove {shown}?"))
+                                                    .description("pi uninstalls it and removes it from settings.json. Its extensions, skills and prompts stop loading in new sessions.")
+                                                    .confirm()
+                                                    .ok_text("Remove")
+                                                    .on_ok(move |_, _, cx| {
+                                                        let mut args = vec!["remove".into(), src.clone()];
+                                                        args.extend(local.clone());
+                                                        let src = src.clone();
+                                                        let _ = me.update(cx, |this, cx| this.run_pi(format!("Removing {src}"), args, cx));
+                                                        true
+                                                    })
+                                            });
+                                        }
+                                    })),
                             ),
                     )
                     .when_some(p.description.clone(), |this, d| this.child(muted(d, cx).line_clamp(2)))
