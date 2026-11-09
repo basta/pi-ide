@@ -142,6 +142,16 @@ fn menus() -> Vec<Menu> {
             ],
             disabled: false,
         },
+        Menu {
+            name: "Help".into(),
+            items: vec![
+                cmd("Find Action…", "palette.open"),
+                cmd("Keyboard Shortcuts…", "settings.keymap"),
+                MenuItem::separator(),
+                cmd("Show Log in Finder", "app.show_log"),
+            ],
+            disabled: false,
+        },
     ]
 }
 

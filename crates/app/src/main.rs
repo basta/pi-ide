@@ -233,6 +233,31 @@ fn register_app_commands(cx: &mut App) {
         CommandSpec::new("settings.keymap", "Settings: Keymap…"),
         keymap_ui::open,
     );
+    // pide.log (and pi's raw RPC log next to it), selected in Finder.
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("app.show_log", "Help: Show Log in Finder"),
+        |_, _| {
+            let log = paths::state_dir().join("pide.log");
+            let opener = if cfg!(target_os = "macos") {
+                "/usr/bin/open"
+            } else {
+                "xdg-open"
+            };
+            let mut cmd = std::process::Command::new(opener);
+            if cfg!(target_os = "macos") {
+                cmd.arg("-R").arg(&log);
+            } else {
+                cmd.arg(paths::state_dir());
+            }
+            match cmd.spawn() {
+                Ok(mut child) => {
+                    std::thread::spawn(move || child.wait());
+                }
+                Err(e) => log::warn!("show log: {e}"),
+            }
+        },
+    );
     CommandRegistry::register(
         cx,
         CommandSpec::new("settings.pide", "Settings: pide…").key("cmd-,"),
