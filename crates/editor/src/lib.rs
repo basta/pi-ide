@@ -7,6 +7,7 @@ mod follow;
 mod git_gutter;
 mod lsp;
 mod minimal;
+mod nav;
 mod rename;
 mod signature;
 mod symbols;
@@ -42,6 +43,7 @@ pub fn set_host(window: WindowId, dock: WeakEntity<DockArea>, cx: &mut App) {
 
 pub fn remove_host(window: WindowId, cx: &mut App) {
     cx.default_global::<EditorHosts>().0.remove(&window);
+    nav::forget(window, cx);
 }
 
 pub(crate) fn host(window: &Window, cx: &App) -> Option<Entity<DockArea>> {
@@ -121,6 +123,20 @@ pub fn init(cx: &mut App) {
                 ),
             }
         },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("nav.back", "Navigate: Back")
+            .key("cmd-[")
+            .in_context(pide_core::commands::EDITOR),
+        |window, cx| nav::go(false, window, cx),
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("nav.forward", "Navigate: Forward")
+            .key("cmd-]")
+            .in_context(pide_core::commands::EDITOR),
+        |window, cx| nav::go(true, window, cx),
     );
     CommandRegistry::register(
         cx,
@@ -205,12 +221,25 @@ pub fn init(cx: &mut App) {
 
 /// Open `path` in a tab (or switch to its existing tab) and focus it.
 pub fn open_path(path: PathBuf, window: &mut Window, cx: &mut App) {
+    nav::record(window, cx);
     open_panel(path, window, cx);
 }
 
 /// Open `path` and put the cursor at a 0-based line and character column
 /// (once the file has loaded, if it's new).
 pub fn open_path_at(path: PathBuf, line: u32, character: u32, window: &mut Window, cx: &mut App) {
+    nav::record(window, cx);
+    open_path_at_unrecorded(path, line, character, window, cx);
+}
+
+/// `open_path_at` without adding to the Back history (Back/Forward themselves).
+pub(crate) fn open_path_at_unrecorded(
+    path: PathBuf,
+    line: u32,
+    character: u32,
+    window: &mut Window,
+    cx: &mut App,
+) {
     let Some(panel) = open_panel(path, window, cx) else {
         return;
     };

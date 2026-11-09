@@ -51,6 +51,8 @@ fn menus() -> Vec<Menu> {
                 cmd("Find Action…", "palette.open"),
                 cmd("Go to File…", "file.goto"),
                 cmd("Recent Files…", "file.recent"),
+                cmd("Back", "nav.back"),
+                cmd("Forward", "nav.forward"),
                 MenuItem::separator(),
                 cmd("Project Panel", "view.toggle_project"),
                 cmd("pi Panel", "view.toggle_agent"),
