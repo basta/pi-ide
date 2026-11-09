@@ -11,6 +11,8 @@ Status: **M3** (language servers), **M3.5** (pi Settings) **M4** (Go to File, Fi
 cargo run -p pide --release -- ~/some/project   # or no folder: reopens the last project
 ```
 
+As a Mac app: `dev/bundle-macos.sh` builds `target/release/pide.app` (copy it to /Applications to start pide from Spotlight or the Dock; it reopens the last project).
+
 Each project gets its own window. Find Action → **File: Open Project…** (folder picker), **File: Recent Projects…** (fuzzy switcher; × forgets an entry), **File: Close Project**.
 
 Requires `pi` (`npm i -g @earendil-works/pi-coding-agent`) for the chat panel; it starts on your first message.
