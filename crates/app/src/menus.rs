@@ -1,4 +1,4 @@
-//! The in-window menu bar (File, Edit, View, pi, Settings), Linux/Windows style,
+//! The in-window menu bar (File, Edit, View, Code, pi, Settings), Linux/Windows style,
 //! on every platform. Items run registered commands, so they behave exactly
 //! like the keybindings and Find Action; shortcuts shown are the live keymap's.
 
@@ -61,6 +61,22 @@ fn menus() -> Vec<Menu> {
                     ],
                     disabled: false,
                 }),
+            ],
+            disabled: false,
+        },
+        Menu {
+            name: "Code".into(),
+            items: vec![
+                cmd("Go to Declaration", "editor.go_to_definition"),
+                cmd("Show Quick Fixes", "editor.quick_fix"),
+                cmd("Parameter Info", "editor.parameter_info"),
+                MenuItem::separator(),
+                cmd("Rename…", "editor.rename"),
+                cmd("Optimize Imports", "editor.organize_imports"),
+                MenuItem::separator(),
+                cmd("Problems", "view.problems"),
+                cmd("Restart Language Server", "lsp.restart"),
+                cmd("Language Servers…", "lsp.servers"),
             ],
             disabled: false,
         },

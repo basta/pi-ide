@@ -71,6 +71,19 @@ pub fn init(cx: &mut App) {
             panel.update(cx, |p, cx| p.request_signature(signature::Trigger::Invoked, cx));
         }
     });
+    CommandRegistry::register(cx, CommandSpec::new("lsp.restart", "Code: Restart Language Server"), |window, cx| {
+        let Some(panel) = active_panel(window, cx) else { return };
+        let (path, store) = {
+            let p = panel.read(cx);
+            (p.path.clone(), p.lsp.clone())
+        };
+        let Some(store) = store else { return };
+        let id = pide_lsp::registry::spec_for(store.read(cx).specs(), &path).map(|s| s.id);
+        match id {
+            Some(id) => store.update(cx, |s, cx| s.restart(id, cx)),
+            None => window.push_notification(Notification::warning("This file has no language server."), cx),
+        }
+    });
     CommandRegistry::register(cx, CommandSpec::new("editor.organize_imports", "Code: Optimize Imports").key("ctrl-alt-o").in_context(pide_core::commands::EDITOR), lsp::organize_imports);
     CommandRegistry::register(cx, CommandSpec::new("editor.rename", "Refactor: Rename…").key("shift-f6").in_context(pide_core::commands::EDITOR), rename::rename_symbol);
     CommandRegistry::register(cx, CommandSpec::new("editor.quick_fix", "Code: Show Quick Fixes").key("alt-enter").in_context(pide_core::commands::EDITOR), |window, cx| {
