@@ -45,6 +45,7 @@ Requires `pi` (`npm i -g @earendil-works/pi-coding-agent`) for the chat panel; i
 | Cmd+B (editor) | Go to declaration (also Cmd+click) |
 | Cmd+Alt+B / Ctrl+Shift+B | Go to implementation / type declaration |
 | F1 / Ctrl+J | Quick documentation (the hover, from the keyboard) |
+| F2 / Shift+F2 | Next / previous error in the file (warnings when there are no errors) |
 | Option+F7 (editor) | Find usages |
 | Cmd+F12 (editor) | File structure |
 | Cmd+Option+O | Go to symbol (project) |

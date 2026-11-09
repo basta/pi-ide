@@ -162,6 +162,32 @@ pub fn init(cx: &mut App) {
     )]);
     CommandRegistry::register(
         cx,
+        CommandSpec::new("nav.next_problem", "Navigate: Next Problem")
+            .key("f2")
+            .in_context(pide_core::commands::EDITOR),
+        |window, cx| {
+            if let Some(p) = active_panel(window, cx) {
+                window.defer(cx, move |window, cx| {
+                    p.update(cx, |p, cx| p.jump_problem(true, window, cx))
+                });
+            }
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("nav.prev_problem", "Navigate: Previous Problem")
+            .key("shift-f2")
+            .in_context(pide_core::commands::EDITOR),
+        |window, cx| {
+            if let Some(p) = active_panel(window, cx) {
+                window.defer(cx, move |window, cx| {
+                    p.update(cx, |p, cx| p.jump_problem(false, window, cx))
+                });
+            }
+        },
+    );
+    CommandRegistry::register(
+        cx,
         CommandSpec::new("nav.back", "Navigate: Back")
             .key("cmd-[")
             .in_context(pide_core::commands::EDITOR),
@@ -753,25 +779,92 @@ impl EditorPanel {
     }
 
     /// Show the server's diagnostics for this file (converted to the editor's columns).
-    fn apply_diagnostics(&mut self, store: &Entity<pide_lsp::LspStore>, cx: &mut Context<Self>) {
+    /// This file's diagnostics where the editor shows them: lines shifted for
+    /// edits since the server published them, columns in characters.
+    fn current_diagnostics(
+        &self,
+        store: &Entity<pide_lsp::LspStore>,
+        text: &gpui_kit::component::input::Rope,
+        cx: &App,
+    ) -> Vec<lsp_types::Diagnostic> {
         let diags = store.read(cx).diagnostics_for(&self.path).cloned();
-        let shifts = self.diag_edits.clone();
+        let shifts = &self.diag_edits;
+        diags
+            .into_iter()
+            .flat_map(|f| f.items.into_iter().map(move |i| (f.encoding, i)))
+            .map(|(enc, mut i)| {
+                i.range.start.line = follow::shift_line(i.range.start.line, shifts);
+                i.range.end.line = follow::shift_line(i.range.end.line, shifts);
+                i.range = pide_lsp::convert::range_from_server(text, i.range, enc);
+                i
+            })
+            .collect()
+    }
+
+    /// Navigate: Next / Previous Problem (F2 / Shift+F2): errors first, like JetBrains;
+    /// warnings when there are no errors.
+    pub(crate) fn jump_problem(
+        &mut self,
+        forward: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(store) = self.lsp.clone() else {
+            return;
+        };
+        let text = self.editor.read(cx).text().clone();
+        let all = self.current_diagnostics(&store, &text, cx);
+        let errors: Vec<_> = all
+            .iter()
+            .filter(|d| d.severity == Some(lsp_types::DiagnosticSeverity::ERROR))
+            .collect();
+        let pool: Vec<_> = if errors.is_empty() {
+            all.iter()
+                .filter(|d| d.severity == Some(lsp_types::DiagnosticSeverity::WARNING))
+                .collect()
+        } else {
+            errors
+        };
+        let mut starts: Vec<(u32, u32)> = pool
+            .iter()
+            .map(|d| (d.range.start.line, d.range.start.character))
+            .collect();
+        starts.sort();
+        starts.dedup();
+        let here = {
+            let p = self.editor.read(cx).cursor_position();
+            (p.line, p.character)
+        };
+        let target = if forward {
+            starts
+                .iter()
+                .copied()
+                .find(|&s| s > here)
+                .or(starts.first().copied())
+        } else {
+            starts
+                .iter()
+                .rev()
+                .copied()
+                .find(|&s| s < here)
+                .or(starts.last().copied())
+        };
+        if let Some((l, c)) = target {
+            self.editor.update(cx, |e, cx| {
+                e.set_cursor_position(gpui_kit::component::input::Position::new(l, c), window, cx)
+            });
+        }
+    }
+
+    fn apply_diagnostics(&mut self, store: &Entity<pide_lsp::LspStore>, cx: &mut Context<Self>) {
+        let text = self.editor.read(cx).text().clone();
+        let diags = self.current_diagnostics(store, &text, cx);
         self.editor.update(cx, |e, cx| {
-            let text = e.text().clone();
             let Some(set) = e.diagnostics_mut() else {
                 return;
             };
             set.reset(&text);
-            for mut d in diags
-                .into_iter()
-                .flat_map(|f| f.items.into_iter().map(move |i| (f.encoding, i)))
-                .map(|(enc, mut i)| {
-                    i.range.start.line = follow::shift_line(i.range.start.line, &shifts);
-                    i.range.end.line = follow::shift_line(i.range.end.line, &shifts);
-                    i.range = pide_lsp::convert::range_from_server(&text, i.range, enc);
-                    i
-                })
-            {
+            for mut d in diags {
                 d.message = d.message.trim().to_string();
                 set.push(d);
             }

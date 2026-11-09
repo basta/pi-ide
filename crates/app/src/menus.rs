@@ -58,6 +58,8 @@ fn menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 cmd("Project Panel", "view.toggle_project"),
                 cmd("pi Panel", "view.toggle_agent"),
+                cmd("Next Problem", "nav.next_problem"),
+                cmd("Previous Problem", "nav.prev_problem"),
                 cmd("Problems", "view.problems"),
                 cmd("Markdown Preview", "view.markdown_preview"),
                 MenuItem::separator(),
