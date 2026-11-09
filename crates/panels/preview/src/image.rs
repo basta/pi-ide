@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use gpui_kit::component::dock::{PanelEvent, PanelInfo, PanelState, panel_handle, register_panel};
 use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use pide_core::{DockPosition, Panel};
 
@@ -36,6 +37,8 @@ pub struct ImageView {
     size: Option<u64>,
     /// Shown above the image: the path relative to the project.
     label: String,
+    /// The file is gone (a tab restored from the layout, or deleted since).
+    missing: bool,
     focus: FocusHandle,
     _stat: Task<()>,
 }
@@ -61,6 +64,7 @@ impl ImageView {
         let _stat = cx.spawn(async move |this, cx| {
             let size = stat.await;
             let _ = this.update(cx, |this, cx| {
+                this.missing = size.is_none();
                 this.size = size;
                 cx.notify();
             });
@@ -69,6 +73,7 @@ impl ImageView {
             path,
             size: None,
             label,
+            missing: false,
             focus: cx.focus_handle(),
             _stat,
         }
@@ -137,20 +142,31 @@ impl Render for ImageView {
                     .child(self.label.clone())
                     .children(self.size.map(human)),
             )
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .p_4()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        img(self.path.clone())
-                            .max_w_full()
-                            .max_h_full()
-                            .object_fit(ObjectFit::Contain),
-                    ),
-            )
+            .when(self.missing, |this| {
+                this.child(
+                    div()
+                        .p_4()
+                        .text_sm()
+                        .text_color(theme.muted_foreground)
+                        .child("This file no longer exists. Close this tab."),
+                )
+            })
+            .when(!self.missing, |this| {
+                this.child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .p_4()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            img(self.path.clone())
+                                .max_w_full()
+                                .max_h_full()
+                                .object_fit(ObjectFit::Contain),
+                        ),
+                )
+            })
     }
 }
