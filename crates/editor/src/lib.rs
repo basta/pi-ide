@@ -4,6 +4,7 @@
 
 pub mod diff_panel;
 mod lsp;
+mod rename;
 pub use lsp::apply_workspace_edit;
 
 use std::path::{Path, PathBuf};
@@ -64,6 +65,7 @@ pub fn init(cx: &mut App) {
     CommandRegistry::register(cx, CommandSpec::new("editor.go_to_definition", "Navigate: Go to Declaration").key("cmd-b"), |window, cx| {
         window.dispatch_action(Box::new(gpui_kit::component::input::GoToDefinition), cx)
     });
+    CommandRegistry::register(cx, CommandSpec::new("editor.rename", "Refactor: Rename…").key("shift-f6"), rename::rename_symbol);
     CommandRegistry::register(cx, CommandSpec::new("editor.quick_fix", "Code: Show Quick Fixes").key("alt-enter"), |window, cx| {
         window.dispatch_action(Box::new(gpui_kit::component::input::ToggleCodeActions), cx)
     });
@@ -122,6 +124,17 @@ pub(crate) fn select_tab_of(group: Option<WeakEntity<TabGroup>>, panel: EntityId
             g.select_tab(ix, window, cx);
         }
     });
+}
+
+/// The editor tab showing this window's active buffer.
+pub(crate) fn active_panel(window: &Window, cx: &App) -> Option<Entity<EditorPanel>> {
+    let win = window.window_handle().window_id();
+    let active = Services::for_window(win, cx)?.workspace.read(cx).active()?.clone();
+    cx.global::<OpenEditors>()
+        .0
+        .iter()
+        .filter_map(|w| w.upgrade())
+        .find(|p| p.read(cx).window_id == win && p.read(cx).buffer.as_ref() == Some(&active))
 }
 
 /// The active editor's file and selection, for "send editor context".
