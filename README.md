@@ -40,7 +40,7 @@ Requires `pi` (`npm i -g @earendil-works/pi-coding-agent`) for the chat panel; i
 | Cmd+[ / Cmd+] | Back / forward (after Go to File, Find Usages, a declaration in another file…) |
 | Cmd+L | Go to line (`12` or `12:5`) |
 | Option+F1 | Select the open file in the project tree |
-| Cmd+Shift+F | Find in Files (replace too) |
+| Cmd+Shift+F | Find in Files (replace too; file mask `*.rs, !*.lock`) |
 | Cmd+F / Cmd+R | Find / replace in the file |
 | Cmd+B | Go to declaration (also Cmd+click) |
 | Cmd+Alt+B / Ctrl+Shift+B | Go to implementation / type declaration |

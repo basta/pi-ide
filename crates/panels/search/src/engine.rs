@@ -17,6 +17,9 @@ pub struct Query {
     pub regex: bool,
     pub case_sensitive: bool,
     pub whole_word: bool,
+    /// File mask: comma-separated file-name globs (`*.rs, *.toml`); `!*.lock`
+    /// excludes. Empty: every file.
+    pub mask: String,
 }
 
 impl Query {
@@ -86,6 +89,24 @@ pub fn find_in_text(re: &Regex, text: &str, limit: usize) -> Vec<Match> {
     out
 }
 
+/// The file mask as `ignore` overrides (`None` when empty).
+fn mask_overrides(root: &Path, mask: &str) -> Result<Option<ignore::overrides::Override>, String> {
+    let globs: Vec<&str> = mask
+        .split(',')
+        .map(str::trim)
+        .filter(|g| !g.is_empty())
+        .collect();
+    if globs.is_empty() {
+        return Ok(None);
+    }
+    let mut b = ignore::overrides::OverrideBuilder::new(root);
+    for g in globs {
+        b.add(g)
+            .map_err(|e| format!("file mask \u{201c}{g}\u{201d}: {e}"))?;
+    }
+    b.build().map(Some).map_err(|e| e.to_string())
+}
+
 /// Search the project. `open` holds the current text of open buffers (their
 /// unsaved edits win over the disk).
 pub fn search(
@@ -95,10 +116,14 @@ pub fn search(
 ) -> Result<Results, String> {
     let re = query.compile()?;
     let mut results = Results::default();
-    let walker = ignore::WalkBuilder::new(root)
+    let mut walker = ignore::WalkBuilder::new(root);
+    walker
         .hidden(false)
-        .filter_entry(|e| e.file_name() != ".git")
-        .build();
+        .filter_entry(|e| e.file_name() != ".git");
+    if let Some(ov) = mask_overrides(root, &query.mask)? {
+        walker.overrides(ov);
+    }
+    let walker = walker.build();
     for entry in walker.flatten() {
         if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
@@ -270,6 +295,21 @@ mod tests {
             .collect();
         assert_eq!(files, ["src/a.rs", "src/b.rs"]);
         assert_eq!(r.total, 2);
+        // A file mask narrows it: only Rust files, then everything but b.rs.
+        std::fs::write(dir.join("notes.txt"), "needle\n").unwrap();
+        let masked = |mask: &str| {
+            let mut query = q("needle");
+            query.mask = mask.into();
+            let r = search(&dir, &query, &open).unwrap();
+            r.files
+                .iter()
+                .map(|f| f.path.strip_prefix(&dir).unwrap().display().to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(masked("*.rs"), ["src/a.rs", "src/b.rs"]);
+        assert_eq!(masked("*.txt"), ["notes.txt"]);
+        assert_eq!(masked("!b.rs"), ["notes.txt", "src/a.rs"]);
+        std::fs::remove_file(dir.join("notes.txt")).unwrap();
         assert_eq!(
             replace_in_file(&dir.join("src/a.rs"), &q("needle"), "pin").unwrap(),
             1

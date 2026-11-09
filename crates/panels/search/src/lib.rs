@@ -48,6 +48,8 @@ pub struct FindInFiles {
     root: PathBuf,
     find: Entity<InputState>,
     replace: Entity<InputState>,
+    /// File mask (`*.rs, *.toml`, `!*.lock`).
+    mask: Entity<InputState>,
     regex: bool,
     case_sensitive: bool,
     whole_word: bool,
@@ -72,19 +74,26 @@ impl FindInFiles {
             .insert(window.window_handle().window_id(), me);
         let find = cx.new(|cx| InputState::new(window, cx).placeholder("Find in files (Enter)"));
         let replace = cx.new(|cx| InputState::new(window, cx).placeholder("Replace with"));
-        let subs =
-            vec![
-                cx.subscribe_in(&find, window, |this, _, ev: &InputEvent, _, cx| match ev {
-                    InputEvent::PressEnter { .. } => this.run(Duration::ZERO, cx),
-                    InputEvent::Change => this.run(Duration::from_millis(350), cx),
-                    _ => {}
-                }),
-            ];
+        let mask = cx.new(|cx| InputState::new(window, cx).placeholder("File mask: *.rs, !*.lock"));
+        let rerun = |this: &mut Self,
+                     _: &Entity<InputState>,
+                     ev: &InputEvent,
+                     _: &mut Window,
+                     cx: &mut Context<Self>| match ev {
+            InputEvent::PressEnter { .. } => this.run(Duration::ZERO, cx),
+            InputEvent::Change => this.run(Duration::from_millis(350), cx),
+            _ => {}
+        };
+        let subs = vec![
+            cx.subscribe_in(&find, window, rerun),
+            cx.subscribe_in(&mask, window, rerun),
+        ];
         Self {
             workspace,
             root,
             find,
             replace,
+            mask,
             regex: false,
             case_sensitive: false,
             whole_word: false,
@@ -120,6 +129,7 @@ impl FindInFiles {
             regex: self.regex,
             case_sensitive: self.case_sensitive,
             whole_word: self.whole_word,
+            mask: self.mask.read(cx).value().to_string(),
         }
     }
 
@@ -444,6 +454,12 @@ impl Render for FindInFiles {
                         h_flex()
                             .gap_1()
                             .child(div().flex_1().child(Input::new(&self.find).small()))
+                            .child(
+                                div()
+                                    .w(px(150.))
+                                    .flex_none()
+                                    .child(Input::new(&self.mask).small()),
+                            )
                             .child(toggle(
                                 "case",
                                 "Aa",
