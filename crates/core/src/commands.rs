@@ -27,15 +27,28 @@ pub struct CommandSpec {
     pub title: SharedString,
     /// Default keystrokes in GPUI syntax (`cmd-s`, `cmd-shift-a`). JetBrains-style on macOS.
     pub default_key: Option<&'static str>,
+    /// Where its key works, as a GPUI context predicate (`None`: everywhere).
+    /// Editor-only commands use [`EDITOR`] so their keys don't shadow the same
+    /// keys elsewhere (Alt+Enter in the pi composer queues a follow-up).
+    pub key_context: Option<&'static str>,
 }
+
+/// GPUI Kit's code editor (`Input mode=editor`).
+pub const EDITOR: &str = "Input && mode == editor";
 
 impl CommandSpec {
     pub fn new(id: &'static str, title: impl Into<SharedString>) -> Self {
-        Self { id, title: title.into(), default_key: None }
+        Self { id, title: title.into(), default_key: None, key_context: None }
     }
 
     pub fn key(mut self, keystrokes: &'static str) -> Self {
         self.default_key = Some(keystrokes);
+        self
+    }
+
+    /// Only bind the key inside this context (see [`EDITOR`]).
+    pub fn in_context(mut self, predicate: &'static str) -> Self {
+        self.key_context = Some(predicate);
         self
     }
 }

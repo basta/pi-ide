@@ -63,17 +63,17 @@ pub fn init(cx: &mut App) {
 
     CommandRegistry::register(cx, CommandSpec::new("editor.save", "File: Save").key("cmd-s"), save_active);
     // JetBrains keys for GPUI Kit's editor actions (which have no default binding, or a VS Code one).
-    CommandRegistry::register(cx, CommandSpec::new("editor.go_to_definition", "Navigate: Go to Declaration").key("cmd-b"), |window, cx| {
+    CommandRegistry::register(cx, CommandSpec::new("editor.go_to_definition", "Navigate: Go to Declaration").key("cmd-b").in_context(pide_core::commands::EDITOR), |window, cx| {
         window.dispatch_action(Box::new(gpui_kit::component::input::GoToDefinition), cx)
     });
-    CommandRegistry::register(cx, CommandSpec::new("editor.parameter_info", "Code: Parameter Info").key("cmd-p"), |window, cx| {
+    CommandRegistry::register(cx, CommandSpec::new("editor.parameter_info", "Code: Parameter Info").key("cmd-p").in_context(pide_core::commands::EDITOR), |window, cx| {
         if let Some(panel) = active_panel(window, cx) {
             panel.update(cx, |p, cx| p.request_signature(signature::Trigger::Invoked, cx));
         }
     });
-    CommandRegistry::register(cx, CommandSpec::new("editor.organize_imports", "Code: Optimize Imports").key("ctrl-alt-o"), lsp::organize_imports);
-    CommandRegistry::register(cx, CommandSpec::new("editor.rename", "Refactor: Rename…").key("shift-f6"), rename::rename_symbol);
-    CommandRegistry::register(cx, CommandSpec::new("editor.quick_fix", "Code: Show Quick Fixes").key("alt-enter"), |window, cx| {
+    CommandRegistry::register(cx, CommandSpec::new("editor.organize_imports", "Code: Optimize Imports").key("ctrl-alt-o").in_context(pide_core::commands::EDITOR), lsp::organize_imports);
+    CommandRegistry::register(cx, CommandSpec::new("editor.rename", "Refactor: Rename…").key("shift-f6").in_context(pide_core::commands::EDITOR), rename::rename_symbol);
+    CommandRegistry::register(cx, CommandSpec::new("editor.quick_fix", "Code: Show Quick Fixes").key("alt-enter").in_context(pide_core::commands::EDITOR), |window, cx| {
         window.dispatch_action(Box::new(gpui_kit::component::input::ToggleCodeActions), cx)
     });
     CommandRegistry::register(cx, CommandSpec::new("editor.close", "File: Close Tab").key("cmd-w"), |window, cx| {

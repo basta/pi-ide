@@ -59,10 +59,16 @@ pub fn apply(cx: &mut App) -> Vec<String> {
         Err(e) => errors.push(format!("keymap: can't read {}: {e}", path.display())),
     }
 
+    let contexts: BTreeMap<&'static str, &'static str> =
+        CommandRegistry::all(cx).into_iter().filter_map(|s| s.key_context.map(|c| (s.id, c))).collect();
     let mut ours = Vec::new();
     for (key, cmd) in &map {
         let Some(cmd) = cmd else { continue };
-        match KeyBinding::load(key, Box::new(RunCommand::new(cmd.clone())), None, false, None, cx) {
+        let predicate = contexts
+            .get(cmd.as_str())
+            .and_then(|c| gpui_kit::KeyBindingContextPredicate::parse(c).ok())
+            .map(std::rc::Rc::new);
+        match KeyBinding::load(key, Box::new(RunCommand::new(cmd.clone())), predicate, false, None, cx) {
             Ok(b) => ours.push(b),
             Err(e) => errors.push(format!("keymap: bad keystroke \"{key}\": {e:?}")),
         }
