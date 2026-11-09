@@ -84,6 +84,10 @@ impl RawLog {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
+        // Keep one previous log once it passes 50 MB.
+        if std::fs::metadata(&path).is_ok_and(|m| m.len() > 50 * 1024 * 1024) {
+            let _ = std::fs::rename(&path, path.with_extension("jsonl.old"));
+        }
         let file = std::fs::OpenOptions::new().create(true).append(true).open(&path).ok().map(Mutex::new);
         Self { file, server: server.to_string() }
     }
@@ -94,12 +98,28 @@ impl RawLog {
 
     fn write(&self, dir: &str, body: &str) {
         let Some(f) = &self.file else { return };
+        let body = clip(body);
         let ts = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
         let rec = json!({ "ts": ts, "server": self.server, "dir": dir, "body": body });
         if let Ok(mut f) = f.lock() {
             let _ = writeln!(f, "{rec}");
         }
     }
+}
+
+/// Largest message body logged whole. Full-text syncs of big files are megabytes
+/// each; logging them all would fill the disk while typing.
+const LOG_BODY_MAX: usize = 64 * 1024;
+
+fn clip(body: &str) -> std::borrow::Cow<'_, str> {
+    if body.len() <= LOG_BODY_MAX {
+        return std::borrow::Cow::Borrowed(body);
+    }
+    let mut cut = 2048;
+    while !body.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    std::borrow::Cow::Owned(format!("{}… [{} bytes, clipped in this log]", &body[..cut], body.len()))
 }
 
 /// A new connection: the `Rpc` handle and the outgoing queue the pump drains.
@@ -216,6 +236,15 @@ fn dispatch(v: Value, pending: &Pending, incoming: &mpsc::UnboundedSender<Incomi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn huge_bodies_are_clipped_in_the_log_only() {
+        let small = "x".repeat(100);
+        assert_eq!(clip(&small), small);
+        let big = "č".repeat(LOG_BODY_MAX); // 2 bytes each
+        let c = clip(&big);
+        assert!(c.len() < 3000 && c.ends_with(&format!("[{} bytes, clipped in this log]", big.len())));
+    }
 
     #[tokio::test]
     async fn reads_framed_messages_including_multibyte_bodies() {
