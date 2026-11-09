@@ -4956,6 +4956,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "gpui-kit",
+ "ignore",
  "log",
  "pide-core",
  "pide-runtime",

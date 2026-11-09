@@ -482,8 +482,13 @@ impl Agent {
                         reverted: false,
                     }),
                 }
-                self.pending_touches
-                    .push((tool_call_id.clone(), path.clone()));
+                if tool == "bash" {
+                    // Reported after the call ended (see agent-pi's bash_watch).
+                    self.refresh_stats(path.clone(), cx);
+                } else {
+                    self.pending_touches
+                        .push((tool_call_id.clone(), path.clone()));
+                }
                 self.persist_changes(cx);
                 cx.notify();
             }

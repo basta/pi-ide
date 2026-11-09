@@ -83,6 +83,8 @@ struct EarlySnapshots {
     streaming: std::collections::HashMap<u64, (String, String, String)>,
     /// tool call id -> (path, before)
     taken: std::collections::HashMap<String, (PathBuf, Option<String>)>,
+    /// `bash` calls that just started streaming (their ids), for a tree snapshot.
+    bash_started: Vec<String>,
 }
 
 impl EarlySnapshots {
@@ -102,6 +104,9 @@ impl EarlySnapshots {
             Some("toolcall_start") => {
                 let name = ev["toolName"].as_str().unwrap_or_default();
                 let id = ev["id"].as_str().unwrap_or_default();
+                if name == "bash" && !id.is_empty() {
+                    self.bash_started.push(id.to_string());
+                }
                 if FILE_TOOLS.contains(&name) && !id.is_empty() {
                     self.streaming
                         .insert(index, (id.to_string(), name.to_string(), String::new()));
@@ -194,6 +199,11 @@ pub async fn run<R, W>(
     let mut buf = Vec::with_capacity(8 * 1024);
     let mut commands_open = true;
     let mut early = EarlySnapshots::default();
+    // bash call id -> the project snapshot taken as it started streaming.
+    let mut bash_snaps: std::collections::HashMap<
+        String,
+        tokio::task::JoinHandle<crate::bash_watch::TreeSnapshot>,
+    > = std::collections::HashMap::new();
 
     async fn send<W: AsyncWrite + Unpin>(
         w: &mut W,
@@ -235,6 +245,10 @@ pub async fn run<R, W>(
                         log.write("in", &line);
                         if let Some(cwd) = &cwd {
                             early.observe(&line, cwd);
+                            for id in early.bash_started.drain(..) {
+                                let root = cwd.clone();
+                                bash_snaps.insert(id, tokio::task::spawn_blocking(move || crate::bash_watch::snapshot(&root)));
+                            }
                         }
                         for rec in parse_line(&line) {
                             let touched = match (&rec, &cwd) {
@@ -247,8 +261,26 @@ pub async fn run<R, W>(
                                     return;
                                 }
                             }
+                            // A bash call ended: what did it change? (after the end event)
+                            let ended_bash = match &rec {
+                                Inbound::Event(AgentEvent::ToolEnd { id, .. }) => bash_snaps.remove(id).map(|h| (id.clone(), h)),
+                                _ => None,
+                            };
                             if inbound.send(rec).is_err() {
                                 return;
+                            }
+                            if let (Some((id, snap)), Some(cwd)) = (ended_bash, cwd.clone()) {
+                                let inbound = inbound.clone();
+                                tokio::spawn(async move {
+                                    let Ok(snap) = snap.await else { return };
+                                    let changed = tokio::task::spawn_blocking(move || crate::bash_watch::changed(&cwd, &snap)).await;
+                                    for (path, before) in changed.unwrap_or_default() {
+                                        let ev = AgentEvent::FileTouched { tool_call_id: id.clone(), tool: "bash".into(), path, before };
+                                        if inbound.send(Inbound::Event(ev)).is_err() {
+                                            return;
+                                        }
+                                    }
+                                });
                             }
                         }
                     }
