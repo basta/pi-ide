@@ -19,44 +19,66 @@ Requires `pi` (`npm i -g @earendil-works/pi-coding-agent`) for the chat panel; i
 
 ## Keys (JetBrains-style, macOS)
 
+**General**
+
 | Key | Command |
 | --- | --- |
 | Cmd+Shift+A | Find Action (every command) |
+| Cmd+, | pide settings (theme, switches; Keymap… from there) |
 | Cmd+S | Save |
-| Cmd+W | Close tab |
-| Cmd+1 | Toggle project panel |
-| Cmd+Shift+I | Ask pi: show the pi panel, cursor in its message box (with the editor context) |
-| Cmd+9 | Git: local changes; Enter shows a file's diff against HEAD (↶ rolls back one change) |
-| Cmd+Alt+Z | Git: roll back the change under the cursor to HEAD (undoable) |
-| Ctrl+Alt+Shift+↓ / ↑ | Git: next / previous change |
-| Esc (in the pi box) | Back to the editor |
-| Cmd+F2 | Stop pi (active session) |
-| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous pi session |
-| Enter / Option+Enter (pi input, while pi works) | Steer / queue a follow-up |
+| Cmd+W / Cmd+Shift+T | Close tab / reopen the last closed tab |
+| Cmd+1 / Cmd+6 | Project panel / Problems panel |
+| Ctrl+Alt+R | Run a shell command in the project folder (Run panel: output with clickable `file:line`, Stop, Rerun, Ask pi) |
+| Cmd+Q | Quit |
+
+**Navigation**
+
+| Key | Command |
+| --- | --- |
 | Cmd+Shift+O | Go to File |
 | Cmd+E | Recent files (Enter flips to the previous file) |
-| Option+F1 | Select the open file in the project tree |
+| Cmd+[ / Cmd+] | Back / forward (after Go to File, Find Usages, a declaration in another file…) |
 | Cmd+L | Go to line (`12` or `12:5`) |
-| Cmd+F / Cmd+R | Find / replace in the file |
-| Cmd+Alt+L | Reformat the file (language server, e.g. rustfmt through rust-analyzer) |
-| Ctrl+Alt+R | Run a shell command in the project folder (Run panel: output, Stop, Rerun) |
-| Cmd+[ / Cmd+] | Navigate back / forward (after Go to File, Find Usages, a declaration in another file…) |
+| Option+F1 | Select the open file in the project tree |
 | Cmd+Shift+F | Find in Files (replace too) |
-| Cmd+6 | Problems panel |
-| Cmd+B (editor) | Go to declaration (also Cmd+click) |
+| Cmd+F / Cmd+R | Find / replace in the file |
+| Cmd+B | Go to declaration (also Cmd+click) |
 | Cmd+Alt+B / Ctrl+Shift+B | Go to implementation / type declaration |
-| F1 / Ctrl+J | Quick documentation (the hover, from the keyboard) |
-| F2 / Shift+F2 | Next / previous error in the file (warnings when there are no errors) |
-| Cmd+Shift+T | Reopen the last closed tab (also File: Close Other Tabs / Close All Tabs in Find Action) |
-| View → Move Tab to Right Split | Two files side by side |
-| Option+F7 (editor) | Find usages |
-| Cmd+F12 (editor) | File structure |
-| Cmd+Option+O | Go to symbol (project) |
-| Option+Enter (editor) | Quick fixes |
-| Cmd+P (editor) | Parameter info |
-| Shift+F6 (editor) | Rename |
-| Ctrl+Option+O (editor) | Optimize imports |
-| Cmd+Q | Quit |
+| Option+F7 | Find usages |
+| Cmd+F12 / Cmd+Option+O | File structure / go to symbol in the project |
+| F2 / Shift+F2 | Next / previous error in the file |
+
+**Code** (in the editor)
+
+| Key | Command |
+| --- | --- |
+| Option+Enter | Quick fixes |
+| F1 / Ctrl+J | Quick documentation |
+| Cmd+P | Parameter info |
+| Shift+F6 | Rename |
+| Cmd+Alt+L | Reformat file |
+| Ctrl+Option+O | Optimize imports |
+
+**Git**
+
+| Key | Command |
+| --- | --- |
+| Cmd+9 | Local changes; Enter shows a file's diff against HEAD (↶ rolls back one change) |
+| Cmd+Alt+Z | Roll back the change under the cursor (undoable) |
+| Ctrl+Alt+Shift+↓ / ↑ | Next / previous change |
+
+**pi**
+
+| Key | Command |
+| --- | --- |
+| Cmd+Shift+I | Ask pi: the pi panel, cursor in its box (with the editor context) |
+| Esc (in the pi box) | Back to the editor |
+| `/` · `@` (in the pi box) | pi's commands · mention a project file (Tab completes) |
+| Enter / Option+Enter (while pi works) | Steer / queue a follow-up |
+| Cmd+F2 | Stop pi |
+| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous session |
+
+View → Move Tab to Right Split puts two files side by side.
 
 **Settings → Keymap…** lists every command with its shortcut; pick one and type a new shortcut (`cmd-shift-k`). It's saved to `~/.config/pide/keymap.json`, where you can also override or add bindings by hand (Find Action → "Preferences: Open Keymap File"); it reloads on save:
 
