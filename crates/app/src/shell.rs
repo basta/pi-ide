@@ -244,9 +244,11 @@ impl Render for Shell {
             .size_full()
             .track_focus(&self.focus)
             .key_context("Shell")
-            .on_action(cx.listener(|_, action: &RunCommand, window, cx| {
+            // Not `cx.listener`: that would run every command inside the shell's
+            // own update, and commands that read the shell (toggle_dock) panic.
+            .on_action(|action: &RunCommand, window, cx| {
                 CommandRegistry::run(&action.id, window, cx);
-            }))
+            })
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .child(
