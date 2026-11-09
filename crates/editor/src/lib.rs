@@ -240,6 +240,22 @@ pub fn open_path(path: PathBuf, window: &mut Window, cx: &mut App) {
     open_panel(path, window, cx);
 }
 
+/// Close this window's tabs for `path`, or for everything under it (a folder).
+pub fn close_path(path: PathBuf, window: &mut Window, cx: &mut App) {
+    let win = window.window_handle().window_id();
+    let Some(dock) = host(window, cx) else { return };
+    let panels: Vec<Entity<EditorPanel>> = cx
+        .global::<OpenEditors>()
+        .0
+        .iter()
+        .filter_map(|w| w.upgrade())
+        .filter(|p| p.read(cx).window_id == win && p.read(cx).path.starts_with(&path))
+        .collect();
+    for p in panels {
+        dock.update(cx, |d, cx| d.remove_panel(p, window, cx));
+    }
+}
+
 /// Open `path` and put the cursor at a 0-based line and character column
 /// (once the file has loaded, if it's new).
 pub fn open_path_at(path: PathBuf, line: u32, character: u32, window: &mut Window, cx: &mut App) {

@@ -36,12 +36,20 @@ pub struct Openers {
     /// Open and put the cursor at a 0-based line and character column.
     pub file_at: Rc<dyn Fn(PathBuf, u32, u32, &mut Window, &mut App)>,
     pub diff: Rc<dyn Fn(DiffRequest, &mut Window, &mut App)>,
+    /// Close the tabs of a file, or of everything under a folder (it was renamed or trashed).
+    pub close: Rc<dyn Fn(PathBuf, &mut Window, &mut App)>,
 }
 
 impl Global for Openers {}
 
 pub fn open_file(path: PathBuf, window: &mut Window, cx: &mut App) {
     if let Some(o) = cx.try_global::<Openers>().map(|o| o.file.clone()) {
+        o(path, window, cx);
+    }
+}
+
+pub fn close_file(path: PathBuf, window: &mut Window, cx: &mut App) {
+    if let Some(o) = cx.try_global::<Openers>().map(|o| o.close.clone()) {
         o(path, window, cx);
     }
 }

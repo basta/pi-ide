@@ -9,11 +9,14 @@ use std::time::Duration;
 
 use gpui_kit::component::dock::{PanelEvent, PanelState, panel_handle, register_panel};
 use gpui_kit::component::list::ListItem;
+use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::component::tree::{TreeEvent, TreeItem, TreeState, tree};
 use gpui_kit::component::{ActiveTheme, IconName, h_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use pide_core::{DockPosition, Panel, Services, Workspace, WorkspaceEvent};
+
+mod ops;
 
 pub const PANEL_NAME: &str = "file_tree";
 
@@ -265,6 +268,36 @@ impl Render for FileTree {
                         }
                         pide_core::opener::open_file(PathBuf::from(id.as_ref()), window, cx);
                     })
+            })
+            .context_menu(|_ix, entry, menu, _window, _cx| {
+                let path = PathBuf::from(entry.item().id.as_ref());
+                let is_dir = entry.is_folder();
+                // New things go inside a folder, or next to a file.
+                let dir = if is_dir {
+                    path.clone()
+                } else {
+                    path.parent().map(Path::to_path_buf).unwrap_or_default()
+                };
+                let (d1, d2, p1, p2) = (dir.clone(), dir, path.clone(), path);
+                menu.item(
+                    PopupMenuItem::new("New File…").on_click(move |_, window, cx| {
+                        ops::new_entry(d1.clone(), false, window, cx)
+                    }),
+                )
+                .item(
+                    PopupMenuItem::new("New Folder…").on_click(move |_, window, cx| {
+                        ops::new_entry(d2.clone(), true, window, cx)
+                    }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new("Rename…")
+                        .on_click(move |_, window, cx| ops::rename(p1.clone(), window, cx)),
+                )
+                .item(
+                    PopupMenuItem::new("Move to Trash…")
+                        .on_click(move |_, window, cx| ops::delete(p2.clone(), window, cx)),
+                )
             })
             .size_full()
             .text_sm()
