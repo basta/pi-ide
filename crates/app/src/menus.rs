@@ -90,6 +90,8 @@ fn menus() -> Vec<Menu> {
         Menu {
             name: "pi".into(),
             items: vec![
+                cmd("Ask pi", "agent.ask"),
+                MenuItem::separator(),
                 cmd("New Session", "agent.new_session"),
                 cmd("Close Session", "agent.close_session"),
                 cmd("Rename Session…", "agent.rename"),

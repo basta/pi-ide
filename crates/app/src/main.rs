@@ -259,6 +259,11 @@ fn register_app_commands(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
+        CommandSpec::new("agent.ask", "pi: Ask pi").key("cmd-shift-i"),
+        shell::ask_pi,
+    );
+    CommandRegistry::register(
+        cx,
         CommandSpec::new("view.toggle_agent", "View: Toggle pi Panel"),
         |window, cx| {
             shell::toggle_dock(gpui_kit::component::dock::DockPlacement::Right, window, cx)

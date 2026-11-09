@@ -25,6 +25,7 @@ Requires `pi` (`npm i -g @earendil-works/pi-coding-agent`) for the chat panel; i
 | Cmd+S | Save |
 | Cmd+W | Close tab |
 | Cmd+1 | Toggle project panel |
+| Cmd+Shift+I | Ask pi: show the pi panel, cursor in its message box (with the editor context) |
 | Cmd+F2 | Stop pi (active session) |
 | Ctrl+Tab / Ctrl+Shift+Tab | Next / previous pi session |
 | Enter / Option+Enter (pi input, while pi works) | Steer / queue a follow-up |

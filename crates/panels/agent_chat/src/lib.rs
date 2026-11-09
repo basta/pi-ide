@@ -172,6 +172,18 @@ enum HistItem {
     Thinking(String),
 }
 
+#[derive(Default)]
+struct Instances(HashMap<WindowId, WeakEntity<AgentChat>>);
+impl Global for Instances {}
+
+/// This window's pi panel, if it exists.
+pub fn existing(window: &Window, cx: &App) -> Option<Entity<AgentChat>> {
+    cx.try_global::<Instances>()?
+        .0
+        .get(&window.window_handle().window_id())?
+        .upgrade()
+}
+
 pub struct AgentChat {
     sessions: Entity<Sessions>,
     workspace: Entity<pide_core::Workspace>,
@@ -349,6 +361,10 @@ fn parse_history(path: &std::path::Path) -> Vec<HistItem> {
 
 impl AgentChat {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let me = cx.entity().downgrade();
+        cx.default_global::<Instances>()
+            .0
+            .insert(window.window_handle().window_id(), me);
         let Services {
             sessions,
             workspace,

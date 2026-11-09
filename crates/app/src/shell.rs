@@ -42,6 +42,27 @@ pub fn toggle_dock(placement: DockPlacement, window: &mut Window, cx: &mut App) 
     }
 }
 
+/// pi: Ask pi — show the pi panel and put the cursor in its message box.
+pub fn ask_pi(window: &mut Window, cx: &mut App) {
+    let id = window.window_handle().window_id();
+    let Some(shell) = cx
+        .try_global::<Shells>()
+        .and_then(|h| h.0.get(&id)?.upgrade())
+    else {
+        return;
+    };
+    let dock = shell.read(cx).dock.clone();
+    dock.update(cx, |d, cx| {
+        if !d.is_dock_open(DockPlacement::Right) {
+            d.toggle_dock(DockPlacement::Right, window, cx);
+        }
+    });
+    if let Some(chat) = pide_agent_chat::existing(window, cx) {
+        let handle = chat.read(cx).focus_handle(cx);
+        window.defer(cx, move |window, cx| handle.focus(window, cx));
+    }
+}
+
 /// One saved layout per project root.
 fn layout_file(root: &Path) -> PathBuf {
     let key = hash_bytes(root.to_string_lossy().as_bytes());
