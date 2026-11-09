@@ -40,6 +40,7 @@ fn menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::action("Select All", SelectAll),
                 MenuItem::action("Find", Search),
+                cmd("Find in Files…", "find.in_files"),
             ],
             disabled: false,
         },

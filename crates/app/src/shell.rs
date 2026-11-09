@@ -318,6 +318,36 @@ pub fn show_pi_settings(window: &mut Window, cx: &mut App) {
     });
 }
 
+/// Open (or focus) Find in Files in the bottom dock, searching for the selection if there is one.
+pub fn show_find_in_files(window: &mut Window, cx: &mut App) {
+    let selection = pide_core::context::current(window, cx).and_then(|c| c.selected);
+    let id = window.window_handle().window_id();
+    let Some(shell) = cx.try_global::<Shells>().and_then(|h| h.0.get(&id)?.upgrade()) else { return };
+    let panel = shell.update(cx, |shell, cx| {
+        if let Some(p) = pide_search::existing(window, cx) {
+            let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
+            if shell.dock.read(cx).panel(pid).is_some() {
+                shell.dock.update(cx, |d, cx| {
+                    if !d.is_dock_open(DockPlacement::Bottom) {
+                        d.toggle_dock(DockPlacement::Bottom, window, cx);
+                    }
+                    d.select_panel(pid, window, cx);
+                });
+                return p;
+            }
+        }
+        let p = cx.new(|cx| pide_search::FindInFiles::new(window, cx));
+        shell.dock.update(cx, |d, cx| {
+            d.add_panel_view(panel_handle(p.clone()), DockPlacement::Bottom, Some(px(260.)), window, cx);
+            if !d.is_dock_open(DockPlacement::Bottom) {
+                d.toggle_dock(DockPlacement::Bottom, window, cx);
+            }
+        });
+        p
+    });
+    window.defer(cx, move |window, cx| panel.update(cx, |p, cx| p.focus_query(selection, window, cx)));
+}
+
 /// Show the Problems panel in the bottom dock (adding it the first time); hide it if it's showing.
 pub fn toggle_problems(window: &mut Window, cx: &mut App) {
     let id = window.window_handle().window_id();

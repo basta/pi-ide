@@ -13,6 +13,9 @@ use crate::buffer::Buffer;
 pub enum WorkspaceEvent {
     BufferOpened(Entity<Buffer>),
     BufferChanged(Entity<Buffer>),
+    /// Something other than its editor replaced the buffer's text (Replace All in
+    /// files). An open editor applies it as one undoable edit.
+    TextReplaced(Entity<Buffer>),
     BufferSaved(Entity<Buffer>),
     /// The file changed on disk. `reloaded` = the clean buffer took the new
     /// text; otherwise the buffer is dirty and now has a conflict.

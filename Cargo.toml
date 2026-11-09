@@ -12,6 +12,7 @@ members = [
     "crates/panels/language_servers",
     "crates/panels/problems",
     "crates/panels/pi_settings",
+    "crates/panels/search",
     "spike",
 ]
 
@@ -43,6 +44,7 @@ pide-agent-chat = { path = "crates/panels/agent_chat" }
 pide-language-servers = { path = "crates/panels/language_servers" }
 pide-problems = { path = "crates/panels/problems" }
 pide-pi-settings = { path = "crates/panels/pi_settings" }
+pide-search = { path = "crates/panels/search" }
 
 anyhow = "1.0.104"
 env_logger = "0.11.11"
@@ -52,6 +54,7 @@ log = "0.4.35"
 lsp-types = { version = "=0.97.0", features = ["proposed"] }
 notify-debouncer-full = "0.7.0"
 nucleo-matcher = "0.3.1"
+regex = "1.13.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.154"
 similar = "3.2.1"

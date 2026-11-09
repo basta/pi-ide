@@ -4881,6 +4881,7 @@ dependencies = [
  "pide-pi-settings",
  "pide-problems",
  "pide-runtime",
+ "pide-search",
  "serde_json",
 ]
 
@@ -5001,6 +5002,18 @@ dependencies = [
  "gpui-kit",
  "log",
  "tokio",
+]
+
+[[package]]
+name = "pide-search"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gpui-kit",
+ "ignore",
+ "log",
+ "pide-core",
+ "regex",
 ]
 
 [[package]]

@@ -424,6 +424,22 @@ impl EditorPanel {
                 });
                 cx.notify();
             }
+            WorkspaceEvent::TextReplaced(buffer) if self.is_mine(buffer) => {
+                let text = buffer.read(cx).text().to_string();
+                self.editor.update(cx, |e, cx| {
+                    if e.text().to_string() == text {
+                        return;
+                    }
+                    use gpui_kit::component::input::RopeExt as _;
+                    let rope = e.text().clone();
+                    let end = rope.offset_to_position(rope.len());
+                    let edit = lsp_types::TextEdit {
+                        range: lsp_types::Range::new(lsp_types::Position::new(0, 0), end),
+                        new_text: text,
+                    };
+                    e.apply_lsp_edits(&vec![edit], window, cx);
+                });
+            }
             WorkspaceEvent::FileDeleted(buffer) if self.is_mine(buffer) => {
                 self.deleted = true;
                 cx.notify();

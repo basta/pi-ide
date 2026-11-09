@@ -121,6 +121,17 @@ impl Workspace {
         cx.emit(WorkspaceEvent::BufferChanged(buffer.clone()));
     }
 
+    /// Replace the text from outside the editor; open editors follow (undoably).
+    pub fn replace_text(&mut self, buffer: &Entity<Buffer>, text: Rope, cx: &mut Context<Self>) {
+        buffer.update(cx, |b, cx| {
+            b.text = text;
+            b.dirty = true;
+            cx.notify();
+        });
+        cx.emit(WorkspaceEvent::TextReplaced(buffer.clone()));
+        cx.emit(WorkspaceEvent::BufferChanged(buffer.clone()));
+    }
+
     /// Save to disk. Read-only buffers are refused.
     pub fn save(&mut self, buffer: &Entity<Buffer>, cx: &mut Context<Self>) -> Task<anyhow::Result<()>> {
         let b = buffer.read(cx);
