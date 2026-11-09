@@ -3,7 +3,7 @@
 A personal, native code editor in Rust on GPUI + GPUI Kit, with the pi coding agent built in.
 Spec: the claude.ai doc "pi IDE — Implementation Spec". Contributor/agent guide: `AGENTS.md`.
 
-Status: **M1** (shell, editor, pi chat). M0 results: `docs/SPIKE.md`.
+Status: **M2** (pi edits as diffs, multiple sessions) built; M1 signed off. M0 results: `docs/SPIKE.md`.
 
 ## Run
 
@@ -21,7 +21,9 @@ Requires `pi` (`npm i -g @earendil-works/pi-coding-agent`) for the chat panel; i
 | Cmd+S | Save |
 | Cmd+W | Close tab |
 | Cmd+1 | Toggle project panel |
-| Cmd+F2 | Stop pi |
+| Cmd+F2 | Stop pi (active session) |
+| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous pi session |
+| Enter / Option+Enter (pi input, while pi works) | Steer / queue a follow-up |
 | Cmd+Q | Quit |
 
 Override or add bindings in `~/.config/pide/keymap.json` (Find Action → "Preferences: Open Keymap File"); it reloads on save:
@@ -29,6 +31,8 @@ Override or add bindings in `~/.config/pide/keymap.json` (Find Action → "Prefe
 ```json
 { "cmd-alt-p": "palette.open", "cmd-1": null }
 ```
+
+Settings live in `~/.config/pide/settings.json` (`"theme": "dark" | "light" | "system"`, `"agent.send_context": true`); the Find Action commands "View: Theme: …" change them.
 
 ## Build requirements
 

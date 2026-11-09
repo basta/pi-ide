@@ -12,12 +12,12 @@ Dependencies only go downward: `app` → panels/`editor`/`agent-pi` → `core`/`
 | Crate | Package | What it owns |
 | --- | --- | --- |
 | `crates/app` | `pide` | Binary. Window, `DockArea` + layout save/restore, Find Action palette, keymap file watching, status bar, `RunCommand` dispatch. Wires everything up; installs the `Services` global and the file opener. |
-| `crates/core` | `pide-core` | `CommandRegistry` + `RunCommand`, keymap (`keymap.json`, hot reload), `Workspace` + `Buffer` (source of truth for file contents, save/reload/conflicts, file watcher), typed events, `Panel` trait, `Agent` + `AgentBackend` trait, `paths`. |
+| `crates/core` | `pide-core` | `CommandRegistry` + `RunCommand`, keymap (`keymap.json`, hot reload), `settings.json` (theme, send-context), `Workspace` + `Buffer` (source of truth for file contents, save/reload/conflicts, file watcher), typed events, `Panel` trait, `Agent` + `AgentBackend` trait, `Sessions` (several agents at once, saved pi sessions on disk), `changes` (what pi changed per session, revert), `context` (editor context block), `opener` (open file / open diff without panel→panel deps), `paths`. |
 | `crates/runtime` | `pide-runtime` | The single tokio runtime on its own thread; the UI-stall monitor (logs anything over 16 ms). |
-| `crates/editor` | `pide-editor` | Editor tabs (`EditorPanel`): GPUI Kit `EditorState` around a workspace buffer, dirty marker, read-only/conflict/deleted bars, `editor.*` commands. |
-| `crates/agent-pi` | `pide-agent-pi` | `AgentBackend` over `pi --mode rpc`: process lifecycle, JSONL connection, wire → `AgentEvent` mapping, raw log. |
+| `crates/editor` | `pide-editor` | Editor tabs (`EditorPanel`): GPUI Kit `EditorState` around a workspace buffer, dirty marker, read-only/conflict/deleted bars, `editor.*` commands. The pi diff tab (`diff_panel`). Provides the editor-context source. |
+| `crates/agent-pi` | `pide-agent-pi` | `AgentBackend` over `pi --mode rpc`, one process per running session: lifecycle (lazy start, idle stop after 5 min, resume with `--session`), JSONL connection, wire → `AgentEvent` mapping, before-snapshots for `edit`/`write`, raw log. |
 | `crates/panels/file_tree` | `pide-file-tree` | Project tree panel. |
-| `crates/panels/agent_chat` | `pide-agent-chat` | pi chat panel, `agent.*` commands. |
+| `crates/panels/agent_chat` | `pide-agent-chat` | pi panel: session tabs (narrow) / sidebar (≥ 640 px), per-session chat with history, steer/follow-up, extension dialog cards, Changes view, context toggle, `agent.*` commands. |
 | `spike/` | `spike` | M0 throwaway benchmark. Not part of the app. |
 | `reference/` | — | Upstream GPUI Kit examples at the pinned tag. Not built. Read these before writing GPUI code. |
 
@@ -38,6 +38,9 @@ Dependencies only go downward: `app` → panels/`editor`/`agent-pi` → `core`/`
 
 - **No I/O on the UI thread.** File reads/writes go through `cx.background_executor()`; pi and (later) LSP I/O run on the tokio runtime (`pide_runtime::spawn`) and come back over `tokio::sync::mpsc` into a `cx.spawn` task. Exceptions, on purpose: the saved layout (a few KB) is read once at startup.
 - **Re-entrancy:** `AgentBackend` methods run inside the `Agent`'s own update. Use the `&mut Agent` argument; calling `cx.entity().update(..)`/`.read(..)` on it there panics.
+- **Panels reach each other only through `core`:** `opener::open_file` / `open_diff` (installed by the app), `context::current` (installed by the editor), `Services { workspace, sessions }`.
+- **One `Agent` per session.** `Sessions` holds them; `Services::active_agent(cx)` is the one the pi panel shows. New `AgentEvent`s go in `core/src/events.rs`, parsing in `agent-pi/src/wire.rs`, with a recorded fixture test.
+- **Dev hooks:** `PIDE_PI_ARGS` adds flags to every pi process (`PIDE_PI_ARGS="-e dev/pi-ask-test.ts"` loads the dialog test extension: send `/ask-test`). `PIDE_BENCH=<file>` runs the frame benchmark.
 - **Every action is a command.** Register with `CommandRegistry::register(cx, CommandSpec::new("area.verb", "Title").key("cmd-…"), handler)`. Keys are JetBrains-style macOS defaults. Keybindings all dispatch `RunCommand { id }`, handled by the shell's root view.
 - **Keymap hot reload** snapshots GPUI Kit's own bindings once (`keymap::init`, after every crate's `init`) and re-adds them on each reload — so call `keymap::init` last.
 - **Panel trait:** ours is `pide_core::Panel` (`title_text`, `default_dock`) on top of GPUI Kit's dock `Panel`/`BasePanel` (`panel_name`, `title`, `dump`). It's `title_text`, not `title`, because GPUI Kit already has a `title` method.
