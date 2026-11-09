@@ -1,12 +1,9 @@
 [package]
 name = "spike"
 version = "0.0.0"
-edition = "2024"
+edition.workspace = true
 publish = false
 description = "M0 throwaway: GPUI Kit editor on a 50K-line Rust file, with frame and input-latency measurements."
 
 [dependencies]
-gpui-kit = { version = "=0.9.0", features = ["tree-sitter-rust", "profiler"] }
-
-[profile.release]
-debug = "line-tables-only"
+gpui-kit.workspace = true

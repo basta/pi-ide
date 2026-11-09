@@ -1,0 +1,11 @@
+[package]
+name = "pide"
+description = "pide: the app binary."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+pide-core.workspace = true
+pide-runtime.workspace = true

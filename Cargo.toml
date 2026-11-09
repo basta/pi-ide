@@ -1,0 +1,56 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/app",
+    "crates/core",
+    "crates/runtime",
+    "crates/editor",
+    "crates/agent-pi",
+    "crates/panels/file_tree",
+    "crates/panels/agent_chat",
+    "spike",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.92"
+publish = false
+version = "0.1.0"
+
+[workspace.dependencies]
+# GPUI only through gpui-kit, never a direct `gpui`/`gpui-pre` dependency (spec, Tech stack).
+# Features live here so every crate sees one unified set.
+gpui-kit = { version = "=0.9.0", features = [
+    "profiler",
+    "tree-sitter-rust",
+    "tree-sitter-python",
+    "tree-sitter-markdown",
+    "tree-sitter-markdown-inline",
+    "tree-sitter-toml",
+] }
+
+pide-core = { path = "crates/core" }
+pide-runtime = { path = "crates/runtime" }
+pide-editor = { path = "crates/editor" }
+pide-agent-pi = { path = "crates/agent-pi" }
+pide-file-tree = { path = "crates/panels/file_tree" }
+pide-agent-chat = { path = "crates/panels/agent_chat" }
+
+anyhow = "1.0.104"
+env_logger = "0.11.11"
+ignore = "0.4.34"
+log = "0.4.35"
+notify-debouncer-full = "0.7.0"
+nucleo-matcher = "0.3.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.154"
+similar = "3.2.1"
+tokio = { version = "1.54.1", features = ["rt", "process", "io-util", "sync", "time", "macros"] }
+
+# Dependencies optimised even in debug builds, so dev builds scroll and type like release;
+# our own crates stay fast to compile.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+debug = "line-tables-only"

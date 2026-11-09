@@ -1,0 +1,11 @@
+[package]
+name = "pide-runtime"
+description = "The single tokio runtime thread, and the UI-thread stall monitor."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+log.workspace = true
+tokio = { workspace = true }
