@@ -873,11 +873,14 @@ impl PiSettings {
                 section_box(cx).child(
                     h_flex()
                         .justify_between()
+                        .gap_3()
                         .child(
                             v_flex()
+                                .flex_1()
+                                .min_w_0()
                                 .child(div().font_weight(FontWeight::SEMIBOLD).child(f.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()))
                                 .child(muted(f.role, cx))
-                                .child(mono(tilde(&f.path), cx)),
+                                .child(mono(tilde(&f.path), cx).overflow_hidden().text_ellipsis().whitespace_nowrap()),
                         )
                         .child(Button::new(SharedString::from(format!("i-{}", f.path.display()))).small().label(if exists { "Open" } else { "Create" }).on_click(
                             cx.listener(move |this, _, window, cx| {
