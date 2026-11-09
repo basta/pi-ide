@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::dock::{PanelEvent, PanelInfo, PanelState, panel_handle, register_panel};
-use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
+use gpui_kit::component::input::{InputEvent, Paste, Textarea, TextareaState};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::text::{TextView, TextViewState};
 use gpui_kit::component::{ActiveTheme, Sizable as _, WindowExt as _, h_flex, v_flex};
@@ -183,6 +183,10 @@ pub struct AgentChat {
     views: HashMap<EntityId, SessionView>,
     agent_subs: HashMap<EntityId, Subscription>,
     input: Entity<TextareaState>,
+    /// Images pasted into the composer, sent with the next prompt.
+    attachments: Vec<(pide_core::ImageAttachment, std::sync::Arc<Image>)>,
+    /// Image counts to note under the next prompt each session echoes.
+    image_notes: HashMap<EntityId, usize>,
     focus: FocusHandle,
     /// Last laid-out width, measured each frame (tabs vs sidebar).
     width: Rc<Cell<f32>>,
@@ -410,6 +414,8 @@ impl AgentChat {
             views: HashMap::new(),
             agent_subs: HashMap::new(),
             input,
+            attachments: Vec::new(),
+            image_notes: HashMap::new(),
             focus: cx.focus_handle(),
             width: Rc::new(Cell::new(0.)),
             show_list: false,
@@ -571,10 +577,36 @@ impl AgentChat {
     /// Enter: send, or steer if pi is working. Option+Enter: queue a follow-up.
     fn send(&mut self, follow_up: bool, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.input.read(cx).value().trim().to_string();
-        if text.is_empty() {
+        if text.is_empty() && self.attachments.is_empty() {
             return;
         }
         let agent = self.active(cx);
+        if !self.attachments.is_empty() {
+            if agent.read(cx).is_busy() {
+                window.push_notification(
+                    Notification::warning(
+                        "Images go with a new prompt: send them when pi is done.",
+                    ),
+                    cx,
+                );
+                return;
+            }
+            let images: Vec<_> = self.attachments.drain(..).map(|(a, _)| a).collect();
+            let n = images.len();
+            self.input.update(cx, |i, cx| i.set_value("", window, cx));
+            let text = match self
+                .send_context(cx)
+                .then(|| pide_core::context::current(window, cx))
+                .flatten()
+            {
+                Some(ctx) => format!("{}{text}", ctx.block()),
+                None => text,
+            };
+            self.image_notes.insert(agent.entity_id(), n);
+            agent.update(cx, |a, cx| a.prompt_with_images(text, images, cx));
+            cx.notify();
+            return;
+        }
         self.input.update(cx, |i, cx| i.set_value("", window, cx));
         if agent.read(cx).is_busy() {
             agent.update(cx, |a, cx| a.queue(text, follow_up, cx));
@@ -590,6 +622,33 @@ impl AgentChat {
             };
             agent.update(cx, |a, cx| a.prompt(text, cx));
         }
+    }
+
+    /// Cmd+V with an image on the clipboard: attach it instead of pasting text.
+    fn paste_image(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(item) = cx.read_from_clipboard() else {
+            return false;
+        };
+        let images: Vec<Image> = item
+            .entries()
+            .iter()
+            .filter_map(|e| match e {
+                ClipboardEntry::Image(i) => Some(i.clone()),
+                _ => None,
+            })
+            .collect();
+        if images.is_empty() {
+            return false;
+        }
+        for i in images {
+            let att = pide_core::ImageAttachment {
+                mime: i.format.mime_type().to_string(),
+                data: std::sync::Arc::new(i.bytes.clone()),
+            };
+            self.attachments.push((att, std::sync::Arc::new(i)));
+        }
+        cx.notify();
+        true
     }
 
     /// Slash commands matching what's typed in the composer.
@@ -675,6 +734,9 @@ impl AgentChat {
             cx.notify();
             return;
         }
+        let image_note = matches!(ev, AgentEvent::UserPrompt { .. })
+            .then(|| self.image_notes.remove(&agent.entity_id()))
+            .flatten();
         let Some(view) = self.views.get_mut(&agent.entity_id()) else {
             return;
         };
@@ -683,6 +745,12 @@ impl AgentChat {
             AgentEvent::UserPrompt { text } => {
                 let (chip, text) = pide_core::context::split_prompt(text);
                 items.push(Item::User(chip, text.to_string()));
+                if let Some(n) = image_note {
+                    items.push(Item::Notice {
+                        text: format!("With {n} image{}.", if n == 1 { "" } else { "s" }),
+                        error: false,
+                    });
+                }
             }
             AgentEvent::AssistantStart => {
                 let markdown = cx.new(|cx| TextViewState::markdown("", cx));
@@ -1918,9 +1986,34 @@ impl AgentChat {
                     .when(slash_rows_empty_hint, |this| {
                         this.child(div().text_xs().text_color(theme.muted_foreground).child("Loading pi's commands…"))
                     })
+                    .when(!self.attachments.is_empty(), |this| {
+                        this.child(h_flex().gap_2().flex_wrap().children(self.attachments.iter().enumerate().map(|(i, (_, img_data))| {
+                            h_flex()
+                                .gap_1()
+                                .p_1()
+                                .border_1()
+                                .border_color(theme.border)
+                                .rounded(theme.radius)
+                                .child(img(img_data.clone()).h(px(40.)).max_w(px(120.)).object_fit(ObjectFit::Contain))
+                                .child(Button::new(("remove-image", i)).xsmall().ghost().label("×").tooltip("Remove").on_click(
+                                    cx.listener(move |this, _, _, cx| {
+                                        if i < this.attachments.len() {
+                                            this.attachments.remove(i);
+                                        }
+                                        cx.notify();
+                                    }),
+                                ))
+                        })))
+                    })
                     .child(
                         div()
                             .key_context("AgentInput")
+                            // An image on the clipboard becomes an attachment; text pastes as usual.
+                            .capture_action(cx.listener(|this, _: &Paste, _, cx| {
+                                if this.paste_image(cx) {
+                                    cx.stop_propagation();
+                                }
+                            }))
                             .on_action(cx.listener(|this, _: &CompleteSlash, window, cx| {
                                 match this.slash_suggestions(cx).into_iter().next() {
                                     Some(first) => this.complete_slash(&first.name, window, cx),

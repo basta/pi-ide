@@ -448,7 +448,22 @@ impl AgentBackend for PiBackend {
         }
         cx.emit(AgentEvent::UserPrompt { text: text.clone() });
         self.shared.borrow_mut().echoed.push_back(text.clone());
-        self.send(json!({"type": "prompt", "message": text}));
+        let images = std::mem::take(&mut agent.pending_images);
+        let mut cmd = json!({"type": "prompt", "message": text});
+        if !images.is_empty() {
+            use base64::Engine as _;
+            cmd["images"] = images
+                .iter()
+                .map(|i| {
+                    json!({
+                        "type": "image",
+                        "data": base64::engine::general_purpose::STANDARD.encode(i.data.as_slice()),
+                        "mimeType": i.mime,
+                    })
+                })
+                .collect();
+        }
+        self.send(cmd);
         agent.set_status(AgentStatus::Busy, cx);
     }
 

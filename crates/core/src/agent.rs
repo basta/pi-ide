@@ -89,6 +89,13 @@ pub struct SessionStats {
     pub context_window: Option<u64>,
 }
 
+/// An image sent with a prompt (a pasted screenshot).
+#[derive(Clone, Debug)]
+pub struct ImageAttachment {
+    pub mime: String,
+    pub data: std::sync::Arc<Vec<u8>>,
+}
+
 /// A model as the agent reports it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModelInfo {
@@ -120,6 +127,8 @@ pub struct Agent {
     pub thinking_levels: Vec<String>,
     /// Cost and context use, refreshed after each run (backend permitting).
     pub stats: Option<SessionStats>,
+    /// Images for the prompt being sent; the backend takes them (others ignore them).
+    pub pending_images: Vec<ImageAttachment>,
     /// Slash commands (filled by `request_commands`).
     pub commands: Vec<SlashCommand>,
     /// The backend has answered `request_commands` (the list may be empty).
@@ -160,6 +169,7 @@ impl Agent {
             thinking_levels: Vec::new(),
             commands: Vec::new(),
             stats: None,
+            pending_images: Vec::new(),
             commands_loaded: false,
             commands_requested: false,
             session_file: None,
@@ -209,6 +219,18 @@ impl Agent {
         }
         self.with_backend(cx, |b, a, cx| b.prompt(text, a, cx));
     }
+    /// A prompt with images attached.
+    pub fn prompt_with_images(
+        &mut self,
+        text: String,
+        images: Vec<ImageAttachment>,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_images = images;
+        self.prompt(text, cx);
+        self.pending_images.clear();
+    }
+
     pub fn unreviewed(&self) -> usize {
         self.changes
             .iter()

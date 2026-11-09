@@ -4936,6 +4936,7 @@ dependencies = [
  "gpui-kit",
  "log",
  "pide-core",
+ "pide-runtime",
  "serde_json",
 ]
 
@@ -4944,6 +4945,7 @@ name = "pide-agent-pi"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "gpui-kit",
  "log",
  "pide-core",
