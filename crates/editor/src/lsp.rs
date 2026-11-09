@@ -1084,3 +1084,42 @@ pub(crate) fn quick_documentation(window: &mut Window, cx: &mut App) {
         })
         .detach();
 }
+
+/// Format the active file with the server and give back the formatted text
+/// (`None`: no server that formats, nothing to change, or it failed). For
+/// format-on-save.
+pub(crate) fn formatted_text(window: &mut Window, cx: &mut App) -> Option<Task<Option<String>>> {
+    let panel = crate::active_panel(window, cx)?;
+    let (path, editor, store) = {
+        let p = panel.read(cx);
+        (p.path.clone(), p.editor.clone(), p.lsp.clone()?)
+    };
+    let (enc, can) = store.read(cx).server_for(&path).map(|s| {
+        let can = s
+            .capabilities
+            .as_ref()
+            .and_then(|c| c.document_formatting_provider.as_ref())
+            .is_some_and(|p| !matches!(p, lsp_types::OneOf::Left(false)));
+        (s.encoding, can)
+    })?;
+    if !can {
+        return None;
+    }
+    let rope = editor.read(cx).text().clone();
+    let params = json!({
+        "textDocument": { "uri": file_uri(&path) },
+        "options": { "tabSize": 4, "insertSpaces": true, "trimTrailingWhitespace": true, "insertFinalNewline": true },
+    });
+    let task = store.update(cx, |s, cx| {
+        s.request(&path, Some(&rope), "textDocument/formatting", params, cx)
+    });
+    Some(cx.background_executor().spawn(async move {
+        let edits: Vec<TextEdit> = serde_json::from_value(task.await.ok()?).ok()?;
+        if edits.is_empty() {
+            return None;
+        }
+        let before = rope.to_string();
+        let after = apply_text_edits(&before, edits, enc);
+        (after != before).then_some(after)
+    }))
+}

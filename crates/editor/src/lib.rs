@@ -555,6 +555,42 @@ fn save_active(window: &mut Window, cx: &mut App) {
     let Some(buffer) = workspace.read(cx).active().cloned() else {
         return;
     };
+    // Format on save (setting): format first, then save what came back.
+    let format = cx
+        .try_global::<pide_core::settings::Settings>()
+        .is_some_and(|s| s.format_on_save)
+        .then(|| lsp::formatted_text(window, cx))
+        .flatten();
+    if let Some(format) = format {
+        let (workspace, buffer) = (workspace.clone(), buffer.clone());
+        let revision = buffer.read(cx).text().len();
+        window
+            .spawn(cx, async move |cx| {
+                let formatted = format.await;
+                let _ = cx.update(|window, cx| {
+                    // Only if nothing was typed meanwhile.
+                    if let Some(text) = formatted
+                        && buffer.read(cx).text().len() == revision
+                    {
+                        workspace.update(cx, |w, cx| {
+                            w.replace_text(&buffer, text.as_str().into(), cx)
+                        });
+                    }
+                    save_buffer(workspace, buffer, window, cx);
+                });
+            })
+            .detach();
+        return;
+    }
+    save_buffer(workspace, buffer, window, cx);
+}
+
+fn save_buffer(
+    workspace: Entity<Workspace>,
+    buffer: Entity<Buffer>,
+    window: &mut Window,
+    cx: &mut App,
+) {
     let task = workspace.update(cx, |w, cx| w.save(&buffer, cx));
     window
         .spawn(cx, async move |cx| {

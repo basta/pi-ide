@@ -29,6 +29,8 @@ pub struct Settings {
     /// `"agent.save_before_send"`: save unsaved files before a prompt goes to the
     /// agent, which reads files from disk. Default on.
     pub save_before_send: bool,
+    /// `"editor.format_on_save"`: reformat through the language server before saving. Default off.
+    pub format_on_save: bool,
 }
 
 impl Default for Settings {
@@ -39,6 +41,7 @@ impl Default for Settings {
             lsp: None,
             notify: true,
             save_before_send: true,
+            format_on_save: false,
         }
     }
 }
@@ -80,6 +83,10 @@ pub fn load() -> Settings {
             .get("agent.save_before_send")
             .and_then(|v| v.as_bool())
             .unwrap_or(true),
+        format_on_save: raw
+            .get("editor.format_on_save")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
     }
 }
 
