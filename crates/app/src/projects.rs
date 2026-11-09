@@ -87,6 +87,8 @@ fn open_now(root: PathBuf, cx: &mut App) {
         });
         let sessions = cx.new(|cx| Sessions::new(factory, cx));
         // Before any panel is built: panels find their project through the window.
+        // Language servers start as files of their language open (spec M3).
+        pide_lsp::LspStore::for_workspace(&workspace, cx);
         Services::register(window.window_handle().window_id(), Services { workspace, sessions }, cx);
         cx.new(|cx| Shell::new(errors, window, cx))
     });

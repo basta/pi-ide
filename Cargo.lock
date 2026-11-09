@@ -4875,6 +4875,7 @@ dependencies = [
  "pide-core",
  "pide-editor",
  "pide-file-tree",
+ "pide-lsp",
  "pide-runtime",
  "serde_json",
 ]
@@ -4923,7 +4924,9 @@ dependencies = [
  "anyhow",
  "gpui-kit",
  "log",
+ "lsp-types",
  "pide-core",
+ "pide-lsp",
  "serde_json",
  "similar 3.2.1",
 ]

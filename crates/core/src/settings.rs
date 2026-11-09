@@ -21,11 +21,13 @@ pub struct Settings {
     pub theme: ThemeSetting,
     /// Prepend the active file / selection to prompts (spec: "send editor context"). Default on.
     pub send_context: bool,
+    /// `"lsp"`: per-server overrides (`{"rust-analyzer": {"command": ..., "args": [...]}}`), read by pide-lsp.
+    pub lsp: Option<Value>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { theme: ThemeSetting::default(), send_context: true }
+        Self { theme: ThemeSetting::default(), send_context: true, lsp: None }
     }
 }
 
@@ -51,7 +53,7 @@ pub fn load() -> Settings {
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
     let send_context = raw.get("agent.send_context").and_then(|v| v.as_bool()).unwrap_or(true);
-    Settings { theme, send_context }
+    Settings { theme, send_context, lsp: raw.get("lsp").cloned() }
 }
 
 /// Persist one key, keeping everything else in the file. Call off the UI thread.

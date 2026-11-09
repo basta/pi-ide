@@ -8,7 +8,9 @@ publish.workspace = true
 [dependencies]
 gpui-kit.workspace = true
 pide-core.workspace = true
+pide-lsp.workspace = true
 anyhow.workspace = true
 log.workspace = true
+lsp-types.workspace = true
 serde_json.workspace = true
 similar.workspace = true

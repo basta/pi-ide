@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 gpui-kit.workspace = true
 pide-core.workspace = true
+pide-lsp.workspace = true
 pide-runtime.workspace = true
 pide-editor.workspace = true
 pide-agent-pi.workspace = true

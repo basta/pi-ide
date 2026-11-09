@@ -3,5 +3,9 @@
 //! server's stdio on the tokio runtime; the editor gets GPUI Kit providers.
 
 pub mod convert;
+pub mod process;
 pub mod registry;
 pub mod rpc;
+pub mod store;
+
+pub use store::{LspEvent, LspStore, Server, ServerState};

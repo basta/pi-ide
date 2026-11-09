@@ -174,6 +174,8 @@ pub struct EditorPanel {
     load_error: Option<SharedString>,
     deleted: bool,
     diff: Option<Entity<DiffState>>,
+    /// The project's language servers (set once the file is attached).
+    lsp: Option<Entity<pide_lsp::LspStore>>,
     _subs: Vec<Subscription>,
     _load: Option<Task<()>>,
 }
@@ -222,6 +224,7 @@ impl EditorPanel {
             load_error: None,
             deleted: false,
             diff: None,
+            lsp: None,
             _subs: Vec::new(),
             _load: None,
         };
@@ -262,8 +265,40 @@ impl EditorPanel {
         if self.is_active {
             self.workspace.update(cx, |w, cx| w.set_active(Some(buffer), cx));
         }
+        self.attach_lsp(window, cx);
         cx.emit(PanelEvent::LayoutChanged); // path is now known for dump()
         cx.notify();
+    }
+
+    fn attach_lsp(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let store = pide_lsp::LspStore::for_workspace(&self.workspace, cx);
+        self._subs.push(cx.subscribe_in(&store, window, |this, store, ev, _, cx| {
+            if let pide_lsp::LspEvent::Diagnostics { path } = ev {
+                if *path == this.path {
+                    this.apply_diagnostics(store, cx);
+                }
+            }
+        }));
+        self.apply_diagnostics(&store, cx);
+        self.lsp = Some(store);
+    }
+
+    /// Show the server's diagnostics for this file (converted to the editor's columns).
+    fn apply_diagnostics(&mut self, store: &Entity<pide_lsp::LspStore>, cx: &mut Context<Self>) {
+        let diags = store.read(cx).diagnostics_for(&self.path).cloned();
+        self.editor.update(cx, |e, cx| {
+            let text = e.text().clone();
+            let Some(set) = e.diagnostics_mut() else { return };
+            set.reset(&text);
+            for mut d in diags.into_iter().flat_map(|f| f.items.into_iter().map(move |i| (f.encoding, i))).map(|(enc, mut i)| {
+                i.range = pide_lsp::convert::range_from_server(&text, i.range, enc);
+                i
+            }) {
+                d.message = d.message.trim().to_string();
+                set.push(d);
+            }
+            cx.notify();
+        });
     }
 
     fn is_mine(&self, buffer: &Entity<Buffer>) -> bool {
