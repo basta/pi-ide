@@ -280,6 +280,7 @@ impl Agent {
 
 /// "fix the flaky replay test please" -> "fix the flaky replay test"
 pub fn name_from_prompt(text: &str) -> String {
+    let (_, text) = crate::context::split_prompt(text); // not the editor-context block
     let words: Vec<&str> = text.split_whitespace().take(5).collect();
     let mut name = words.join(" ");
     if name.chars().count() > 32 {

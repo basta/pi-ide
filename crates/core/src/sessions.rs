@@ -202,7 +202,8 @@ fn summarize(path: &Path) -> Option<(Option<String>, String)> {
             }
         } else if preview.is_none() && line.contains("\"role\":\"user\"") {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
-                preview = crate::sessions::user_text(&v["message"]);
+                preview = crate::sessions::user_text(&v["message"])
+                    .map(|t| crate::context::split_prompt(&t).1.to_string());
             }
         }
     }
@@ -239,5 +240,7 @@ mod tests {
     fn names_from_prompts() {
         assert_eq!(crate::agent::name_from_prompt("fix the flaky replay test please now"), "fix the flaky replay test");
         assert_eq!(crate::agent::name_from_prompt("   "), crate::agent::UNNAMED);
+        let with_context = "<editor-context>\nfile: src/main.rs\ncursor: 5:1\n</editor-context>\n\nrename add to sum";
+        assert_eq!(crate::agent::name_from_prompt(with_context), "rename add to sum");
     }
 }
