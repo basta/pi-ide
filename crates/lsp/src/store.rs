@@ -84,8 +84,19 @@ struct Doc {
     opened: bool,
 }
 
+/// A server asked us to apply an edit (`workspace/applyEdit`). Whoever applies
+/// it answers with `LspStore::respond`.
+#[derive(Debug)]
+pub struct ApplyEditRequest {
+    pub server: &'static str,
+    pub id: Value,
+    pub edit: lsp_types::WorkspaceEdit,
+    pub encoding: Encoding,
+}
+
 #[derive(Clone, Debug)]
 pub enum LspEvent {
+    ApplyEdit(std::rc::Rc<ApplyEditRequest>),
     Diagnostics { path: PathBuf },
     /// A server's state or progress changed.
     Status,
@@ -519,7 +530,16 @@ impl LspStore {
                         let n = params["items"].as_array().map(Vec::len).unwrap_or(0);
                         Value::Array(vec![Value::Null; n])
                     }
-                    "workspace/applyEdit" => json!({ "applied": false, "failureReason": "not supported yet" }),
+                    "workspace/applyEdit" => {
+                        match serde_json::from_value::<lsp_types::ApplyWorkspaceEditParams>(params) {
+                            Ok(p) => {
+                                let req = ApplyEditRequest { server: id, id: req_id, edit: p.edit, encoding: s.encoding };
+                                cx.emit(LspEvent::ApplyEdit(std::rc::Rc::new(req)));
+                                return; // answered by `respond` once applied
+                            }
+                            Err(e) => json!({ "applied": false, "failureReason": e.to_string() }),
+                        }
+                    }
                     _ => Value::Null,
                 };
                 rpc.respond(req_id, result);
@@ -552,6 +572,13 @@ impl LspStore {
                 Err(_) => Err(anyhow!("{method}: language server stopped")),
             }
         })
+    }
+
+    /// Answer a request the server sent us.
+    pub fn respond(&self, server: &str, id: Value, result: Value) {
+        if let Some(rpc) = self.servers.get(server).and_then(|s| s.rpc.clone()) {
+            rpc.respond(id, result);
+        }
     }
 
     pub fn root(&self) -> &Path {

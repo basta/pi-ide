@@ -28,6 +28,9 @@ pub struct ServerSpec {
     /// How to read the version. `None`: `<command> --version`.
     /// pyright's server refuses `--version` (it wants `--stdio`); its CLI answers.
     pub version_command: Option<Vec<String>>,
+    /// The server's own organize-imports command, when it has no
+    /// `source.organizeImports` code action (pyright runs it without advertising it).
+    pub organize_imports_command: Option<&'static str>,
 }
 
 fn builtin() -> Vec<ServerSpec> {
@@ -43,6 +46,7 @@ fn builtin() -> Vec<ServerSpec> {
             source: "rustup component",
             overridden: false,
             version_command: None,
+            organize_imports_command: None,
         },
         ServerSpec {
             id: "pyright",
@@ -55,6 +59,7 @@ fn builtin() -> Vec<ServerSpec> {
             source: "npm package",
             overridden: false,
             version_command: Some(vec!["pyright".into(), "--version".into()]),
+            organize_imports_command: Some("pyright.organizeimports"),
         },
     ]
 }

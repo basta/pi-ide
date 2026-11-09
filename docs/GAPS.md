@@ -18,4 +18,4 @@ Each needs the user's call before anyone works around it.
 | Inlay hints | GPUI Kit's editor can't draw virtual text inside a line (its inline tokens are real characters in the document), and we don't write editor rendering code. | No inlay hints (user's call, 2026-11-10). Revisit if GPUI Kit adds virtual text. | M3 |
 | rust-analyzer type errors | rust-analyzer reports type mismatches through `cargo check`, which it runs on save. | Errors from `cargo check` appear after saving, not while typing; syntax errors appear at once. | M3 |
 | Completion extras | GPUI Kit applies a completion's main edit only; `additionalTextEdits` (e.g. rust-analyzer's auto-import) are dropped. | Completing a symbol from another module doesn't add the `use`. Candidate: apply them via `resolve_completions`. | M3 |
-| Code actions that are commands | Actions that run a server command (no edit) need `workspace/executeCommand` and `workspace/applyEdit`. | Hidden from the list for now. | M3 |
+

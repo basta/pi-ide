@@ -71,6 +71,7 @@ pub fn init(cx: &mut App) {
             panel.update(cx, |p, cx| p.request_signature(signature::Trigger::Invoked, cx));
         }
     });
+    CommandRegistry::register(cx, CommandSpec::new("editor.organize_imports", "Code: Optimize Imports").key("ctrl-alt-o"), lsp::organize_imports);
     CommandRegistry::register(cx, CommandSpec::new("editor.rename", "Refactor: Rename…").key("shift-f6"), rename::rename_symbol);
     CommandRegistry::register(cx, CommandSpec::new("editor.quick_fix", "Code: Show Quick Fixes").key("alt-enter"), |window, cx| {
         window.dispatch_action(Box::new(gpui_kit::component::input::ToggleCodeActions), cx)

@@ -62,6 +62,20 @@ impl Providers {
             .unwrap_or_default()
     }
 
+    /// Commands the server executes itself (`executeCommandProvider`).
+    fn server_commands(&self, cx: &App) -> Vec<String> {
+        self.store
+            .upgrade()
+            .and_then(|s| {
+                s.read(cx)
+                    .server_for(&self.path)
+                    .and_then(|s| s.capabilities.as_ref())
+                    .and_then(|c| c.execute_command_provider.as_ref())
+                    .map(|e| e.commands.clone())
+            })
+            .unwrap_or_default()
+    }
+
     fn doc(&self) -> Value {
         json!({ "uri": file_uri(&self.path) })
     }
@@ -256,17 +270,24 @@ impl CodeActionProvider for Providers {
             "context": { "diagnostics": diagnostics, "triggerKind": 1 },
         });
         let task = self.request(&rope, "textDocument/codeAction", params, cx);
+        let server_commands = self.server_commands(cx);
         cx.background_executor().spawn(async move {
             let v = quiet(task.await.map(Some))?.unwrap_or(Value::Null);
             if v.is_null() {
                 return Ok(vec![]);
             }
             let items: Vec<CodeActionOrCommand> = serde_json::from_value(v)?;
-            // Commands without an edit need the server's executeCommand; not supported yet.
+            // Bare commands run through the server's executeCommand, so only
+            // the ones it says it runs (others are editor-side, e.g. "run test").
             Ok(items
                 .into_iter()
                 .filter_map(|i| match i {
                     CodeActionOrCommand::CodeAction(a) => Some(a),
+                    CodeActionOrCommand::Command(c) if server_commands.contains(&c.command) => Some(CodeAction {
+                        title: c.title.clone(),
+                        command: Some(c),
+                        ..Default::default()
+                    }),
                     CodeActionOrCommand::Command(_) => None,
                 })
                 .collect())
@@ -289,6 +310,9 @@ impl CodeActionProvider for Providers {
         } else {
             None
         };
+        let server_commands = self.server_commands(cx);
+        let store = self.store.clone();
+        let path = self.path.clone();
         window.spawn(cx, async move |cx| {
             let action = match resolve {
                 Some(t) => serde_json::from_value::<CodeAction>(t.await?)?,
@@ -296,6 +320,16 @@ impl CodeActionProvider for Providers {
             };
             if let Some(edit) = action.edit {
                 cx.update(|window, cx| apply_workspace_edit(edit, enc, window, cx))?;
+            }
+            // Then its command, if the server runs it (it may send workspace/applyEdit back).
+            if let Some(command) = action.command.filter(|c| server_commands.contains(&c.command)) {
+                let params = json!({ "command": command.command, "arguments": command.arguments });
+                let task = cx.update(|_, cx| {
+                    store.upgrade().map(|s| s.update(cx, |s, cx| s.request(&path, None, "workspace/executeCommand", params, cx)))
+                })?;
+                if let Some(task) = task {
+                    task.await?;
+                }
             }
             Ok(())
         })
@@ -420,6 +454,78 @@ fn byte_offset(text: &str, pos: lsp_types::Position) -> usize {
         offset += line.len();
     }
     text.len()
+}
+
+/// Optimize Imports (Ctrl+Alt+O): the server's `source.organizeImports` code
+/// action, or failing that its own organize-imports command (pyright's
+/// `pyright.organizeimports`, which sends the edit back with `workspace/applyEdit`).
+pub(crate) fn organize_imports(window: &mut Window, cx: &mut App) {
+    use gpui_kit::component::WindowExt as _;
+    use gpui_kit::component::notification::Notification;
+    let Some(panel) = crate::active_panel(window, cx) else { return };
+    let (path, editor, store) = {
+        let p = panel.read(cx);
+        (p.path.clone(), p.editor.clone(), p.lsp.clone())
+    };
+    let Some(store) = store else { return };
+    let Some((enc, commands)) = store.read(cx).server_for(&path).map(|s| {
+        let commands = s
+            .capabilities
+            .as_ref()
+            .and_then(|c| c.execute_command_provider.as_ref())
+            .map(|e| e.commands.clone())
+            .unwrap_or_default();
+        (s.encoding, commands)
+    }) else {
+        window.push_notification(Notification::warning("No language server is running for this file."), cx);
+        return;
+    };
+    let rope = editor.read(cx).text().clone();
+    let end = offset_to_server(&rope, rope.len(), enc);
+    let params = json!({
+        "textDocument": { "uri": file_uri(&path) },
+        "range": { "start": { "line": 0, "character": 0 }, "end": end },
+        "context": { "diagnostics": [], "only": ["source.organizeImports"], "triggerKind": 1 },
+    });
+    let actions = store.update(cx, |s, cx| s.request(&path, Some(&rope), "textDocument/codeAction", params, cx));
+    let fallback = commands
+        .into_iter()
+        .find(|c| c.to_lowercase().ends_with("organizeimports"))
+        .or_else(|| store.read(cx).server_for(&path).and_then(|s| s.spec.organize_imports_command).map(str::to_string));
+    let uri = file_uri(&path);
+    window
+        .spawn(cx, async move |cx| {
+            let actions: Vec<CodeActionOrCommand> =
+                actions.await.ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+            let action = actions.into_iter().find_map(|a| match a {
+                CodeActionOrCommand::CodeAction(a) => Some(a),
+                CodeActionOrCommand::Command(_) => None,
+            });
+            let task = cx.update(|_, cx| match (action, fallback) {
+                (Some(action), _) => {
+                    let resolve = (action.edit.is_none() && action.data.is_some()).then(|| {
+                        store.update(cx, |s, cx| s.request(&path, None, "codeAction/resolve", serde_json::to_value(&action).unwrap_or_default(), cx))
+                    });
+                    Some((Some(action), resolve))
+                }
+                (None, Some(command)) => {
+                    let params = json!({ "command": command, "arguments": [uri] });
+                    store.update(cx, |s, cx| s.request(&path, None, "workspace/executeCommand", params, cx)).detach();
+                    None
+                }
+                (None, None) => None,
+            })?;
+            let Some((Some(action), resolve)) = task else { return Ok::<(), anyhow::Error>(()) };
+            let action = match resolve {
+                Some(t) => serde_json::from_value::<CodeAction>(t.await?)?,
+                None => action,
+            };
+            if let Some(edit) = action.edit {
+                cx.update(|window, cx| apply_workspace_edit(edit, enc, window, cx))?;
+            }
+            Ok(())
+        })
+        .detach_and_log_err(cx);
 }
 
 #[cfg(test)]

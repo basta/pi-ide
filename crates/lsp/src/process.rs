@@ -149,6 +149,7 @@ pub fn initialize_params(root: &Path) -> Value {
                 "configuration": true,
                 "workspaceFolders": true,
                 "applyEdit": true,
+                "executeCommand": { "dynamicRegistration": false },
                 "workspaceEdit": { "documentChanges": false }
             },
             "textDocument": {

@@ -113,7 +113,12 @@ impl Shell {
         let lsp = pide_lsp::LspStore::for_workspace(&services.workspace, cx);
         let mut subs = subs;
         subs.push(cx.observe(&lsp, |_, _, cx| cx.notify()));
-        subs.push(cx.subscribe_in(&lsp, window, |_, _, ev, window, cx| {
+        subs.push(cx.subscribe_in(&lsp, window, |_, store, ev, window, cx| {
+            if let pide_lsp::LspEvent::ApplyEdit(req) = ev {
+                // A server command (from a quick fix) wants to change files.
+                pide_editor::apply_workspace_edit(req.edit.clone(), req.encoding, window, cx);
+                store.read(cx).respond(req.server, req.id.clone(), serde_json::json!({ "applied": true }));
+            }
             if let pide_lsp::LspEvent::MissingServer { server } = ev {
                 let note = Notification::warning(format!(
                     "{server} isn't installed, so these files get no errors, completion or go to definition."
