@@ -230,6 +230,31 @@ impl RunPanel {
         cx.notify();
     }
 
+    /// The command, how it ended and its last lines, for pi.
+    fn draft_for_agent(&self) -> String {
+        let tail: Vec<&str> = self
+            .lines
+            .iter()
+            .rev()
+            .take(80)
+            .map(|l| l.as_ref())
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        format!(
+            "I ran `{}` in the project folder ({}). Output{}:\n```\n{}\n```\n",
+            self.command,
+            self.status.clone().unwrap_or_default(),
+            if self.lines.len() > 80 {
+                " (last 80 lines)"
+            } else {
+                ""
+            },
+            tail.join("\n")
+        )
+    }
+
     pub fn stop(&mut self, cx: &mut Context<Self>) {
         if let Some(stop) = self.running.take() {
             let _ = stop.send(());
@@ -323,6 +348,18 @@ impl Render for RunPanel {
                                     .label("Stop")
                                     .on_click(cx.listener(|this, _, _, cx| this.stop(cx))),
                             )
+                    })
+                    .when(!running && has_command && !self.lines.is_empty(), |this| {
+                        this.child(
+                            Button::new("run-ask")
+                                .xsmall()
+                                .label("Ask pi")
+                                .tooltip("Put the command and its output in pi's message box")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    let draft = this.draft_for_agent();
+                                    pide_core::opener::ask_agent(draft, window, cx);
+                                })),
+                        )
                     })
                     .when(!running && has_command, |this| {
                         this.child(Button::new("run-again").xsmall().label("Rerun").on_click(

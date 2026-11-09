@@ -656,6 +656,12 @@ impl AgentChat {
         cx.notify();
     }
 
+    /// Replace the composer's text (a draft from elsewhere, e.g. the Run panel).
+    pub fn set_draft(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.input.update(cx, |i, cx| i.set_value(text, window, cx));
+        cx.notify();
+    }
+
     /// Save every unsaved, writable file of this project (setting `agent.save_before_send`).
     fn save_dirty(&self, cx: &mut Context<Self>) -> Vec<Task<anyhow::Result<()>>> {
         let on = cx

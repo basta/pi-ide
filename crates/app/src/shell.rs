@@ -125,6 +125,14 @@ pub fn select_opened_file(window: &mut Window, cx: &mut App) {
     pide_file_tree::reveal(path, window, cx);
 }
 
+/// Show the pi panel with `text` as a draft in its message box.
+pub fn ask_pi_with(text: String, window: &mut Window, cx: &mut App) {
+    ask_pi(window, cx);
+    if let Some(chat) = pide_agent_chat::existing(window, cx) {
+        chat.update(cx, |c, cx| c.set_draft(text, window, cx));
+    }
+}
+
 /// pi: Ask pi — show the pi panel and put the cursor in its message box.
 pub fn ask_pi(window: &mut Window, cx: &mut App) {
     let id = window.window_handle().window_id();

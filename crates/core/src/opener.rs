@@ -38,6 +38,8 @@ pub struct Openers {
     pub diff: Rc<dyn Fn(DiffRequest, &mut Window, &mut App)>,
     /// Close the tabs of a file, or of everything under a folder (it was renamed or trashed).
     pub close: Rc<dyn Fn(PathBuf, &mut Window, &mut App)>,
+    /// Put text in the agent's message box (not sent) and focus it.
+    pub ask: Rc<dyn Fn(String, &mut Window, &mut App)>,
 }
 
 impl Global for Openers {}
@@ -45,6 +47,12 @@ impl Global for Openers {}
 pub fn open_file(path: PathBuf, window: &mut Window, cx: &mut App) {
     if let Some(o) = cx.try_global::<Openers>().map(|o| o.file.clone()) {
         o(path, window, cx);
+    }
+}
+
+pub fn ask_agent(text: String, window: &mut Window, cx: &mut App) {
+    if let Some(o) = cx.try_global::<Openers>().map(|o| o.ask.clone()) {
+        o(text, window, cx);
     }
 }
 
