@@ -864,13 +864,46 @@ impl Render for Shell {
                     .bg(cx.theme().title_bar)
                     .child(self.menu_bar.clone()),
             )
-            .child(
+            .child({
+                // No tab open: a few starting points in the middle (the dock still
+                // takes the clicks; this layer is drawn on top and ignores them).
+                let empty = self.dock.read(cx).is_empty(DockPlacement::Center, cx);
+                let muted = cx.theme().muted_foreground;
+                let hint = |keys: &'static str, what: &'static str| {
+                    h_flex()
+                        .gap_3()
+                        .child(div().w(px(130.)).text_right().child(keys))
+                        .child(div().text_color(muted).child(what))
+                };
                 div()
+                    .relative()
                     .flex_1()
                     .w_full()
                     .overflow_hidden()
-                    .child(self.dock.clone()),
-            )
+                    .child(self.dock.clone())
+                    .when(empty, |this| {
+                        this.child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .left_0()
+                                .size_full()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(
+                                    v_flex()
+                                        .gap_1p5()
+                                        .text_sm()
+                                        .child(hint("⌘⇧O", "Go to file"))
+                                        .child(hint("⌘E", "Recent files"))
+                                        .child(hint("⌘⇧F", "Find in files"))
+                                        .child(hint("⌘⇧A", "Find action"))
+                                        .child(hint("⌘⇧I", "Ask pi")),
+                                ),
+                        )
+                    })
+            })
             .child(self.render_status_bar(cx))
     }
 }
