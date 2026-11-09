@@ -419,6 +419,12 @@ impl AgentChat {
                 },
             ),
             cx.observe(&sessions, |_, _, cx| cx.notify()),
+            // Files appeared or went away: list them again on the next `@`.
+            cx.subscribe(&workspace, |this, _, ev: &pide_core::WorkspaceEvent, _| {
+                if matches!(ev, pide_core::WorkspaceEvent::TreeChanged) {
+                    this.files = None;
+                }
+            }),
             cx.subscribe(&workspace, |_, _, ev: &pide_core::WorkspaceEvent, cx| {
                 if matches!(ev, pide_core::WorkspaceEvent::ActiveBufferChanged) {
                     cx.notify();
