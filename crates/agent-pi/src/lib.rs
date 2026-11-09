@@ -6,6 +6,7 @@
 //! directions is appended to `$XDG_STATE_HOME/pide/pi-rpc.jsonl`.
 
 pub mod backend;
+pub mod config;
 pub mod conn;
 pub mod wire;
 

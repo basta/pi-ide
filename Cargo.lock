@@ -4901,6 +4901,7 @@ dependencies = [
  "log",
  "pide-core",
  "pide-runtime",
+ "serde",
  "serde_json",
  "tokio",
 ]
