@@ -25,6 +25,11 @@ pub fn state_dir() -> PathBuf {
     xdg("XDG_STATE_HOME", ".local/state")
 }
 
+/// `$XDG_DATA_HOME/pide` (default `~/.local/share/pide`): things pide installs (pdfium).
+pub fn data_dir() -> PathBuf {
+    xdg("XDG_DATA_HOME", ".local/share")
+}
+
 pub fn keymap_file() -> PathBuf {
     config_dir().join("keymap.json")
 }

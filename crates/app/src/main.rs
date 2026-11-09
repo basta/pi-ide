@@ -63,8 +63,16 @@ fn main() {
         pide_pi_settings::init(cx);
         pide_search::init(cx);
         pide_preview::init(cx);
+        pide_pdf::init(cx);
         cx.set_global(pide_core::opener::Openers {
-            file: Rc::new(pide_editor::open_path),
+            // PDFs open in the PDF panel; everything else in an editor tab.
+            file: Rc::new(|path, window, cx| {
+                if pide_pdf::is_pdf(&path) {
+                    shell::open_pdf(path, window, cx)
+                } else {
+                    pide_editor::open_path(path, window, cx)
+                }
+            }),
             file_at: Rc::new(pide_editor::open_path_at),
             diff: Rc::new(pide_editor::diff_panel::open_diff),
         });
