@@ -6,6 +6,7 @@ mod palette;
 mod projects;
 mod shell;
 mod theme;
+mod unsaved;
 
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -140,7 +141,7 @@ fn register_app_commands(cx: &mut App) {
         }
     });
     CommandRegistry::register(cx, CommandSpec::new("file.goto", "Navigate: Go to File…").key("cmd-shift-o"), goto_file::open);
-    CommandRegistry::register(cx, CommandSpec::new("app.quit", "Quit pide").key("cmd-q"), |_, cx| cx.quit());
+    CommandRegistry::register(cx, CommandSpec::new("app.quit", "Quit pide").key("cmd-q"), unsaved::quit);
     CommandRegistry::register(cx, CommandSpec::new("keymap.open", "Preferences: Open Keymap File"), |window, cx| {
         let path = paths::keymap_file();
         let create = cx.background_executor().spawn({

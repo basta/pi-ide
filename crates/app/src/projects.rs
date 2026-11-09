@@ -43,9 +43,7 @@ pub fn init(keymap_errors: Vec<String>, cx: &mut App) {
 
     CommandRegistry::register(cx, CommandSpec::new("project.open", "File: Open Project…"), |_, cx| prompt_open(cx));
     CommandRegistry::register(cx, CommandSpec::new("project.recent", "File: Recent Projects…"), open_switcher);
-    CommandRegistry::register(cx, CommandSpec::new("project.close", "File: Close Project"), |window, _| {
-        window.remove_window()
-    });
+    CommandRegistry::register(cx, CommandSpec::new("project.close", "File: Close Project"), crate::unsaved::close_window);
 }
 
 /// The folder to open at startup when none is given: the last project that still exists.

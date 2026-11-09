@@ -182,6 +182,7 @@ impl Shell {
         });
         this.focus.focus(window, cx);
         crate::goto_file::warm(window, cx);
+        crate::unsaved::guard_window(window, cx);
         if !keymap_errors.is_empty() {
             let msg = keymap_errors.join("\n");
             window.defer(cx, move |window, cx| window.push_notification(Notification::error(msg), cx));
