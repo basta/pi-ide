@@ -23,6 +23,9 @@ pub struct Settings {
     pub send_context: bool,
     /// `"lsp"`: per-server overrides (`{"rust-analyzer": {"command": ..., "args": [...]}}`), read by pide-lsp.
     pub lsp: Option<Value>,
+    /// `"agent.notify"`: a desktop notification when pi finishes or asks while
+    /// pide isn't the active app. Default on.
+    pub notify: bool,
 }
 
 impl Default for Settings {
@@ -31,6 +34,7 @@ impl Default for Settings {
             theme: ThemeSetting::default(),
             send_context: true,
             lsp: None,
+            notify: true,
         }
     }
 }
@@ -64,6 +68,10 @@ pub fn load() -> Settings {
         theme,
         send_context,
         lsp: raw.get("lsp").cloned(),
+        notify: raw
+            .get("agent.notify")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true),
     }
 }
 

@@ -572,6 +572,17 @@ impl AgentChat {
         }
     }
 
+    /// A desktop notification, only while pide isn't the active app.
+    fn desktop_notify(window: &Window, cx: &App, title: &str, body: String) {
+        let on = cx
+            .try_global::<pide_core::settings::Settings>()
+            .is_none_or(|s| s.notify);
+        if on && !window.is_window_active() {
+            log::info!("desktop notification: {title}");
+            pide_runtime::process::desktop_notification(title.to_string(), body);
+        }
+    }
+
     fn send_context(&self, cx: &App) -> bool {
         cx.try_global::<pide_core::settings::Settings>()
             .is_none_or(|s| s.send_context)
@@ -613,6 +624,7 @@ impl AgentChat {
                     cx,
                 );
             }
+            Self::desktop_notify(window, cx, "pi is asking", format!("{name}: {}", req.title));
             if matches!(req.kind, DialogKind::Input | DialogKind::Editor) {
                 self.make_dialog_input(agent, req.clone(), window, cx);
             }
@@ -730,6 +742,9 @@ impl AgentChat {
                         Notification::info(format!("pi finished in \u{201c}{name}\u{201d}.")),
                         cx,
                     );
+                }
+                if !*aborted {
+                    Self::desktop_notify(window, cx, "pi finished", name.to_string());
                 }
             }
             AgentEvent::Error(e) => items.push(Item::Notice {

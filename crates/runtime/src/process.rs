@@ -123,3 +123,36 @@ mod tests {
         assert_eq!(lines, ["one", "two"]);
     }
 }
+
+/// Show a desktop notification (fire and forget). macOS: `osascript`; Linux:
+/// `notify-send`. Title and body go in as arguments, never into the script.
+pub fn desktop_notification(title: String, body: String) {
+    crate::spawn(async move {
+        let mut cmd = if cfg!(target_os = "macos") {
+            let mut c = tokio::process::Command::new("/usr/bin/osascript");
+            c.args([
+                "-e",
+                "on run argv",
+                "-e",
+                "display notification (item 2 of argv) with title (item 1 of argv)",
+                "-e",
+                "end run",
+            ]);
+            c.arg(&title).arg(&body);
+            c
+        } else {
+            let Some(p) = find_command("notify-send") else {
+                return;
+            };
+            let mut c = tokio::process::Command::new(p);
+            c.arg(&title).arg(&body);
+            c
+        };
+        let _ = cmd
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await;
+    });
+}
