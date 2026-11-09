@@ -3,6 +3,8 @@
 //! shows the bars around it (read-only, conflict, deleted). Also the pi diff tab.
 
 pub mod diff_panel;
+mod lsp;
+pub use lsp::apply_workspace_edit;
 
 use std::path::{Path, PathBuf};
 
@@ -65,6 +67,17 @@ pub fn init(cx: &mut App) {
 
 /// Open `path` in a tab (or switch to its existing tab) and focus it.
 pub fn open_path(path: PathBuf, window: &mut Window, cx: &mut App) {
+    open_panel(path, window, cx);
+}
+
+/// Open `path` and put the cursor at a 0-based line and character column
+/// (once the file has loaded, if it's new).
+pub fn open_path_at(path: PathBuf, line: u32, character: u32, window: &mut Window, cx: &mut App) {
+    let Some(panel) = open_panel(path, window, cx) else { return };
+    panel.update(cx, |p, cx| p.go_to(line, character, window, cx));
+}
+
+fn open_panel(path: PathBuf, window: &mut Window, cx: &mut App) -> Option<Entity<EditorPanel>> {
     let win = window.window_handle().window_id();
     let existing = cx
         .global::<OpenEditors>()
@@ -79,16 +92,17 @@ pub fn open_path(path: PathBuf, window: &mut Window, cx: &mut App) {
         };
         select_tab_of(group, panel.entity_id(), window, cx);
         focus.focus(window, cx);
-        return;
+        return Some(panel);
     }
     let Some(dock) = host(window, cx) else {
         log::error!("open_path before the dock exists");
-        return;
+        return None;
     };
     let panel = cx.new(|cx| EditorPanel::new(path, window, cx));
     dock.update(cx, |d, cx| d.add_panel_view(panel_handle(panel.clone()), DockPlacement::Center, None, window, cx));
     let focus = panel.read(cx).focus.clone();
     window.defer(cx, move |window, cx| focus.focus(window, cx));
+    Some(panel)
 }
 
 /// Make `panel` the selected tab of its group. Call it with no panel being
@@ -176,6 +190,8 @@ pub struct EditorPanel {
     diff: Option<Entity<DiffState>>,
     /// The project's language servers (set once the file is attached).
     lsp: Option<Entity<pide_lsp::LspStore>>,
+    /// Where to put the cursor once the file has loaded (go to definition, problems).
+    pending_cursor: Option<(u32, u32)>,
     _subs: Vec<Subscription>,
     _load: Option<Task<()>>,
 }
@@ -225,6 +241,7 @@ impl EditorPanel {
             deleted: false,
             diff: None,
             lsp: None,
+            pending_cursor: None,
             _subs: Vec::new(),
             _load: None,
         };
@@ -266,8 +283,22 @@ impl EditorPanel {
             self.workspace.update(cx, |w, cx| w.set_active(Some(buffer), cx));
         }
         self.attach_lsp(window, cx);
+        if let Some((line, character)) = self.pending_cursor.take() {
+            self.go_to(line, character, window, cx);
+        }
         cx.emit(PanelEvent::LayoutChanged); // path is now known for dump()
         cx.notify();
+    }
+
+    /// Put the cursor at a 0-based line and character column (or once loaded).
+    pub fn go_to(&mut self, line: u32, character: u32, window: &mut Window, cx: &mut Context<Self>) {
+        if self.buffer.is_none() {
+            self.pending_cursor = Some((line, character));
+            return;
+        }
+        self.editor.update(cx, |e, cx| {
+            e.set_cursor_position(gpui_kit::component::input::Position::new(line, character), window, cx)
+        });
     }
 
     fn attach_lsp(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -280,6 +311,18 @@ impl EditorPanel {
             }
         }));
         self.apply_diagnostics(&store, cx);
+        if pide_lsp::registry::spec_for(store.read(cx).specs(), &self.path).is_some() {
+            let providers = lsp::Providers::new(&store, self.path.clone());
+            let show = lsp::show_document_handler(self.path.clone());
+            self.editor.update(cx, |e, _| {
+                let l = e.lsp_mut();
+                l.completion_provider = Some(providers.clone());
+                l.hover_provider = Some(providers.clone());
+                l.definition_provider = Some(providers.clone());
+                l.code_action_providers = vec![providers];
+                l.show_document = Some(show);
+            });
+        }
         self.lsp = Some(store);
     }
 

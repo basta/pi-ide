@@ -60,6 +60,7 @@ fn main() {
         pide_language_servers::init(cx);
         cx.set_global(pide_core::opener::Openers {
             file: Rc::new(pide_editor::open_path),
+            file_at: Rc::new(pide_editor::open_path_at),
             diff: Rc::new(pide_editor::diff_panel::open_diff),
         });
         register_app_commands(cx);

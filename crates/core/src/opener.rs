@@ -18,6 +18,8 @@ pub struct DiffRequest {
 #[derive(Clone)]
 pub struct Openers {
     pub file: Rc<dyn Fn(PathBuf, &mut Window, &mut App)>,
+    /// Open and put the cursor at a 0-based line and character column.
+    pub file_at: Rc<dyn Fn(PathBuf, u32, u32, &mut Window, &mut App)>,
     pub diff: Rc<dyn Fn(DiffRequest, &mut Window, &mut App)>,
 }
 
@@ -26,6 +28,12 @@ impl Global for Openers {}
 pub fn open_file(path: PathBuf, window: &mut Window, cx: &mut App) {
     if let Some(o) = cx.try_global::<Openers>().map(|o| o.file.clone()) {
         o(path, window, cx);
+    }
+}
+
+pub fn open_file_at(path: PathBuf, line: u32, character: u32, window: &mut Window, cx: &mut App) {
+    if let Some(o) = cx.try_global::<Openers>().map(|o| o.file_at.clone()) {
+        o(path, line, character, window, cx);
     }
 }
 
