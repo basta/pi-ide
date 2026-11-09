@@ -128,18 +128,50 @@ impl Panel for Problems {
     }
 }
 
+/// Open `path` at a server position: its column is in the server's encoding
+/// (often UTF-16), the editor's in characters; convert with the file's text,
+/// read off the UI thread.
+fn jump(
+    path: PathBuf,
+    line: u32,
+    character: u32,
+    enc: pide_lsp::convert::Encoding,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let p = path.clone();
+    let read = cx.background_executor().spawn(async move {
+        let text = std::fs::read_to_string(&p).unwrap_or_default();
+        pide_lsp::convert::from_server(
+            &pide_lsp::convert::TextLines::new(&text),
+            lsp_types::Position::new(line, character),
+            enc,
+        )
+    });
+    window
+        .spawn(cx, async move |cx| {
+            let pos = read.await;
+            let _ = cx.update(|window, cx| {
+                pide_core::opener::open_file_at(path, pos.line, pos.character, window, cx)
+            });
+        })
+        .detach();
+}
+
 impl Render for Problems {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let store = self.store.read(cx);
         let (errors, warnings) = counts(store);
         let show_hints = self.show_hints;
+        let mut encodings = std::collections::HashMap::new();
 
         // Files with an error first, then by path.
         let mut files: Vec<(&PathBuf, Vec<&lsp_types::Diagnostic>)> = store
             .diagnostics()
             .iter()
             .map(|(p, f)| {
+                encodings.insert(p.clone(), f.encoding);
                 let mut items: Vec<_> = f
                     .items
                     .iter()
@@ -195,6 +227,7 @@ impl Render for Problems {
                 let source = d.source.clone().unwrap_or_default();
                 let (line, character) = (d.range.start.line, d.range.start.character);
                 let target = path.clone();
+                let enc = encodings.get(path.as_path()).copied().unwrap_or_default();
                 let rel = path
                     .strip_prefix(&self.root)
                     .unwrap_or(&path)
@@ -220,13 +253,7 @@ impl Render for Problems {
                         .cursor_pointer()
                         .hover(|s| s.bg(theme.list_hover))
                         .on_click(move |_, window, cx| {
-                            pide_core::opener::open_file_at(
-                                target.clone(),
-                                line,
-                                character,
-                                window,
-                                cx,
-                            )
+                            jump(target.clone(), line, character, enc, window, cx)
                         })
                         .child(
                             div()
