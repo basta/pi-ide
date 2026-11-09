@@ -42,6 +42,19 @@ impl Providers {
         store.update(cx, |s, cx| s.request(&self.path, Some(text), method, params, cx))
     }
 
+    fn trigger_characters(&self, cx: &App) -> Vec<String> {
+        self.store
+            .upgrade()
+            .and_then(|s| {
+                s.read(cx)
+                    .server_for(&self.path)
+                    .and_then(|s| s.capabilities.as_ref())
+                    .and_then(|c| c.completion_provider.as_ref())
+                    .and_then(|c| c.trigger_characters.clone())
+            })
+            .unwrap_or_default()
+    }
+
     fn doc(&self) -> Value {
         json!({ "uri": file_uri(&self.path) })
     }
@@ -65,10 +78,23 @@ impl CompletionProvider for Providers {
         cx: &mut App,
     ) -> Task<Result<CompletionResponse>> {
         let Some(enc) = self.encoding(cx) else { return Task::ready(Ok(CompletionResponse::Array(vec![]))) };
+        // `offset` is the cursor. GPUI Kit puts the word typed since the menu
+        // opened in `trigger_character`; the server wants a trigger character
+        // only when one was really typed. Servers leave filtering to the
+        // client, and GPUI Kit shows the list as given, so we rank it.
+        let query = trigger.trigger_character.clone().unwrap_or_default();
+        let cursor = offset;
+        let triggers = self.trigger_characters(cx);
+        let context = if !query.is_empty() && triggers.iter().any(|t| *t == query) {
+            json!({ "triggerKind": 2, "triggerCharacter": query })
+        } else {
+            json!({ "triggerKind": 1 })
+        };
+        let word = if triggers.iter().any(|t| *t == query) { String::new() } else { query };
         let params = json!({
             "textDocument": self.doc(),
-            "position": offset_to_server(text, offset, enc),
-            "context": trigger,
+            "position": offset_to_server(text, cursor, enc),
+            "context": context,
         });
         let task = self.request(text, "textDocument/completion", params, cx);
         let rope = text.clone();
@@ -83,6 +109,7 @@ impl CompletionProvider for Providers {
                 CompletionResponse::Array(items) => items,
                 CompletionResponse::List(list) => &mut list.items,
             };
+            rank_completions(items, &word);
             for item in items.iter_mut() {
                 match item.text_edit.as_mut() {
                     Some(CompletionTextEdit::Edit(e)) => e.range = range_from_server(&rope, e.range, enc),
@@ -102,15 +129,7 @@ impl CompletionProvider for Providers {
         if c.is_alphanumeric() || c == '_' {
             return true;
         }
-        let Some(store) = self.store.upgrade() else { return false };
-        let triggers = store
-            .read(cx)
-            .server_for(&self.path)
-            .and_then(|s| s.capabilities.as_ref())
-            .and_then(|c| c.completion_provider.as_ref())
-            .and_then(|c| c.trigger_characters.clone())
-            .unwrap_or_default();
-        triggers.iter().any(|t| t.ends_with(c))
+        self.trigger_characters(cx).iter().any(|t| t.ends_with(c))
     }
 }
 
@@ -163,6 +182,23 @@ impl DefinitionProvider for Providers {
                 .collect())
         })
     }
+}
+
+/// Keep the items whose filter text contains the typed word's characters in
+/// order (case-insensitive), best first: prefix matches, then the server's
+/// `sortText` order. GPUI Kit shows the list as given.
+fn rank_completions(items: &mut Vec<lsp_types::CompletionItem>, word: &str) {
+    let word = word.to_lowercase();
+    let key = |i: &lsp_types::CompletionItem| i.filter_text.clone().unwrap_or_else(|| i.label.clone()).to_lowercase();
+    let subsequence = |hay: &str| {
+        let mut chars = hay.chars();
+        word.chars().all(|w| chars.any(|h| h == w))
+    };
+    items.retain(|i| word.is_empty() || subsequence(&key(i)));
+    items.sort_by_cached_key(|i| {
+        let k = key(i);
+        (!k.starts_with(&word), i.sort_text.clone().unwrap_or_else(|| i.label.clone()))
+    });
 }
 
 fn link(l: lsp_types::Location) -> LocationLink {
@@ -384,6 +420,19 @@ mod tests {
 
     fn edit(sl: u32, sc: u32, el: u32, ec: u32, t: &str) -> TextEdit {
         TextEdit { range: lsp_types::Range::new(lsp_types::Position::new(sl, sc), lsp_types::Position::new(el, ec)), new_text: t.into() }
+    }
+
+    #[::core::prelude::v1::test]
+    fn completions_filter_by_typed_word_prefix_first() {
+        let item = |label: &str, sort: &str| lsp_types::CompletionItem {
+            label: label.into(),
+            sort_text: Some(sort.into()),
+            ..Default::default()
+        };
+        let mut items = vec![item("self::", "1"), item("crate::", "2"), item("greet", "3"), item("program_greeting", "0")];
+        rank_completions(&mut items, "gre");
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(labels, ["greet", "program_greeting"]);
     }
 
     #[::core::prelude::v1::test]

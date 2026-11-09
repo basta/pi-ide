@@ -1,0 +1,225 @@
+//! Problems panel (spec M3): every diagnostic the project's language servers
+//! report, grouped by file, errors first. Clicking one opens the file there.
+
+use std::path::{Path, PathBuf};
+
+use gpui_kit::component::dock::{PanelEvent, PanelState, panel_handle, register_panel};
+use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::*;
+use lsp_types::DiagnosticSeverity;
+use pide_core::{DockPosition, Panel, Services};
+use pide_lsp::LspStore;
+
+pub const PANEL_NAME: &str = "problems";
+
+pub fn init(cx: &mut App) {
+    register_panel(cx, PANEL_NAME, |_, window, cx| panel_handle(cx.new(|cx| Problems::new(window, cx))));
+}
+
+/// Errors and warnings across the project (for the status bar too).
+pub fn counts(store: &LspStore) -> (usize, usize) {
+    let mut errors = 0;
+    let mut warnings = 0;
+    for d in store.diagnostics().values().flat_map(|f| &f.items) {
+        match d.severity {
+            Some(DiagnosticSeverity::ERROR) => errors += 1,
+            Some(DiagnosticSeverity::WARNING) => warnings += 1,
+            _ => {}
+        }
+    }
+    (errors, warnings)
+}
+
+pub struct Problems {
+    store: Entity<LspStore>,
+    root: PathBuf,
+    show_hints: bool,
+    focus: FocusHandle,
+    _subs: Vec<Subscription>,
+}
+
+impl EventEmitter<PanelEvent> for Problems {}
+
+impl Problems {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let workspace = Services::of(window, cx).workspace;
+        let root = workspace.read(cx).root().to_path_buf();
+        let store = LspStore::for_workspace(&workspace, cx);
+        Self {
+            _subs: vec![cx.observe(&store, |_, _, cx| cx.notify())],
+            store,
+            root,
+            show_hints: false,
+            focus: cx.focus_handle(),
+        }
+    }
+
+    fn rel<'a>(&self, path: &'a Path) -> std::borrow::Cow<'a, str> {
+        path.strip_prefix(&self.root).unwrap_or(path).to_string_lossy()
+    }
+}
+
+/// Sort key: errors, then warnings, then the rest.
+fn rank(s: Option<DiagnosticSeverity>) -> u8 {
+    match s {
+        Some(DiagnosticSeverity::ERROR) => 0,
+        Some(DiagnosticSeverity::WARNING) => 1,
+        Some(DiagnosticSeverity::INFORMATION) => 2,
+        _ => 3,
+    }
+}
+
+impl Focusable for Problems {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
+
+impl gpui_kit::component::dock::BasePanel for Problems {
+    fn panel_name(&self) -> &'static str {
+        PANEL_NAME
+    }
+    fn dump(&self, _: &App) -> PanelState {
+        PanelState::new(PANEL_NAME)
+    }
+}
+
+impl gpui_kit::component::dock::Panel for Problems {
+    fn title(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (e, w) = counts(self.store.read(cx));
+        if e + w == 0 { "Problems".to_string() } else { format!("Problems · {}", e + w) }
+    }
+}
+
+impl Panel for Problems {
+    fn title_text(&self, _: &App) -> SharedString {
+        "Problems".into()
+    }
+    fn default_dock(&self) -> DockPosition {
+        DockPosition::Bottom
+    }
+}
+
+impl Render for Problems {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme().clone();
+        let store = self.store.read(cx);
+        let (errors, warnings) = counts(store);
+        let show_hints = self.show_hints;
+
+        // Files with an error first, then by path.
+        let mut files: Vec<(&PathBuf, Vec<&lsp_types::Diagnostic>)> = store
+            .diagnostics()
+            .iter()
+            .map(|(p, f)| {
+                let mut items: Vec<_> = f.items.iter().filter(|d| show_hints || rank(d.severity) <= 1).collect();
+                items.sort_by_key(|d| (rank(d.severity), d.range.start.line, d.range.start.character));
+                (p, items)
+            })
+            .filter(|(_, items)| !items.is_empty())
+            .collect();
+        files.sort_by(|a, b| {
+            let ka = a.1.iter().map(|d| rank(d.severity)).min();
+            let kb = b.1.iter().map(|d| rank(d.severity)).min();
+            ka.cmp(&kb).then_with(|| a.0.cmp(b.0))
+        });
+
+        let mut rows: Vec<AnyElement> = Vec::new();
+        for (path, items) in files {
+            rows.push(
+                h_flex()
+                    .gap_2()
+                    .px_3()
+                    .pt_2()
+                    .pb_1()
+                    .text_sm()
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child(self.rel(path).to_string()))
+                    .child(div().text_xs().text_color(theme.muted_foreground).child(items.len().to_string()))
+                    .into_any_element(),
+            );
+            for (i, d) in items.into_iter().enumerate() {
+                let (label, color) = match d.severity {
+                    Some(DiagnosticSeverity::ERROR) => ("error", theme.danger),
+                    Some(DiagnosticSeverity::WARNING) => ("warning", theme.warning),
+                    Some(DiagnosticSeverity::INFORMATION) => ("info", theme.info),
+                    _ => ("hint", theme.muted_foreground),
+                };
+                let message = d.message.lines().next().unwrap_or("").to_string();
+                let source = d.source.clone().unwrap_or_default();
+                let (line, character) = (d.range.start.line, d.range.start.character);
+                let target = path.clone();
+                rows.push(
+                    h_flex()
+                        .id(SharedString::from(format!("p-{}-{i}-{line}-{character}", path.display())))
+                        .gap_2()
+                        .px_3()
+                        .pl_6()
+                        .py_0p5()
+                        .text_sm()
+                        .cursor_pointer()
+                        .hover(|s| s.bg(theme.list_hover))
+                        .on_click(move |_, window, cx| {
+                            pide_core::opener::open_file_at(target.clone(), line, character, window, cx)
+                        })
+                        .child(div().w(px(56.)).flex_none().text_xs().text_color(color).child(label))
+                        .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(message))
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(format!("{source} {}:{}", line + 1, character + 1)),
+                        )
+                        .into_any_element(),
+                );
+            }
+        }
+
+        let summary = match (errors, warnings) {
+            (0, 0) => "No errors or warnings".to_string(),
+            (e, w) => format!("{e} error{} · {w} warning{}", if e == 1 { "" } else { "s" }, if w == 1 { "" } else { "s" }),
+        };
+        let any_server = store.servers().next().is_some();
+
+        v_flex()
+            .size_full()
+            .track_focus(&self.focus)
+            .child(
+                h_flex()
+                    .justify_between()
+                    .px_3()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child(summary)
+                    .child(
+                        div()
+                            .id("toggle-hints")
+                            .cursor_pointer()
+                            .child(if show_hints { "Hide hints" } else { "Show hints" })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.show_hints = !this.show_hints;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .id("problems-list")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .when(rows.is_empty(), |this| {
+                        this.child(div().p_3().text_sm().text_color(theme.muted_foreground).child(if any_server {
+                            "Nothing to fix. rust-analyzer reports type errors after you save."
+                        } else {
+                            "Open a file with a language server (Settings → Language Servers…) to see problems here."
+                        }))
+                    })
+                    .children(rows),
+            )
+    }
+}

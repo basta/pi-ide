@@ -47,6 +47,7 @@ pub struct Shell {
     services: Services,
     lsp: Entity<pide_lsp::LspStore>,
     language_servers: Option<WeakEntity<pide_language_servers::LanguageServers>>,
+    problems: Option<WeakEntity<pide_problems::Problems>>,
     menu_bar: Entity<gpui_kit::component::menu::AppMenuBar>,
     dock: Entity<DockArea>,
     _skin: Rc<DockSkin>,
@@ -133,6 +134,7 @@ impl Shell {
             services: services.clone(),
             lsp,
             language_servers: None,
+            problems: None,
             menu_bar: crate::menus::bar(cx),
             dock,
             _skin: skin,
@@ -208,6 +210,7 @@ impl Shell {
             let rel = b.path.strip_prefix(&root).unwrap_or(&b.path).display().to_string();
             (rel, b.line_ending.label(), b.is_dirty(), b.read_only.is_some())
         });
+        let (errors, warnings) = pide_problems::counts(self.lsp.read(cx));
         let server_label = ws.active().and_then(|b| {
             let path = b.read(cx).path.clone();
             self.lsp.read(cx).server_of(&path).map(|s| format!("{}: {}", s.spec.id, s.status_text()))
@@ -246,7 +249,17 @@ impl Shell {
             .border_t_1()
             .border_color(theme.border)
             .text_color(theme.muted_foreground)
-            .child(h_flex().gap_3().when_some(file, |this, (rel, le, dirty, ro)| {
+            .child(h_flex().gap_3().when(errors + warnings > 0, |this| {
+                this.child(
+                    div()
+                        .id("problems-count")
+                        .cursor_pointer()
+                        .child(format!("⊘ {errors}  ⚠ {warnings}"))
+                        .on_click(|_, window, cx| {
+                            CommandRegistry::run("view.problems", window, cx);
+                        }),
+                )
+            }).when_some(file, |this, (rel, le, dirty, ro)| {
                 this.child(format!("{rel}{}", if dirty { " ●" } else { "" }))
                     .child(le)
                     .when(ro, |this| this.child("read-only"))
@@ -281,6 +294,40 @@ pub fn show_language_servers(window: &mut Window, cx: &mut App) {
         let p = cx.new(|cx| pide_language_servers::LanguageServers::new(window, cx));
         shell.dock.update(cx, |d, cx| d.add_panel_view(panel_handle(p.clone()), DockPlacement::Center, None, window, cx));
         shell.language_servers = Some(p.downgrade());
+    });
+}
+
+/// Show the Problems panel in the bottom dock (adding it the first time); hide it if it's showing.
+pub fn toggle_problems(window: &mut Window, cx: &mut App) {
+    let id = window.window_handle().window_id();
+    let Some(shell) = cx.try_global::<Shells>().and_then(|h| h.0.get(&id)?.upgrade()) else { return };
+    shell.update(cx, |shell, cx| {
+        let existing = shell.problems.as_ref().and_then(|w| w.upgrade()).filter(|p| {
+            shell.dock.read(cx).panel(gpui_kit::component::dock::PanelId::from(p.entity_id())).is_some()
+        });
+        match existing {
+            Some(p) => {
+                let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
+                shell.dock.update(cx, |d, cx| {
+                    if d.is_dock_open(DockPlacement::Bottom) {
+                        d.toggle_dock(DockPlacement::Bottom, window, cx);
+                    } else {
+                        d.toggle_dock(DockPlacement::Bottom, window, cx);
+                        d.select_panel(pid, window, cx);
+                    }
+                });
+            }
+            None => {
+                let p = cx.new(|cx| pide_problems::Problems::new(window, cx));
+                shell.dock.update(cx, |d, cx| {
+                    d.add_panel_view(panel_handle(p.clone()), DockPlacement::Bottom, Some(px(220.)), window, cx);
+                    if !d.is_dock_open(DockPlacement::Bottom) {
+                        d.toggle_dock(DockPlacement::Bottom, window, cx);
+                    }
+                });
+                shell.problems = Some(p.downgrade());
+            }
+        }
     });
 }
 

@@ -50,6 +50,7 @@ fn menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 cmd("Project Panel", "view.toggle_project"),
                 cmd("pi Panel", "view.toggle_agent"),
+                cmd("Problems", "view.problems"),
                 MenuItem::separator(),
                 MenuItem::Submenu(Menu {
                     name: "Theme".into(),

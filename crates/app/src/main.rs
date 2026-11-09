@@ -58,6 +58,7 @@ fn main() {
         pide_file_tree::init(cx);
         pide_agent_chat::init(cx);
         pide_language_servers::init(cx);
+        pide_problems::init(cx);
         cx.set_global(pide_core::opener::Openers {
             file: Rc::new(pide_editor::open_path),
             file_at: Rc::new(pide_editor::open_path_at),
@@ -148,6 +149,7 @@ fn register_app_commands(cx: &mut App) {
     CommandRegistry::register(cx, CommandSpec::new("view.toggle_project", "View: Toggle Project Panel").key("cmd-1"), |window, cx| {
         shell::toggle_dock(gpui_kit::component::dock::DockPlacement::Left, window, cx)
     });
+    CommandRegistry::register(cx, CommandSpec::new("view.problems", "View: Problems").key("cmd-6"), shell::toggle_problems);
     CommandRegistry::register(cx, CommandSpec::new("view.toggle_agent", "View: Toggle pi Panel"), |window, cx| {
         shell::toggle_dock(gpui_kit::component::dock::DockPlacement::Right, window, cx)
     });
