@@ -9,7 +9,7 @@ use gpui_kit::component::diff::{
     Diff, DiffFile, DiffGutterMarker, DiffLinePosition, DiffMode, DiffSide, DiffState,
 };
 use gpui_kit::component::dock::{
-    DockPlacement, PanelEvent, PanelState, TabGroup, panel_handle, register_panel,
+    DockPlacement, PanelEvent, PanelInfo, PanelState, TabGroup, panel_handle, register_panel,
 };
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ActiveTheme, Sizable as _, h_flex, v_flex};
@@ -21,6 +21,27 @@ use pide_core::{DockPosition, Panel, Services};
 use crate::language_for;
 
 pub const PANEL_NAME: &str = "pi_diff";
+/// Larger before-texts aren't saved in the layout (the tab won't come back).
+const MAX_SAVED_BEFORE: usize = 512 * 1024;
+
+fn restore_request(v: &serde_json::Value) -> Option<DiffRequest> {
+    Some(DiffRequest {
+        path: PathBuf::from(v.get("path")?.as_str()?),
+        before: v.get("before").and_then(|b| b.as_str()).map(str::to_string),
+        label: v
+            .get("label")
+            .and_then(|l| l.as_str())
+            .unwrap_or("")
+            .to_string()
+            .into(),
+        before_is: v
+            .get("before_is")
+            .and_then(|l| l.as_str())
+            .unwrap_or("before")
+            .to_string()
+            .into(),
+    })
+}
 
 #[derive(Default)]
 struct OpenDiffs(Vec<WeakEntity<DiffPanel>>);
@@ -29,8 +50,17 @@ impl Global for OpenDiffs {}
 pub fn init(cx: &mut App) {
     cx.set_global(OpenDiffs::default());
     // Diffs hold in-memory snapshots, so a restored layout can't rebuild them.
-    register_panel(cx, PANEL_NAME, |_, window, cx| {
-        panel_handle(cx.new(|cx| DiffPanel::unavailable(window, cx)))
+    // A diff tab saves its request (path and before-text) in the layout, so it
+    // comes back after a restart; one without (too big, or older) can't.
+    register_panel(cx, PANEL_NAME, |ctx, window, cx| {
+        let req = match ctx.info() {
+            PanelInfo::Panel(v) => restore_request(v),
+            _ => None,
+        };
+        panel_handle(cx.new(|cx| match req {
+            Some(req) => DiffPanel::new(req, window, cx),
+            None => DiffPanel::unavailable(window, cx),
+        }))
     });
 }
 
@@ -260,7 +290,20 @@ impl gpui_kit::component::dock::BasePanel for DiffPanel {
             .retain(|w| w.upgrade().is_some_and(|p| p.entity_id() != me));
     }
     fn dump(&self, _: &App) -> PanelState {
-        PanelState::new(PANEL_NAME)
+        let mut state = PanelState::new(PANEL_NAME);
+        if let Some(r) = &self.req
+            && r.before
+                .as_ref()
+                .is_none_or(|b| b.len() <= MAX_SAVED_BEFORE)
+        {
+            state.info = PanelInfo::panel(serde_json::json!({
+                "path": r.path,
+                "before": r.before,
+                "label": r.label.as_ref(),
+                "before_is": r.before_is.as_ref(),
+            }));
+        }
+        state
     }
 }
 
