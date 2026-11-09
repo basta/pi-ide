@@ -38,6 +38,7 @@ Requires `pi` (`npm i -g @earendil-works/pi-coding-agent`) for the chat panel; i
 | Cmd+L | Go to line (`12` or `12:5`) |
 | Cmd+F / Cmd+R | Find / replace in the file |
 | Cmd+Alt+L | Reformat the file (language server, e.g. rustfmt through rust-analyzer) |
+| Ctrl+Alt+R | Run a shell command in the project folder (Run panel: output, Stop, Rerun) |
 | Cmd+[ / Cmd+] | Navigate back / forward (after Go to File, Find Usages, a declaration in another file…) |
 | Cmd+Shift+F | Find in Files (replace too) |
 | Cmd+6 | Problems panel |

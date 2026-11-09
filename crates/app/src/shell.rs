@@ -42,6 +42,61 @@ pub fn toggle_dock(placement: DockPlacement, window: &mut Window, cx: &mut App) 
     }
 }
 
+/// Run: Run Command… — ask for a shell command and run it in the Run panel.
+pub fn run_command(window: &mut Window, cx: &mut App) {
+    let last = pide_run::existing(window, cx)
+        .map(|p| p.read(cx).last_command().to_string())
+        .unwrap_or_default();
+    pide_run::prompt(
+        last,
+        Rc::new(|command, window, cx| {
+            if let Some(panel) = show_run_panel(window, cx) {
+                panel.update(cx, |p, cx| p.start(command, cx));
+            }
+        }),
+        window,
+        cx,
+    );
+}
+
+/// The Run panel in the bottom dock (added the first time), shown and selected.
+fn show_run_panel(window: &mut Window, cx: &mut App) -> Option<Entity<pide_run::RunPanel>> {
+    let id = window.window_handle().window_id();
+    let shell = cx
+        .try_global::<Shells>()
+        .and_then(|h| h.0.get(&id)?.upgrade())?;
+    let dock = shell.read(cx).dock.clone();
+    let existing = pide_run::existing(window, cx).filter(|p| {
+        dock.read(cx)
+            .panel(gpui_kit::component::dock::PanelId::from(p.entity_id()))
+            .is_some()
+    });
+    let panel = match existing {
+        Some(p) => p,
+        None => {
+            let p = cx.new(|cx| pide_run::RunPanel::new(window, cx));
+            dock.update(cx, |d, cx| {
+                d.add_panel_view(
+                    panel_handle(p.clone()),
+                    DockPlacement::Bottom,
+                    Some(px(240.)),
+                    window,
+                    cx,
+                )
+            });
+            p
+        }
+    };
+    let pid = gpui_kit::component::dock::PanelId::from(panel.entity_id());
+    dock.update(cx, |d, cx| {
+        if !d.is_dock_open(DockPlacement::Bottom) {
+            d.toggle_dock(DockPlacement::Bottom, window, cx);
+        }
+        d.select_panel(pid, window, cx);
+    });
+    Some(panel)
+}
+
 /// Navigate: Select Opened File — show the active file in the project tree.
 pub fn select_opened_file(window: &mut Window, cx: &mut App) {
     let id = window.window_handle().window_id();

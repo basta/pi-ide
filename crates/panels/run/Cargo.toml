@@ -1,0 +1,12 @@
+[package]
+name = "pide-run"
+description = "Run panel: a shell command in the project root, output streamed into the bottom dock."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+pide-core.workspace = true
+pide-runtime.workspace = true
+log.workspace = true

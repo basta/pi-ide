@@ -4924,6 +4924,7 @@ dependencies = [
  "pide-pi-settings",
  "pide-preview",
  "pide-problems",
+ "pide-run",
  "pide-runtime",
  "pide-search",
  "serde_json",
@@ -4933,6 +4934,7 @@ dependencies = [
 name = "pide-agent-chat"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "gpui-kit",
  "log",
  "pide-core",
@@ -5065,6 +5067,16 @@ dependencies = [
  "lsp-types",
  "pide-core",
  "pide-lsp",
+]
+
+[[package]]
+name = "pide-run"
+version = "0.1.0"
+dependencies = [
+ "gpui-kit",
+ "log",
+ "pide-core",
+ "pide-runtime",
 ]
 
 [[package]]

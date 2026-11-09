@@ -42,12 +42,15 @@ pub struct Streaming {
     pub lines: mpsc::UnboundedReceiver<String>,
     /// `Ok(code)`, or why it couldn't start.
     pub done: oneshot::Receiver<Result<Option<i32>, String>>,
+    /// Send `()` to stop the command (and whatever it started). Dropping it does nothing.
+    pub stop: oneshot::Sender<()>,
 }
 
 /// Start `command` (program + args, no shell) on the runtime, in `cwd` if given.
 pub fn run_streaming(command: Vec<String>, cwd: Option<std::path::PathBuf>) -> Streaming {
     let (line_tx, lines) = mpsc::unbounded_channel();
     let (done_tx, done) = oneshot::channel();
+    let (stop, mut stop_rx) = oneshot::channel::<()>();
     crate::spawn(async move {
         let Some((program, args)) = command.split_first() else {
             let _ = done_tx.send(Err("empty install command".into()));
@@ -68,6 +71,8 @@ pub fn run_streaming(command: Vec<String>, cwd: Option<std::path::PathBuf>) -> S
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
+            // Its own process group, so Stop reaches what a shell started too.
+            .process_group(0)
             .spawn()
         {
             Ok(c) => c,
@@ -90,12 +95,24 @@ pub fn run_streaming(command: Vec<String>, cwd: Option<std::path::PathBuf>) -> S
             line_tx.clone(),
         );
         let err = pump(Box::new(child.stderr.take().expect("piped")), line_tx);
-        let status = child.wait().await;
+        let status = tokio::select! {
+            s = child.wait() => s,
+            r = &mut stop_rx => {
+                if r.is_ok()
+                    && let Some(pid) = child.id()
+                {
+                    let _ = std::process::Command::new("/bin/kill")
+                        .args(["-TERM", "--", &format!("-{pid}")])
+                        .status();
+                }
+                child.wait().await
+            }
+        };
         let _ = out.await;
         let _ = err.await;
         let _ = done_tx.send(status.map(|s| s.code()).map_err(|e| e.to_string()));
     });
-    Streaming { lines, done }
+    Streaming { lines, done, stop }
 }
 
 #[cfg(test)]
@@ -113,7 +130,7 @@ mod tests {
             ],
             None,
         );
-        let code = crate::handle().block_on(async { install.done.await.unwrap() });
+        let code = crate::handle().block_on(async { (&mut install.done).await.unwrap() });
         assert_eq!(code, Ok(Some(3)));
         let mut lines = Vec::new();
         while let Ok(l) = install.lines.try_recv() {
@@ -121,6 +138,34 @@ mod tests {
         }
         lines.sort();
         assert_eq!(lines, ["one", "two"]);
+    }
+
+    #[test]
+    fn stop_ends_the_command_and_its_children() {
+        crate::init();
+        let run = run_streaming(
+            vec![
+                "sh".into(),
+                "-c".into(),
+                "sleep 30 & sleep 30; echo late".into(),
+            ],
+            None,
+        );
+        let Streaming {
+            mut lines,
+            done,
+            stop,
+        } = run;
+        let t = std::time::Instant::now();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let _ = stop.send(());
+        let code = crate::handle().block_on(async { done.await.unwrap() });
+        assert!(
+            t.elapsed() < std::time::Duration::from_secs(5),
+            "stopped quickly"
+        );
+        assert_ne!(code, Ok(Some(0)));
+        assert!(lines.try_recv().is_err(), "no output after stop");
     }
 }
 

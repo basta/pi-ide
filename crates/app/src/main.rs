@@ -71,6 +71,7 @@ fn main() {
 
         pide_editor::init(cx);
         pide_file_tree::init(cx);
+        pide_run::init(cx);
         pide_agent_chat::init(cx);
         pide_language_servers::init(cx);
         pide_problems::init(cx);
@@ -196,6 +197,11 @@ fn register_app_commands(cx: &mut App) {
         cx,
         CommandSpec::new("file.goto", "Navigate: Go to File…").key("cmd-shift-o"),
         goto_file::open,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("run.command", "Run: Run Command…").key("ctrl-alt-r"),
+        shell::run_command,
     );
     CommandRegistry::register(
         cx,

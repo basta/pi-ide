@@ -15,6 +15,7 @@ members = [
     "crates/panels/search",
     "crates/panels/preview",
     "crates/panels/pdf",
+    "crates/panels/run",
     "spike",
 ]
 
@@ -47,6 +48,7 @@ pide-language-servers = { path = "crates/panels/language_servers" }
 pide-problems = { path = "crates/panels/problems" }
 pide-pi-settings = { path = "crates/panels/pi_settings" }
 pide-search = { path = "crates/panels/search" }
+pide-run = { path = "crates/panels/run" }
 pide-preview = { path = "crates/panels/preview" }
 pide-pdf = { path = "crates/panels/pdf" }
 
