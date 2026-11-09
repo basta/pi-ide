@@ -166,6 +166,8 @@ pub struct Shell {
     services: Services,
     /// PDF tabs opened by command, to switch to instead of opening twice.
     pdfs: Vec<(PathBuf, WeakEntity<pide_pdf::PdfPanel>)>,
+    /// Image tabs, likewise.
+    images: Vec<(PathBuf, WeakEntity<pide_preview::image::ImageView>)>,
     /// Current git branch, re-read every few seconds (None outside a repository).
     branch: Option<String>,
     _branch_poll: Task<()>,
@@ -319,6 +321,7 @@ impl Shell {
             cursor: None,
             _cursor_poll: cursor_poll,
             pdfs: Vec::new(),
+            images: Vec::new(),
             branch: None,
             _branch_poll: branch_poll,
             services: services.clone(),
@@ -701,6 +704,39 @@ pub fn open_pdf(path: PathBuf, window: &mut Window, cx: &mut App) {
         let p = cx.new(|cx| pide_pdf::PdfPanel::new(path.clone(), window, cx));
         shell.pdfs.retain(|(_, w)| w.upgrade().is_some());
         shell.pdfs.push((path, p.downgrade()));
+        shell.dock.update(cx, |d, cx| {
+            d.add_panel_view(panel_handle(p), DockPlacement::Center, None, window, cx)
+        });
+    });
+}
+
+/// Open an image in the center (or switch to its tab).
+pub fn open_image(path: PathBuf, window: &mut Window, cx: &mut App) {
+    let id = window.window_handle().window_id();
+    let Some(shell) = cx
+        .try_global::<Shells>()
+        .and_then(|h| h.0.get(&id)?.upgrade())
+    else {
+        return;
+    };
+    shell.update(cx, |shell, cx| {
+        let open = shell
+            .images
+            .iter()
+            .filter_map(|(p, w)| (p == &path).then(|| w.upgrade()).flatten())
+            .next();
+        if let Some(p) = open {
+            let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
+            if shell.dock.read(cx).panel(pid).is_some() {
+                shell
+                    .dock
+                    .update(cx, |d, cx| d.select_panel(pid, window, cx));
+                return;
+            }
+        }
+        let p = cx.new(|cx| pide_preview::image::ImageView::new(path.clone(), window, cx));
+        shell.images.retain(|(_, w)| w.upgrade().is_some());
+        shell.images.push((path, p.downgrade()));
         shell.dock.update(cx, |d, cx| {
             d.add_panel_view(panel_handle(p), DockPlacement::Center, None, window, cx)
         });

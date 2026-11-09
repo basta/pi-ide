@@ -10,9 +10,12 @@ use gpui_kit::component::{ActiveTheme, v_flex};
 use gpui_kit::*;
 use pide_core::{Buffer, DockPosition, Panel, Services};
 
+pub mod image;
+
 pub const PANEL_NAME: &str = "markdown_preview";
 
 pub fn init(cx: &mut App) {
+    image::init(cx);
     register_panel(cx, PANEL_NAME, |ctx, window, cx| {
         let path = match ctx.info() {
             PanelInfo::Panel(v) => v.get("path").and_then(|p| p.as_str()).map(PathBuf::from),

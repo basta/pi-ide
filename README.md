@@ -98,6 +98,7 @@ Each pi session shows its cost, context use, thinking level and model at the top
 
 - **View → Markdown Preview** opens a live preview beside a Markdown file.
 - **PDF files** open in a PDF tab (zoom, fit width, search with highlights). The first time, click **Install pdfium**: pide downloads the pinned pdfium build (about 4 MB) into `~/.local/share/pide/pdfium`.
+- **Images** (PNG, JPEG, GIF, WebP, SVG, …) open in an image tab.
 - **File → Open in Browser** for HTML and SVG.
 
 ## Language servers

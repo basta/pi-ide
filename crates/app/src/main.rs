@@ -88,6 +88,8 @@ fn main() {
             file: Rc::new(|path, window, cx| {
                 if pide_pdf::is_pdf(&path) {
                     shell::open_pdf(path, window, cx)
+                } else if pide_preview::image::is_image(&path) {
+                    shell::open_image(path, window, cx)
                 } else {
                     pide_editor::open_path(path, window, cx)
                 }
