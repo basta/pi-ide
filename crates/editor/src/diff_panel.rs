@@ -32,11 +32,12 @@ pub fn init(cx: &mut App) {
 pub fn open_diff(req: DiffRequest, window: &mut Window, cx: &mut App) {
     let existing = cx.global::<OpenDiffs>().0.iter().filter_map(|w| w.upgrade()).find(|p| p.read(cx).req.as_ref().is_some_and(|r| r.path == req.path));
     if let Some(panel) = existing {
-        panel.update(cx, |p, cx| {
+        let group = panel.update(cx, |p, cx| {
             p.req = Some(req);
             p.reload(cx);
-            p.activate(window, cx);
+            p.group.clone()
         });
+        crate::select_tab_of(group, panel.entity_id(), window, cx);
         return;
     }
     let Some(dock) = cx.try_global::<EditorHost>().and_then(|h| h.dock.upgrade()) else { return };
@@ -117,17 +118,6 @@ impl DiffPanel {
                 cx.notify();
             });
         }));
-    }
-
-    fn activate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(group) = self.group.as_ref().and_then(|g| g.upgrade()) {
-            let me = cx.entity_id();
-            group.update(cx, |g, cx| {
-                if let Some(ix) = g.panels().iter().position(|p| p.view().entity_id() == me) {
-                    g.select_tab(ix, window, cx);
-                }
-            });
-        }
     }
 
     fn set_mode(&mut self, mode: DiffMode, cx: &mut Context<Self>) {

@@ -61,7 +61,12 @@ pub fn open_path(path: PathBuf, window: &mut Window, cx: &mut App) {
         .filter_map(|w| w.upgrade())
         .find(|p| p.read(cx).path == path);
     if let Some(panel) = existing {
-        panel.update(cx, |p, cx| p.activate(window, cx));
+        let (group, focus) = {
+            let p = panel.read(cx);
+            (p.group.clone(), p.focus.clone())
+        };
+        select_tab_of(group, panel.entity_id(), window, cx);
+        focus.focus(window, cx);
         return;
     }
     let Some(dock) = cx.try_global::<EditorHost>().and_then(|h| h.dock.upgrade()) else {
@@ -72,6 +77,18 @@ pub fn open_path(path: PathBuf, window: &mut Window, cx: &mut App) {
     dock.update(cx, |d, cx| d.add_panel_view(panel_handle(panel.clone()), DockPlacement::Center, None, window, cx));
     let focus = panel.read(cx).focus.clone();
     window.defer(cx, move |window, cx| focus.focus(window, cx));
+}
+
+/// Make `panel` the selected tab of its group. Call it with no panel being
+/// updated: `TabGroup::select_tab` reads every panel in the group, and reading
+/// one mid-update panics (this crashed on clicking an already-open file).
+pub(crate) fn select_tab_of(group: Option<WeakEntity<TabGroup>>, panel: EntityId, window: &mut Window, cx: &mut App) {
+    let Some(group) = group.and_then(|g| g.upgrade()) else { return };
+    group.update(cx, |g, cx| {
+        if let Some(ix) = g.panels().iter().position(|p| p.view().entity_id() == panel) {
+            g.select_tab(ix, window, cx);
+        }
+    });
 }
 
 /// The active editor's file and selection, for "send editor context".
@@ -270,18 +287,6 @@ impl EditorPanel {
             }
             _ => {}
         }
-    }
-
-    fn activate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(group) = self.group.as_ref().and_then(|g| g.upgrade()) {
-            let me = cx.entity_id();
-            group.update(cx, |g, cx| {
-                if let Some(ix) = g.panels().iter().position(|p| p.view().entity_id() == me) {
-                    g.select_tab(ix, window, cx);
-                }
-            });
-        }
-        self.focus.focus(window, cx);
     }
 
     fn reload(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
