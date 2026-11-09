@@ -33,6 +33,7 @@ Requires `pi` (`npm i -g @earendil-works/pi-coding-agent`) for the chat panel; i
 | Ctrl+Tab / Ctrl+Shift+Tab | Next / previous pi session |
 | Enter / Option+Enter (pi input, while pi works) | Steer / queue a follow-up |
 | Cmd+Shift+O | Go to File |
+| Cmd+E | Recent files (Enter flips to the previous file) |
 | Cmd+Shift+F | Find in Files (replace too) |
 | Cmd+6 | Problems panel |
 | Cmd+B (editor) | Go to declaration (also Cmd+click) |

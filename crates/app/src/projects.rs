@@ -37,6 +37,7 @@ pub fn init(keymap_errors: Vec<String>, cx: &mut App) {
         Services::unregister(id, cx);
         pide_editor::remove_host(id, cx);
         crate::shell::forget(id, cx);
+        crate::recent_files::forget(id, cx);
         if cx.windows().is_empty() {
             cx.quit();
         }
