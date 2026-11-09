@@ -1,0 +1,15 @@
+[package]
+name = "pide-pi-settings"
+description = "pi Settings tab: packages, tools and extensions, skills and prompts, MCP servers, model, instructions."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+pide-core.workspace = true
+pide-runtime.workspace = true
+pide-agent-pi.workspace = true
+anyhow.workspace = true
+log.workspace = true
+serde_json.workspace = true

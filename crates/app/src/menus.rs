@@ -91,12 +91,15 @@ fn menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 cmd("Stop", "agent.abort"),
                 cmd("Restart pi", "agent.restart"),
+                MenuItem::separator(),
+                cmd("pi Settings…", "pi.settings"),
             ],
             disabled: false,
         },
         Menu {
             name: "Settings".into(),
             items: vec![
+                cmd("pi…", "pi.settings"),
                 cmd("Language Servers…", "lsp.servers"),
                 MenuItem::separator(),
                 cmd("Open settings.json", "settings.open"),

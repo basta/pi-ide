@@ -59,6 +59,7 @@ fn main() {
         pide_agent_chat::init(cx);
         pide_language_servers::init(cx);
         pide_problems::init(cx);
+        pide_pi_settings::init(cx);
         cx.set_global(pide_core::opener::Openers {
             file: Rc::new(pide_editor::open_path),
             file_at: Rc::new(pide_editor::open_path_at),
@@ -139,6 +140,7 @@ fn register_app_commands(cx: &mut App) {
             })
             .detach();
     });
+    CommandRegistry::register(cx, CommandSpec::new("pi.settings", "Settings: pi…"), shell::show_pi_settings);
     CommandRegistry::register(cx, CommandSpec::new("lsp.servers", "Settings: Language Servers…"), shell::show_language_servers);
     CommandRegistry::register(cx, CommandSpec::new("settings.open", "Settings: Open settings.json"), |window, cx| {
         pide_editor::open_path(pide_core::settings::settings_file(), window, cx)

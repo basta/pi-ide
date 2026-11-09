@@ -40,6 +40,13 @@ impl Sessions {
         &self.list
     }
 
+    /// Every session picks up changed pi settings (see [`Agent::reload_config`]).
+    pub fn reload_config(&mut self, cx: &mut Context<Self>) {
+        for a in self.list.clone() {
+            a.update(cx, |a, cx| a.reload_config(cx));
+        }
+    }
+
     pub fn active(&self) -> Entity<Agent> {
         self.list[self.active.min(self.list.len() - 1)].clone()
     }

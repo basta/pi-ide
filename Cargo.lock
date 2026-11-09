@@ -4877,6 +4877,7 @@ dependencies = [
  "pide-file-tree",
  "pide-language-servers",
  "pide-lsp",
+ "pide-pi-settings",
  "pide-problems",
  "pide-runtime",
  "serde_json",
@@ -4967,6 +4968,19 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "pide-pi-settings"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gpui-kit",
+ "log",
+ "pide-agent-pi",
+ "pide-core",
+ "pide-runtime",
+ "serde_json",
 ]
 
 [[package]]

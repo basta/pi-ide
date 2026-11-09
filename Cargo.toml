@@ -11,6 +11,7 @@ members = [
     "crates/panels/agent_chat",
     "crates/panels/language_servers",
     "crates/panels/problems",
+    "crates/panels/pi_settings",
     "spike",
 ]
 
@@ -41,6 +42,7 @@ pide-file-tree = { path = "crates/panels/file_tree" }
 pide-agent-chat = { path = "crates/panels/agent_chat" }
 pide-language-servers = { path = "crates/panels/language_servers" }
 pide-problems = { path = "crates/panels/problems" }
+pide-pi-settings = { path = "crates/panels/pi_settings" }
 
 anyhow = "1.0.104"
 env_logger = "0.11.11"

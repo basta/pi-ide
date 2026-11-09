@@ -46,6 +46,8 @@ pub struct Agent {
     pub unread: bool,
     /// A blocking question (extension dialog) is waiting for an answer.
     pub waiting: bool,
+    /// Restart pi when the current run settles, to pick up changed pi settings.
+    reload_pending: bool,
     /// pi's session file, once known; used to resume after the process stops.
     pub session_file: Option<std::path::PathBuf>,
     /// Messages waiting to be delivered: (steering, follow-ups).
@@ -72,6 +74,7 @@ impl Agent {
             name: UNNAMED.into(),
             unread: false,
             waiting: false,
+            reload_pending: false,
             session_file: None,
             queue: (Vec::new(), Vec::new()),
             dialogs: Vec::new(),
@@ -196,6 +199,17 @@ impl Agent {
         self.with_backend(cx, |b, a, cx| b.restart(a, cx));
     }
 
+    /// pi's settings changed: restart its process so it reads them (pi has no
+    /// reload over RPC). Idle sessions restart now and resume on the next
+    /// message; a session that's working restarts when its run finishes.
+    pub fn reload_config(&mut self, cx: &mut Context<Self>) {
+        if self.is_busy() || self.waiting {
+            self.reload_pending = true;
+        } else {
+            self.restart(cx);
+        }
+    }
+
     /// Backends call this (from a `cx.spawn` task) for everything they receive.
     pub fn handle_event(&mut self, event: AgentEvent, cx: &mut Context<Self>) {
         match &event {
@@ -203,7 +217,10 @@ impl Agent {
                 self.queue = (Vec::new(), Vec::new());
                 self.dialogs.clear();
                 self.waiting = false;
-                self.set_status(AgentStatus::Idle, cx)
+                self.set_status(AgentStatus::Idle, cx);
+                if std::mem::take(&mut self.reload_pending) {
+                    self.restart(cx);
+                }
             }
             AgentEvent::AssistantStart | AgentEvent::ToolStart { .. } => {
                 if !matches!(self.status, AgentStatus::Aborting) {
