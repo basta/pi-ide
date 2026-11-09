@@ -12,7 +12,7 @@ use gpui_kit::*;
 use pide_core::opener::DiffRequest;
 use pide_core::{DockPosition, Panel, Services};
 
-use crate::{EditorHost, language_for};
+use crate::language_for;
 
 pub const PANEL_NAME: &str = "pi_diff";
 
@@ -30,7 +30,13 @@ pub fn init(cx: &mut App) {
 
 /// Open (or refresh and focus) the diff tab for `req.path`.
 pub fn open_diff(req: DiffRequest, window: &mut Window, cx: &mut App) {
-    let existing = cx.global::<OpenDiffs>().0.iter().filter_map(|w| w.upgrade()).find(|p| p.read(cx).req.as_ref().is_some_and(|r| r.path == req.path));
+    let win = window.window_handle().window_id();
+    let existing = cx
+        .global::<OpenDiffs>()
+        .0
+        .iter()
+        .filter_map(|w| w.upgrade())
+        .find(|p| p.read(cx).window_id == win && p.read(cx).req.as_ref().is_some_and(|r| r.path == req.path));
     if let Some(panel) = existing {
         let group = panel.update(cx, |p, cx| {
             p.req = Some(req);
@@ -40,13 +46,16 @@ pub fn open_diff(req: DiffRequest, window: &mut Window, cx: &mut App) {
         crate::select_tab_of(group, panel.entity_id(), window, cx);
         return;
     }
-    let Some(dock) = cx.try_global::<EditorHost>().and_then(|h| h.dock.upgrade()) else { return };
+    let Some(dock) = crate::host(window, cx) else { return };
     let panel = cx.new(|cx| DiffPanel::new(req, window, cx));
     dock.update(cx, |d, cx| d.add_panel_view(panel_handle(panel.clone()), DockPlacement::Center, None, window, cx));
 }
 
 pub struct DiffPanel {
     req: Option<DiffRequest>,
+    /// The project window this tab lives in, and its root.
+    window_id: WindowId,
+    root: PathBuf,
     state: Entity<DiffState>,
     mode: DiffMode,
     stats: (usize, usize),
@@ -59,8 +68,8 @@ pub struct DiffPanel {
 impl EventEmitter<PanelEvent> for DiffPanel {}
 
 impl DiffPanel {
-    fn new(req: DiffRequest, _window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut this = Self::empty(cx);
+    fn new(req: DiffRequest, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let mut this = Self::empty(window, cx);
         this.req = Some(req);
         let weak = cx.weak_entity();
         cx.global_mut::<OpenDiffs>().0.push(weak);
@@ -68,15 +77,17 @@ impl DiffPanel {
         this
     }
 
-    fn unavailable(_window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut this = Self::empty(cx);
+    fn unavailable(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let mut this = Self::empty(window, cx);
         this.error = Some("This diff was from an earlier run of pide; its before-snapshot is gone. Close this tab.".into());
         this
     }
 
-    fn empty(cx: &mut Context<Self>) -> Self {
+    fn empty(window: &mut Window, cx: &mut Context<Self>) -> Self {
         Self {
             req: None,
+            window_id: window.window_handle().window_id(),
+            root: Services::of(window, cx).workspace.read(cx).root().to_path_buf(),
             state: cx.new(|cx| DiffState::new(Vec::<DiffFile>::new(), cx).with_mode(DiffMode::Split)),
             mode: DiffMode::Split,
             stats: (0, 0),
@@ -89,7 +100,7 @@ impl DiffPanel {
 
     fn reload(&mut self, cx: &mut Context<Self>) {
         let Some(req) = self.req.clone() else { return };
-        let root = Services::global(cx).workspace.read(cx).root().to_path_buf();
+        let root = self.root.clone();
         let rel = req.path.strip_prefix(&root).unwrap_or(&req.path).display().to_string();
         let language = language_for(&req.path);
         let work = cx.background_executor().spawn(async move {
@@ -172,7 +183,7 @@ impl Render for DiffPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let header = self.req.as_ref().map(|r| {
-            let root = Services::global(cx).workspace.read(cx).root().to_path_buf();
+            let root = &self.root;
             let rel: PathBuf = r.path.strip_prefix(&root).unwrap_or(&r.path).to_path_buf();
             (rel.display().to_string(), r.label.clone(), r.before.is_none())
         });

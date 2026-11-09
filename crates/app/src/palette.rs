@@ -17,20 +17,26 @@ struct Row {
 }
 
 fn rank(all: &[Row], query: &str) -> Vec<usize> {
+    let hays: Vec<String> = all.iter().map(|r| format!("{} {}", r.title, r.id)).collect();
+    rank_strings(&hays, query)
+}
+
+/// Indices of `haystacks` matching `query`, best first (ties keep list order).
+/// An empty query keeps everything in list order.
+pub fn rank_strings(haystacks: &[String], query: &str) -> Vec<usize> {
     if query.trim().is_empty() {
-        return (0..all.len()).collect();
+        return (0..haystacks.len()).collect();
     }
     let mut matcher = Matcher::new(Config::DEFAULT);
     let pattern = Pattern::parse(query, CaseMatching::Ignore, Normalization::Smart);
-    let haystacks: Vec<(usize, String)> =
-        all.iter().enumerate().map(|(i, r)| (i, format!("{} {}", r.title, r.id))).collect();
     let mut scored: Vec<(usize, u32)> = haystacks
         .iter()
+        .enumerate()
         .filter_map(|(i, h)| {
             let mut buf = Vec::new();
             pattern
                 .score(nucleo_matcher::Utf32Str::new(h, &mut buf), &mut matcher)
-                .map(|s| (*i, s))
+                .map(|s| (i, s))
         })
         .collect();
     scored.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));

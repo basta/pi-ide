@@ -1,6 +1,7 @@
-//! pide: window, dock layout, keymap, wiring. `pide [dir]`.
+//! pide: windows (one per project), dock layout, keymap, wiring. `pide [dir]`.
 
 mod palette;
+mod projects;
 mod shell;
 mod theme;
 
@@ -8,9 +9,10 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui_kit::assets::Assets;
+use gpui_kit::component::WindowExt as _;
+use gpui_kit::component::notification::Notification;
 use gpui_kit::*;
-use pide_agent_pi::PiBackend;
-use pide_core::{CommandRegistry, CommandSpec, Services, Sessions, Workspace, keymap, paths};
+use pide_core::{CommandRegistry, CommandSpec, fswatch, keymap, paths};
 
 fn init_logging() {
     let dir = paths::state_dir();
@@ -39,13 +41,10 @@ pub static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLoc
 fn main() {
     STARTED.get_or_init(std::time::Instant::now);
     init_logging();
-    let root = std::env::args_os()
-        .nth(1)
-        .map(PathBuf::from)
-        .or_else(|| std::env::current_dir().ok())
-        .unwrap_or_else(|| PathBuf::from("."));
-    let root = std::fs::canonicalize(&root).unwrap_or(root);
-    log::info!("pide starting in {}", root.display());
+    // `pide <dir>` opens that folder; plain `pide` reopens the last project
+    // (or asks for a folder when there is none).
+    let arg = std::env::args_os().nth(1).map(PathBuf::from);
+    log::info!("pide starting{}", arg.as_ref().map(|p| format!(" with {}", p.display())).unwrap_or_default());
     pide_runtime::init();
 
     gpui_kit::application().with_assets(Assets).run(move |cx| {
@@ -53,13 +52,6 @@ fn main() {
         let settings = pide_core::settings::load();
         theme::apply(settings.theme, None, cx);
         cx.set_global(settings);
-
-        let workspace = cx.new(|cx| Workspace::new(root.clone(), cx));
-        let factory_root = root.clone();
-        let factory: pide_core::sessions::BackendFactory =
-            Rc::new(move |resume| Box::new(PiBackend::new(factory_root.clone(), resume)) as Box<dyn pide_core::AgentBackend>);
-        let sessions = cx.new(|cx| Sessions::new(factory, cx));
-        cx.set_global(Services { workspace, sessions });
 
         pide_editor::init(cx);
         pide_file_tree::init(cx);
@@ -72,21 +64,50 @@ fn main() {
         theme::register_commands(cx);
 
         let keymap_errors = keymap::init(cx);
+        watch_keymap(cx);
         pide_runtime::monitor::start(cx).detach();
+        projects::init(keymap_errors, cx);
 
-        let title = format!(
-            "pide — {}",
-            root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
-        );
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size(px(1400.), px(900.)), cx))),
-            titlebar: Some(TitlebarOptions { title: Some(title.into()), ..Default::default() }),
-            ..Default::default()
-        };
-        gpui_kit::open_window(options, cx, move |window, cx| cx.new(|cx| shell::Shell::new(keymap_errors, window, cx)))
-            .expect("open window");
-        cx.activate(true);
+        match arg.or_else(|| projects::last_project(cx)) {
+            Some(root) => projects::open(root, cx),
+            None => projects::prompt_open(cx),
+        }
     });
+}
+
+/// Keeps the keymap watcher alive for the app's lifetime.
+struct KeymapWatch(#[allow(dead_code)] fswatch::Watcher, #[allow(dead_code)] Task<()>);
+impl Global for KeymapWatch {}
+
+/// Hot-reload `keymap.json`; the result shows in the frontmost window.
+fn watch_keymap(cx: &mut App) {
+    let dir = paths::config_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    match fswatch::watch(&dir, false) {
+        Ok((watcher, mut rx)) => {
+            let file = paths::keymap_file();
+            let task = cx.spawn(async move |cx| {
+                while let Some(changes) = rx.recv().await {
+                    if !changes.paths.iter().any(|p| p.file_name() == file.file_name()) {
+                        continue;
+                    }
+                    let _ = cx.update(|cx| {
+                        let errors = keymap::apply(cx);
+                        let note = if errors.is_empty() {
+                            Notification::info("Keymap reloaded.")
+                        } else {
+                            Notification::error(errors.join("\n"))
+                        };
+                        if let Some(window) = cx.active_window().or_else(|| cx.windows().into_iter().next()) {
+                            let _ = window.update(cx, |_, window, cx| window.push_notification(note, cx));
+                        }
+                    });
+                }
+            });
+            cx.set_global(KeymapWatch(watcher, task));
+        }
+        Err(e) => log::warn!("can't watch {}: {e:#}", dir.display()),
+    }
 }
 
 fn register_app_commands(cx: &mut App) {

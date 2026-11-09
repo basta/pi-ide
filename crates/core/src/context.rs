@@ -72,12 +72,13 @@ pub fn split_prompt(text: &str) -> (Option<String>, &str) {
     (Some(label), user)
 }
 
-/// Installed by the editor crate: the focused editor's file and selection, if any.
-pub struct EditorContextSource(pub Rc<dyn Fn(&App) -> Option<EditorContext>>);
+/// Installed by the editor crate: the file and selection of the active editor
+/// in a window, if any.
+pub struct EditorContextSource(pub Rc<dyn Fn(&Window, &App) -> Option<EditorContext>>);
 impl Global for EditorContextSource {}
 
-pub fn current(cx: &App) -> Option<EditorContext> {
-    cx.try_global::<EditorContextSource>().and_then(|s| (s.0)(cx))
+pub fn current(window: &Window, cx: &App) -> Option<EditorContext> {
+    cx.try_global::<EditorContextSource>().and_then(|s| (s.0)(window, cx))
 }
 
 #[cfg(test)]

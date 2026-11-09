@@ -13,18 +13,25 @@ use gpui_kit::component::{ActiveTheme, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use pide_agent_chat::AgentChat;
-use pide_core::{AgentStatus, CommandRegistry, RunCommand, Services, WorkspaceEvent, buffer::hash_bytes, fswatch, keymap, paths};
+use pide_core::{AgentStatus, CommandRegistry, RunCommand, Services, WorkspaceEvent, buffer::hash_bytes, paths};
 use pide_file_tree::FileTree;
 
 const DOCK_ID: &str = "pide-main";
 /// Bump when the default layout changes incompatibly; old saved layouts are then ignored.
 const DOCK_VERSION: usize = 1;
 
-struct ShellHandle(WeakEntity<Shell>);
-impl Global for ShellHandle {}
+/// Each project window's shell.
+#[derive(Default)]
+struct Shells(std::collections::HashMap<WindowId, WeakEntity<Shell>>);
+impl Global for Shells {}
+
+pub fn forget(window: WindowId, cx: &mut App) {
+    cx.default_global::<Shells>().0.remove(&window);
+}
 
 pub fn toggle_dock(placement: DockPlacement, window: &mut Window, cx: &mut App) {
-    if let Some(shell) = cx.try_global::<ShellHandle>().and_then(|h| h.0.upgrade()) {
+    let id = window.window_handle().window_id();
+    if let Some(shell) = cx.try_global::<Shells>().and_then(|h| h.0.get(&id)?.upgrade()) {
         let dock = shell.read(cx).dock.clone();
         dock.update(cx, |d, cx| d.toggle_dock(placement, window, cx));
     }
@@ -37,25 +44,27 @@ fn layout_file(root: &Path) -> PathBuf {
 }
 
 pub struct Shell {
+    services: Services,
     dock: Entity<DockArea>,
     _skin: Rc<DockSkin>,
     focus: FocusHandle,
     layout_path: PathBuf,
     last_saved: Option<DockAreaState>,
     _save: Option<Task<()>>,
-    _keymap_watch: Option<(fswatch::Watcher, Task<()>)>,
     _subs: Vec<Subscription>,
 }
 
 impl Shell {
     pub fn new(keymap_errors: Vec<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        cx.set_global(ShellHandle(cx.weak_entity()));
-        let services = Services::global(cx);
+        let window_id = window.window_handle().window_id();
+        let me = cx.weak_entity();
+        cx.default_global::<Shells>().0.insert(window_id, me);
+        let services = Services::of(window, cx);
         let root = services.workspace.read(cx).root().to_path_buf();
         let layout_path = layout_file(&root);
 
         let (dock, skin) = DockSkin::dock_area(DOCK_ID, Some(DOCK_VERSION), window, cx);
-        cx.set_global(pide_editor::EditorHost { dock: dock.downgrade() });
+        pide_editor::set_host(window_id, dock.downgrade(), cx);
 
         if let Err(e) = Self::load_layout(&dock, &layout_path, window, cx) {
             log::info!("no saved layout ({e:#}); using the default");
@@ -89,18 +98,24 @@ impl Shell {
             async move { save_state(&path, &state) }
         })
         .detach();
+        // And when the window closes. Written right away (a few KB): closing the
+        // last window quits, which wouldn't wait for a background task.
+        cx.on_release(|this, cx| {
+            let state = this.dock.read(cx).dump(cx);
+            save_state(&this.layout_path, &state);
+        })
+        .detach();
 
-        let mut this = Self {
+        let this = Self {
+            services: services.clone(),
             dock,
             _skin: skin,
             focus: cx.focus_handle(),
             layout_path,
             last_saved: None,
             _save: None,
-            _keymap_watch: None,
             _subs: subs,
         };
-        this.watch_keymap(window, cx);
         if let Some(file) = std::env::var_os("PIDE_BENCH") {
             window.defer(cx, move |window, cx| pide_editor::run_benchmark(PathBuf::from(file), window, cx));
         }
@@ -158,36 +173,8 @@ impl Shell {
         }));
     }
 
-    fn watch_keymap(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let dir = paths::config_dir();
-        let _ = std::fs::create_dir_all(&dir);
-        match fswatch::watch(&dir, false) {
-            Ok((watcher, mut rx)) => {
-                let file = paths::keymap_file();
-                let task = cx.spawn_in(window, async move |_, cx| {
-                    while let Some(changes) = rx.recv().await {
-                        if !changes.paths.iter().any(|p| p.file_name() == file.file_name()) {
-                            continue;
-                        }
-                        let _ = cx.update(|window, cx| {
-                            let errors = keymap::apply(cx);
-                            let note = if errors.is_empty() {
-                                Notification::info("Keymap reloaded.")
-                            } else {
-                                Notification::error(errors.join("\n"))
-                            };
-                            window.push_notification(note, cx);
-                        });
-                    }
-                });
-                self._keymap_watch = Some((watcher, task));
-            }
-            Err(e) => log::warn!("can't watch {}: {e:#}", dir.display()),
-        }
-    }
-
     fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let services = Services::global(cx);
+        let services = self.services.clone();
         let ws = services.workspace.read(cx);
         let root = ws.root().to_path_buf();
         let file = ws.active().map(|b| {

@@ -3,13 +3,15 @@
 A personal, native code editor in Rust on GPUI + GPUI Kit, with the pi coding agent built in.
 Spec: the claude.ai doc "pi IDE — Implementation Spec". Contributor/agent guide: `AGENTS.md`.
 
-Status: **M2** (pi edits as diffs, multiple sessions) built; M1 signed off. M0 results: `docs/SPIKE.md`.
+Status: **M2.5** (projects: one window per project, recent projects) in progress; M2 signed off. M0 results: `docs/SPIKE.md`.
 
 ## Run
 
 ```sh
-cargo run -p pide --release -- ~/some/project
+cargo run -p pide --release -- ~/some/project   # or no folder: reopens the last project
 ```
+
+Each project gets its own window. Find Action → **File: Open Project…** (folder picker), **File: Recent Projects…** (fuzzy switcher; × forgets an entry), **File: Close Project**.
 
 Requires `pi` (`npm i -g @earendil-works/pi-coding-agent`) for the chat panel; it starts on your first message.
 

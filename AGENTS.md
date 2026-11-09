@@ -11,7 +11,7 @@ Dependencies only go downward: `app` → panels/`editor`/`agent-pi` → `core`/`
 
 | Crate | Package | What it owns |
 | --- | --- | --- |
-| `crates/app` | `pide` | Binary. Window, `DockArea` + layout save/restore, Find Action palette, keymap file watching, status bar, `RunCommand` dispatch. Wires everything up; installs the `Services` global and the file opener. |
+| `crates/app` | `pide` | Binary. One window per project (`projects.rs`: open/focus, recent projects, Open Folder…, Recent Projects switcher, close → quit on last window), `DockArea` + layout save/restore, Find Action palette, keymap file watching, status bar, `RunCommand` dispatch. Registers each window's `Services` and installs the file opener. |
 | `crates/core` | `pide-core` | `CommandRegistry` + `RunCommand`, keymap (`keymap.json`, hot reload), `settings.json` (theme, send-context), `Workspace` + `Buffer` (source of truth for file contents, save/reload/conflicts, file watcher), typed events, `Panel` trait, `Agent` + `AgentBackend` trait, `Sessions` (several agents at once, saved pi sessions on disk), `changes` (what pi changed per session, revert), `context` (editor context block), `opener` (open file / open diff without panel→panel deps), `paths`. |
 | `crates/runtime` | `pide-runtime` | The single tokio runtime on its own thread; the UI-stall monitor (logs anything over 16 ms). |
 | `crates/editor` | `pide-editor` | Editor tabs (`EditorPanel`): GPUI Kit `EditorState` around a workspace buffer, dirty marker, read-only/conflict/deleted bars, `editor.*` commands. The pi diff tab (`diff_panel`). Provides the editor-context source. |
@@ -38,8 +38,9 @@ Dependencies only go downward: `app` → panels/`editor`/`agent-pi` → `core`/`
 
 - **No I/O on the UI thread.** File reads/writes go through `cx.background_executor()`; pi and (later) LSP I/O run on the tokio runtime (`pide_runtime::spawn`) and come back over `tokio::sync::mpsc` into a `cx.spawn` task. Exceptions, on purpose: the saved layout (a few KB) is read once at startup.
 - **Re-entrancy:** `AgentBackend` methods run inside the `Agent`'s own update. Use the `&mut Agent` argument; calling `cx.entity().update(..)`/`.read(..)` on it there panics.
-- **Panels reach each other only through `core`:** `opener::open_file` / `open_diff` (installed by the app), `context::current` (installed by the editor), `Services { workspace, sessions }`.
-- **One `Agent` per session.** `Sessions` holds them; `Services::active_agent(cx)` is the one the pi panel shows. New `AgentEvent`s go in `core/src/events.rs`, parsing in `agent-pi/src/wire.rs`, with a recorded fixture test.
+- **Panels reach each other only through `core`:** `opener::open_file` / `open_diff` (installed by the app), `context::current(window, cx)` (installed by the editor), `Services { workspace, sessions }`.
+- **One window per project (M2.5).** `Services` is per window, not a global: get it with `Services::of(window, cx)` (in a panel's `new`, then keep the handles in fields). Anything else that is per project (editor dock host, open-tab lists, the shell) is keyed by `WindowId` and dropped in the app's `on_window_closed`. Never add a project-wide `Global`.
+- **One `Agent` per session.** `Sessions` holds them; `Services::active_agent(window, cx)` is the one the pi panel shows. New `AgentEvent`s go in `core/src/events.rs`, parsing in `agent-pi/src/wire.rs`, with a recorded fixture test.
 - **Dev hooks:** `PIDE_PI_ARGS` adds flags to every pi process (`PIDE_PI_ARGS="-e dev/pi-ask-test.ts"` loads the dialog test extension: send `/ask-test`). `PIDE_BENCH=<file>` runs the frame benchmark.
 - **Every action is a command.** Register with `CommandRegistry::register(cx, CommandSpec::new("area.verb", "Title").key("cmd-…"), handler)`. Keys are JetBrains-style macOS defaults. Keybindings all dispatch `RunCommand { id }`, handled by the shell's root view.
 - **Keymap hot reload** snapshots GPUI Kit's own bindings once (`keymap::init`, after every crate's `init`) and re-adds them on each reload — so call `keymap::init` last.
@@ -52,7 +53,7 @@ Dependencies only go downward: `app` → panels/`editor`/`agent-pi` → `core`/`
 ## Running and logs
 
 ```sh
-cargo run -p pide -- <project-dir>        # debug (dependencies optimised; our crates fast to rebuild)
+cargo run -p pide -- <project-dir>        # debug (dependencies optimised; our crates fast to rebuild); no dir = last project
 cargo run -p pide --release -- <dir>      # for performance checks
 cargo test --workspace --locked
 # frame-time check in the real app (window must be visible and frontmost; macOS throttles hidden windows):
@@ -62,4 +63,4 @@ grep bench /tmp/pide-bench/pide/pide.log
 
 - App log: `~/.local/state/pide/pide.log` (`RUST_LOG=debug` for more). UI stalls over 16 ms show up as `ui thread blocked` / `slow frame` warnings.
 - pi: `~/.local/state/pide/pi-rpc.jsonl` (every raw line, both directions), `~/.local/state/pide/pi-stderr.log`.
-- Layouts: `~/.local/state/pide/layouts/<hash of project root>.json`. Keymap: `~/.config/pide/keymap.json`.
+- Layouts: `~/.local/state/pide/layouts/<hash of project root>.json`. Recent projects: `~/.local/state/pide/recent.json`. Keymap: `~/.config/pide/keymap.json`.

@@ -26,22 +26,49 @@ pub trait Panel: gpui_kit::component::dock::Panel {
     fn default_dock(&self) -> DockPosition;
 }
 
-/// Handles every panel gets at construction.
+/// One project's state: its workspace and its pi sessions. Each project has
+/// its own window (spec M2.5); panels find theirs through the window they're in.
 #[derive(Clone)]
 pub struct Services {
     pub workspace: Entity<Workspace>,
     pub sessions: Entity<Sessions>,
 }
 
-impl Global for Services {}
+/// Every open project window and its `Services`.
+#[derive(Default)]
+struct ProjectWindows(std::collections::HashMap<WindowId, Services>);
+impl Global for ProjectWindows {}
 
 impl Services {
-    pub fn global(cx: &App) -> Self {
-        cx.global::<Services>().clone()
+    /// The project of `window`. Every pide window is a project window, so this
+    /// only fails for a window the app didn't open (a bug).
+    pub fn of(window: &Window, cx: &App) -> Self {
+        Self::for_window(window.window_handle().window_id(), cx).expect("window has no project")
     }
 
-    /// The session the pi panel is showing.
-    pub fn active_agent(cx: &App) -> Entity<Agent> {
-        cx.global::<Services>().sessions.read(cx).active()
+    pub fn for_window(id: WindowId, cx: &App) -> Option<Self> {
+        cx.try_global::<ProjectWindows>().and_then(|w| w.0.get(&id).cloned())
+    }
+
+    /// The session the pi panel in `window` is showing.
+    pub fn active_agent(window: &Window, cx: &App) -> Entity<Agent> {
+        Self::of(window, cx).sessions.read(cx).active()
+    }
+
+    /// Called by the app when it opens a project window, before building its panels.
+    pub fn register(id: WindowId, services: Services, cx: &mut App) {
+        cx.default_global::<ProjectWindows>().0.insert(id, services);
+    }
+
+    /// Called when the window closes. Dropping the last handle stops its pi processes.
+    pub fn unregister(id: WindowId, cx: &mut App) -> Option<Services> {
+        cx.default_global::<ProjectWindows>().0.remove(&id)
+    }
+
+    /// Open projects: (window, project root).
+    pub fn open_projects(cx: &App) -> Vec<(WindowId, std::path::PathBuf)> {
+        cx.try_global::<ProjectWindows>()
+            .map(|w| w.0.iter().map(|(id, s)| (*id, s.workspace.read(cx).root().to_path_buf())).collect())
+            .unwrap_or_default()
     }
 }

@@ -13,6 +13,7 @@ pub mod keymap;
 pub mod opener;
 pub mod panel;
 pub mod paths;
+pub mod recent;
 pub mod sessions;
 pub mod settings;
 pub mod workspace;

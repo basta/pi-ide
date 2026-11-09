@@ -48,36 +48,36 @@ pub fn init(cx: &mut App) {
                 })
                 .unwrap_or_default();
             let active = v.get("active").and_then(Value::as_u64).unwrap_or(0) as usize;
-            let sessions = Services::global(cx).sessions;
+            let sessions = Services::of(window, cx).sessions;
             sessions.update(cx, |s, cx| s.restore(files, active, cx));
         }
         panel_handle(cx.new(|cx| AgentChat::new(window, cx)))
     });
 
-    let active = |cx: &App| Services::active_agent(cx);
-    let sessions = |cx: &App| Services::global(cx).sessions;
-    CommandRegistry::register(cx, CommandSpec::new("agent.abort", "Agent: Stop").key("cmd-f2"), move |_, cx| {
-        active(cx).update(cx, |a, cx| a.abort(cx))
+    let active = |window: &Window, cx: &App| Services::active_agent(window, cx);
+    let sessions = |window: &Window, cx: &App| Services::of(window, cx).sessions;
+    CommandRegistry::register(cx, CommandSpec::new("agent.abort", "Agent: Stop").key("cmd-f2"), move |window, cx| {
+        active(window, cx).update(cx, |a, cx| a.abort(cx))
     });
-    CommandRegistry::register(cx, CommandSpec::new("agent.restart", "Agent: Restart pi"), move |_, cx| {
-        active(cx).update(cx, |a, cx| a.restart(cx))
+    CommandRegistry::register(cx, CommandSpec::new("agent.restart", "Agent: Restart pi"), move |window, cx| {
+        active(window, cx).update(cx, |a, cx| a.restart(cx))
     });
-    CommandRegistry::register(cx, CommandSpec::new("agent.new_session", "Agent: New Session"), move |_, cx| {
-        sessions(cx).update(cx, |s, cx| {
+    CommandRegistry::register(cx, CommandSpec::new("agent.new_session", "Agent: New Session"), move |window, cx| {
+        sessions(window, cx).update(cx, |s, cx| {
             s.add(None, None, cx);
         })
     });
-    CommandRegistry::register(cx, CommandSpec::new("agent.close_session", "Agent: Close Session"), move |_, cx| {
-        let a = active(cx);
-        sessions(cx).update(cx, |s, cx| s.close(&a, cx))
+    CommandRegistry::register(cx, CommandSpec::new("agent.close_session", "Agent: Close Session"), move |window, cx| {
+        let a = active(window, cx);
+        sessions(window, cx).update(cx, |s, cx| s.close(&a, cx))
     });
-    CommandRegistry::register(cx, CommandSpec::new("agent.next_session", "Agent: Next Session").key("ctrl-tab"), move |_, cx| {
-        sessions(cx).update(cx, |s, cx| s.cycle(1, cx))
+    CommandRegistry::register(cx, CommandSpec::new("agent.next_session", "Agent: Next Session").key("ctrl-tab"), move |window, cx| {
+        sessions(window, cx).update(cx, |s, cx| s.cycle(1, cx))
     });
     CommandRegistry::register(
         cx,
         CommandSpec::new("agent.prev_session", "Agent: Previous Session").key("ctrl-shift-tab"),
-        move |_, cx| sessions(cx).update(cx, |s, cx| s.cycle(-1, cx)),
+        move |window, cx| sessions(window, cx).update(cx, |s, cx| s.cycle(-1, cx)),
     );
 }
 
@@ -130,6 +130,9 @@ enum HistItem {
 
 pub struct AgentChat {
     sessions: Entity<Sessions>,
+    workspace: Entity<pide_core::Workspace>,
+    /// What "send editor context" would send now; refreshed each render.
+    context_now: Option<pide_core::context::EditorContext>,
     views: HashMap<EntityId, SessionView>,
     agent_subs: HashMap<EntityId, Subscription>,
     input: Entity<TextareaState>,
@@ -244,7 +247,7 @@ fn parse_history(path: &std::path::Path) -> Vec<HistItem> {
 
 impl AgentChat {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let sessions = Services::global(cx).sessions;
+        let Services { sessions, workspace } = Services::of(window, cx);
         let input = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(2, 10)
@@ -264,7 +267,7 @@ impl AgentChat {
                 cx.emit(PanelEvent::LayoutChanged); // open sessions are part of the saved layout
             }),
             cx.observe(&sessions, |_, _, cx| cx.notify()),
-            cx.subscribe(&Services::global(cx).workspace, |_, _, ev: &pide_core::WorkspaceEvent, cx| {
+            cx.subscribe(&workspace, |_, _, ev: &pide_core::WorkspaceEvent, cx| {
                 if matches!(ev, pide_core::WorkspaceEvent::ActiveBufferChanged) {
                     cx.notify();
                 }
@@ -272,6 +275,8 @@ impl AgentChat {
         ];
         let mut this = Self {
             sessions,
+            workspace,
+            context_now: None,
             views: HashMap::new(),
             agent_subs: HashMap::new(),
             input,
@@ -360,7 +365,7 @@ impl AgentChat {
     }
 
     fn refresh_saved(&mut self, cx: &mut Context<Self>) {
-        let root = Services::global(cx).workspace.read(cx).root().to_path_buf();
+        let root = self.workspace.read(cx).root().to_path_buf();
         let list = cx.background_executor().spawn(async move { list_saved(&root) });
         self._load_saved = Some(cx.spawn(async move |this, cx| {
             let saved = list.await;
@@ -387,7 +392,7 @@ impl AgentChat {
             agent.update(cx, |a, cx| a.queue(text, follow_up, cx));
         } else {
             // New prompts carry the editor context (when the toggle is on).
-            let text = match self.send_context(cx).then(|| pide_core::context::current(cx)).flatten() {
+            let text = match self.send_context(cx).then(|| pide_core::context::current(window, cx)).flatten() {
                 Some(ctx) => format!("{}{text}", ctx.block()),
                 None => text,
             };
@@ -645,7 +650,7 @@ impl AgentChat {
     /// Revert one file after asking: it overwrites the file, so it also drops later edits
     /// (yours, or another session's — named in the question).
     fn confirm_revert(&mut self, agent: Entity<Agent>, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        let root = Services::global(cx).workspace.read(cx).root().to_path_buf();
+        let root = self.workspace.read(cx).root().to_path_buf();
         let rel = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
         let others: Vec<String> = self
             .sessions
@@ -694,7 +699,7 @@ impl AgentChat {
 
     fn render_changes(&self, agent: &Entity<Agent>, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
-        let root = Services::global(cx).workspace.read(cx).root().to_path_buf();
+        let root = self.workspace.read(cx).root().to_path_buf();
         let label: SharedString = agent.read(cx).name.clone();
         let changes = agent.read(cx).changes.clone();
         if changes.is_empty() {
@@ -1267,7 +1272,7 @@ impl AgentChat {
                     )
                     .child(h_flex().justify_between().gap_2().child({
                         let on = self.send_context(cx);
-                        let label = match (on, pide_core::context::current(cx)) {
+                        let label = match (on, self.context_now.clone()) {
                             (false, _) => "No editor context".to_string(),
                             (true, Some(c)) => format!(
                                 "⌁ Context: {} + selection",
@@ -1364,7 +1369,8 @@ impl Panel for AgentChat {
 }
 
 impl Render for AgentChat {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.context_now = pide_core::context::current(window, cx);
         let wide = self.width.get() >= SIDEBAR_MIN_WIDTH;
         let width = self.width.clone();
         let theme = cx.theme().clone();

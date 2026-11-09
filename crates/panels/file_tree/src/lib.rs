@@ -92,7 +92,7 @@ impl EventEmitter<PanelEvent> for FileTree {}
 
 impl FileTree {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let workspace = Services::global(cx).workspace;
+        let Services { workspace, sessions } = Services::of(window, cx);
         let tree = cx.new(|cx| TreeState::new(cx));
         let subs = vec![
             cx.subscribe(&tree, |this, _, ev: &TreeEvent, _| match ev {
@@ -104,7 +104,7 @@ impl FileTree {
                 }
             }),
             // Re-render when pi's change lists move (badges).
-            cx.observe(&Services::global(cx).sessions, |_, _, cx| cx.notify()),
+            cx.observe(&sessions, |_, _, cx| cx.notify()),
             cx.subscribe(&workspace, |this, _, ev: &WorkspaceEvent, cx| {
                 if matches!(ev, WorkspaceEvent::TreeChanged) {
                     this.refresh(Duration::from_millis(300), cx);
@@ -185,11 +185,11 @@ impl Panel for FileTree {
 }
 
 impl Render for FileTree {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let view = cx.entity();
         // path -> badge, for files pi changed (and that weren't reverted) in any open session.
         let mut badges: std::collections::HashMap<String, &'static str> = std::collections::HashMap::new();
-        for agent in Services::global(cx).sessions.read(cx).all() {
+        for agent in Services::of(window, cx).sessions.read(cx).all() {
             for c in &agent.read(cx).changes {
                 if !c.reverted {
                     badges.insert(c.path.to_string_lossy().to_string(), c.badge());

@@ -21,11 +21,22 @@ use pide_core::{Buffer, CommandRegistry, CommandSpec, DockPosition, Panel, Servi
 
 pub const PANEL_NAME: &str = "editor";
 
-/// Where new editor tabs go. Set by the app once its dock exists.
-pub struct EditorHost {
-    pub dock: WeakEntity<DockArea>,
+/// Where new editor tabs go, per project window. Set by the app once a window's dock exists.
+#[derive(Default)]
+struct EditorHosts(std::collections::HashMap<WindowId, WeakEntity<DockArea>>);
+impl Global for EditorHosts {}
+
+pub fn set_host(window: WindowId, dock: WeakEntity<DockArea>, cx: &mut App) {
+    cx.default_global::<EditorHosts>().0.insert(window, dock);
 }
-impl Global for EditorHost {}
+
+pub fn remove_host(window: WindowId, cx: &mut App) {
+    cx.default_global::<EditorHosts>().0.remove(&window);
+}
+
+pub(crate) fn host(window: &Window, cx: &App) -> Option<Entity<DockArea>> {
+    cx.try_global::<EditorHosts>()?.0.get(&window.window_handle().window_id())?.upgrade()
+}
 
 #[derive(Default)]
 struct OpenEditors(Vec<WeakEntity<EditorPanel>>);
@@ -54,12 +65,13 @@ pub fn init(cx: &mut App) {
 
 /// Open `path` in a tab (or switch to its existing tab) and focus it.
 pub fn open_path(path: PathBuf, window: &mut Window, cx: &mut App) {
+    let win = window.window_handle().window_id();
     let existing = cx
         .global::<OpenEditors>()
         .0
         .iter()
         .filter_map(|w| w.upgrade())
-        .find(|p| p.read(cx).path == path);
+        .find(|p| p.read(cx).window_id == win && p.read(cx).path == path);
     if let Some(panel) = existing {
         let (group, focus) = {
             let p = panel.read(cx);
@@ -69,7 +81,7 @@ pub fn open_path(path: PathBuf, window: &mut Window, cx: &mut App) {
         focus.focus(window, cx);
         return;
     }
-    let Some(dock) = cx.try_global::<EditorHost>().and_then(|h| h.dock.upgrade()) else {
+    let Some(dock) = host(window, cx) else {
         log::error!("open_path before the dock exists");
         return;
     };
@@ -92,9 +104,9 @@ pub(crate) fn select_tab_of(group: Option<WeakEntity<TabGroup>>, panel: EntityId
 }
 
 /// The active editor's file and selection, for "send editor context".
-fn editor_context(cx: &App) -> Option<pide_core::context::EditorContext> {
+fn editor_context(window: &Window, cx: &App) -> Option<pide_core::context::EditorContext> {
     use gpui_kit::component::input::RopeExt as _;
-    let services = Services::global(cx);
+    let services = Services::for_window(window.window_handle().window_id(), cx)?;
     let ws = services.workspace.read(cx);
     let active = ws.active()?.clone();
     let panel = cx.global::<OpenEditors>().0.iter().filter_map(|w| w.upgrade()).find(|p| p.read(cx).buffer.as_ref() == Some(&active))?;
@@ -120,7 +132,7 @@ fn editor_context(cx: &App) -> Option<pide_core::context::EditorContext> {
 }
 
 fn save_active(window: &mut Window, cx: &mut App) {
-    let workspace = Services::global(cx).workspace;
+    let workspace = Services::of(window, cx).workspace;
     let Some(buffer) = workspace.read(cx).active().cloned() else { return };
     let task = workspace.update(cx, |w, cx| w.save(&buffer, cx));
     window
@@ -149,6 +161,8 @@ pub(crate) fn language_for(path: &Path) -> &'static str {
 
 pub struct EditorPanel {
     path: PathBuf,
+    /// The project window this tab lives in.
+    window_id: WindowId,
     buffer: Option<Entity<Buffer>>,
     editor: Entity<EditorState>,
     workspace: Entity<Workspace>,
@@ -168,7 +182,7 @@ impl EventEmitter<PanelEvent> for EditorPanel {}
 
 impl EditorPanel {
     fn new(path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let workspace = Services::global(cx).workspace;
+        let workspace = Services::of(window, cx).workspace;
         let editor = cx.new(|cx| {
             let mut state = EditorState::new(window, cx)
                 .language(language_for(&path).to_string())
@@ -197,6 +211,7 @@ impl EditorPanel {
 
         let mut this = Self {
             path: path.clone(),
+            window_id: window.window_handle().window_id(),
             buffer: None,
             editor,
             workspace: workspace.clone(),
@@ -477,12 +492,13 @@ pub fn run_benchmark(path: PathBuf, window: &mut Window, cx: &mut App) {
         .spawn(cx, async move |cx| {
             use std::time::{Duration, Instant};
             cx.background_executor().timer(Duration::from_secs(3)).await;
-            let Ok(Some(editor)) = cx.update(|_, cx| {
+            let Ok(Some(editor)) = cx.update(|window, cx| {
+                let win = window.window_handle().window_id();
                 cx.global::<OpenEditors>()
                     .0
                     .iter()
                     .filter_map(|w| w.upgrade())
-                    .find(|p| p.read(cx).path.ends_with(path.file_name().unwrap_or_default()))
+                    .find(|p| p.read(cx).window_id == win && p.read(cx).path.ends_with(path.file_name().unwrap_or_default()))
                     .map(|p| p.read(cx).editor.clone())
             }) else {
                 log::error!("bench: editor not found");
