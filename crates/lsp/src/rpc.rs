@@ -184,10 +184,10 @@ pub async fn read_message<R: AsyncRead + Unpin>(
             }
             continue; // stray blank line between messages
         }
-        if let Some((name, value)) = header.split_once(':') {
-            if name.trim().eq_ignore_ascii_case("content-length") {
-                length = value.trim().parse().ok();
-            }
+        if let Some((name, value)) = header.split_once(':')
+            && name.trim().eq_ignore_ascii_case("content-length")
+        {
+            length = value.trim().parse().ok();
         }
     }
     let mut body = vec![0; length.unwrap_or(0)];

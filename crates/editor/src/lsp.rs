@@ -199,12 +199,12 @@ impl CompletionProvider for Providers {
         let query = trigger.trigger_character.clone().unwrap_or_default();
         let cursor = offset;
         let triggers = self.trigger_characters(cx);
-        let context = if !query.is_empty() && triggers.iter().any(|t| *t == query) {
+        let context = if !query.is_empty() && triggers.contains(&query) {
             json!({ "triggerKind": 2, "triggerCharacter": query })
         } else {
             json!({ "triggerKind": 1 })
         };
-        let word = if triggers.iter().any(|t| *t == query) {
+        let word = if triggers.contains(&query) {
             String::new()
         } else {
             query

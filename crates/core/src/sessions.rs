@@ -67,15 +67,14 @@ impl Sessions {
         name: Option<String>,
         cx: &mut Context<Self>,
     ) -> Entity<Agent> {
-        if let Some(path) = &resume {
-            if let Some(i) = self
+        if let Some(path) = &resume
+            && let Some(i) = self
                 .list
                 .iter()
                 .position(|a| a.read(cx).session_file.as_ref() == Some(path))
-            {
-                self.set_active(i, cx);
-                return self.list[i].clone();
-            }
+        {
+            self.set_active(i, cx);
+            return self.list[i].clone();
         }
         let backend = (self.factory)(resume.clone());
         let agent = cx.new(|_| {
@@ -250,16 +249,17 @@ fn summarize(path: &Path) -> Option<(Option<String>, String)> {
     for line in std::io::BufReader::new(file).lines().map_while(Result::ok) {
         // Cheap pre-filter: most lines are large assistant/tool messages.
         if line.contains("\"session_info\"") {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
-                if let Some(n) = v.get("name").and_then(|n| n.as_str()) {
-                    name = Some(n.to_string());
-                }
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line)
+                && let Some(n) = v.get("name").and_then(|n| n.as_str())
+            {
+                name = Some(n.to_string());
             }
-        } else if preview.is_none() && line.contains("\"role\":\"user\"") {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
-                preview = crate::sessions::user_text(&v["message"])
-                    .map(|t| crate::context::split_prompt(&t).1.to_string());
-            }
+        } else if preview.is_none()
+            && line.contains("\"role\":\"user\"")
+            && let Ok(v) = serde_json::from_str::<serde_json::Value>(&line)
+        {
+            preview = crate::sessions::user_text(&v["message"])
+                .map(|t| crate::context::split_prompt(&t).1.to_string());
         }
     }
     Some((name, preview?))

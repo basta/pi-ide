@@ -412,7 +412,7 @@ impl AgentChat {
         self.views.retain(|id, _| ids.contains(id));
         for agent in agents {
             let id = agent.entity_id();
-            if !self.agent_subs.contains_key(&id) {
+            self.agent_subs.entry(id).or_insert_with(|| {
                 let sub = cx.subscribe_in(
                     &agent,
                     window,
@@ -420,14 +420,14 @@ impl AgentChat {
                         this.on_agent_event(agent.clone(), ev, window, cx)
                     },
                 );
-                self.agent_subs.insert(id, sub);
-            }
+                sub
+            });
             let view = self.views.entry(id).or_default();
-            if !view.history_requested {
-                if let Some(file) = agent.read(cx).session_file.clone() {
-                    view.history_requested = true;
-                    self.load_history(id, agent.downgrade(), file, cx);
-                }
+            if !view.history_requested
+                && let Some(file) = agent.read(cx).session_file.clone()
+            {
+                view.history_requested = true;
+                self.load_history(id, agent.downgrade(), file, cx);
             }
         }
         cx.notify();
@@ -664,14 +664,12 @@ impl AgentChat {
                     last_index,
                     ..
                 }) = items.last_mut()
+                    && last_index.is_some()
+                    && !text.ends_with(content.as_str())
+                    && !content.is_empty()
                 {
-                    if last_index.is_some()
-                        && !text.ends_with(content.as_str())
-                        && !content.is_empty()
-                    {
-                        *text = content.clone();
-                        markdown.update(cx, |m, cx| m.set_text(content, cx));
-                    }
+                    *text = content.clone();
+                    markdown.update(cx, |m, cx| m.set_text(content, cx));
                 }
             }
             AgentEvent::ThinkingDelta { delta, .. } => {

@@ -41,10 +41,10 @@ pub fn list_files(root: &Path) -> Vec<String> {
         if out.len() >= MAX_FILES {
             break;
         }
-        if entry.file_type().is_some_and(|t| t.is_file()) {
-            if let Ok(rel) = entry.path().strip_prefix(root) {
-                out.push(rel.to_string_lossy().to_string());
-            }
+        if entry.file_type().is_some_and(|t| t.is_file())
+            && let Ok(rel) = entry.path().strip_prefix(root)
+        {
+            out.push(rel.to_string_lossy().to_string());
         }
     }
     out.sort_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
@@ -91,10 +91,10 @@ fn refresh(window: &Window, cx: &mut App) {
     let root = services.workspace.read(cx).root().to_path_buf();
     if !cx.default_global::<Indexes>().0.contains_key(&id) {
         let sub = cx.subscribe(&services.workspace, move |_, ev: &WorkspaceEvent, cx| {
-            if matches!(ev, WorkspaceEvent::TreeChanged) {
-                if let Some(ix) = cx.default_global::<Indexes>().0.get_mut(&id) {
-                    ix.stale = true;
-                }
+            if matches!(ev, WorkspaceEvent::TreeChanged)
+                && let Some(ix) = cx.default_global::<Indexes>().0.get_mut(&id)
+            {
+                ix.stale = true;
             }
         });
         cx.default_global::<Indexes>().0.insert(
@@ -117,7 +117,7 @@ fn refresh(window: &Window, cx: &mut App) {
         .spawn(async move { list_files(&root) });
     cx.spawn(async move |cx| {
         let files = task.await;
-        let _ = cx.update(|cx| {
+        cx.update(|cx| {
             if let Some(ix) = cx.default_global::<Indexes>().0.get_mut(&id) {
                 ix.files = Rc::new(files);
                 ix.stale = false;

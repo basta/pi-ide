@@ -63,7 +63,7 @@ pub(crate) fn set_text(
                     return;
                 };
                 editor.update(cx, |e, cx| {
-                    if e.text().len() == old.len() && e.text().to_string() == old {
+                    if e.text().len() == old.len() && *e.text() == old {
                         e.set_readonly(false, cx);
                         apply(e, edits, window, cx);
                     }

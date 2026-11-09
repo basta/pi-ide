@@ -217,7 +217,7 @@ pub fn prompt_open(cx: &mut App) {
             }
             _ => None,
         };
-        let _ = cx.update(|cx| match folder {
+        cx.update(|cx| match folder {
             Some(folder) => open(folder, cx),
             None if cx.windows().is_empty() => cx.quit(),
             None => {}

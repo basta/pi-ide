@@ -191,7 +191,7 @@ fn render(
     let rgba = bitmap.as_image().map_err(|e| e.to_string())?.into_rgba8();
     let (width, height) = rgba.dimensions();
     let mut bgra = rgba.into_raw();
-    for px in bgra.chunks_exact_mut(4) {
+    for px in bgra.as_chunks_mut::<4>().0 {
         px.swap(0, 2);
     }
     Ok(Bitmap {

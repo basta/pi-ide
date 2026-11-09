@@ -129,7 +129,7 @@ fn watch_keymap(cx: &mut App) {
                     {
                         continue;
                     }
-                    let _ = cx.update(|cx| {
+                    cx.update(|cx| {
                         let errors = keymap::apply(cx);
                         let note = if errors.is_empty() {
                             Notification::info("Keymap reloaded.")

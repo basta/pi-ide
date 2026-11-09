@@ -47,11 +47,11 @@ pub fn apply(cx: &mut App) -> Vec<String> {
         Ok(text) => match serde_json::from_str::<BTreeMap<String, Option<String>>>(&text) {
             Ok(user) => {
                 for (key, cmd) in user {
-                    if let Some(cmd) = &cmd {
-                        if !CommandRegistry::contains(cx, cmd) {
-                            errors.push(format!("keymap: \"{key}\" -> unknown command \"{cmd}\""));
-                            continue;
-                        }
+                    if let Some(cmd) = &cmd
+                        && !CommandRegistry::contains(cx, cmd)
+                    {
+                        errors.push(format!("keymap: \"{key}\" -> unknown command \"{cmd}\""));
+                        continue;
                     }
                     map.insert(key, cmd);
                 }

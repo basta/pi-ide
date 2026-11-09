@@ -291,7 +291,7 @@ impl Render for DiffPanel {
         let theme = cx.theme().clone();
         let header = self.req.as_ref().map(|r| {
             let root = &self.root;
-            let rel: PathBuf = r.path.strip_prefix(&root).unwrap_or(&r.path).to_path_buf();
+            let rel: PathBuf = r.path.strip_prefix(root).unwrap_or(&r.path).to_path_buf();
             (
                 rel.display().to_string(),
                 r.label.clone(),

@@ -30,9 +30,8 @@ impl EditorContext {
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
-        if self.start == self.end {
-            format!("{name}:{}", self.start.0)
-        } else if self.start.0 == self.end.0 {
+        // A cursor, or a selection within one line: just the line.
+        if self.start.0 == self.end.0 {
             format!("{name}:{}", self.start.0)
         } else {
             format!("{name} {}–{}", self.start.0, self.end.0)

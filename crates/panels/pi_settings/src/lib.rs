@@ -403,10 +403,7 @@ fn resource_name(kind: &str, path: &std::path::Path) -> String {
     };
     match kind {
         "skill" if path.file_name().is_some_and(|n| n == "SKILL.md") => {
-            format!(
-                "skill:{}",
-                path.parent().map(|d| stem(d)).unwrap_or_default()
-            )
+            format!("skill:{}", path.parent().map(&stem).unwrap_or_default())
         }
         "skill" => format!("skill:{}", stem(path)),
         _ => stem(path),

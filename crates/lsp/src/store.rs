@@ -221,26 +221,24 @@ impl LspStore {
             }
             WorkspaceEvent::BufferSaved(b) => {
                 let path = b.read(cx).path.clone();
-                if let Some(doc) = self.docs.get(&path).filter(|d| d.opened) {
-                    if let Some(rpc) = self.servers.get(doc.server).and_then(|s| s.rpc.clone()) {
-                        rpc.notify(
-                            "textDocument/didSave",
-                            json!({ "textDocument": { "uri": file_uri(&path) } }),
-                        );
-                    }
+                if let Some(doc) = self.docs.get(&path).filter(|d| d.opened)
+                    && let Some(rpc) = self.servers.get(doc.server).and_then(|s| s.rpc.clone())
+                {
+                    rpc.notify(
+                        "textDocument/didSave",
+                        json!({ "textDocument": { "uri": file_uri(&path) } }),
+                    );
                 }
             }
             WorkspaceEvent::BufferClosed(path) => {
-                if let Some(doc) = self.docs.remove(path) {
-                    if doc.opened {
-                        if let Some(rpc) = self.servers.get(doc.server).and_then(|s| s.rpc.clone())
-                        {
-                            rpc.notify(
-                                "textDocument/didClose",
-                                json!({ "textDocument": { "uri": file_uri(path) } }),
-                            );
-                        }
-                    }
+                if let Some(doc) = self.docs.remove(path)
+                    && doc.opened
+                    && let Some(rpc) = self.servers.get(doc.server).and_then(|s| s.rpc.clone())
+                {
+                    rpc.notify(
+                        "textDocument/didClose",
+                        json!({ "textDocument": { "uri": file_uri(path) } }),
+                    );
                 }
             }
             _ => {}

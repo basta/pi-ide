@@ -509,11 +509,11 @@ impl EditorPanel {
         let store = pide_lsp::LspStore::for_workspace(&self.workspace, cx);
         self._subs
             .push(cx.subscribe_in(&store, window, |this, store, ev, _, cx| {
-                if let pide_lsp::LspEvent::Diagnostics { path } = ev {
-                    if *path == this.path {
-                        this.diag_edits.clear();
-                        this.apply_diagnostics(store, cx);
-                    }
+                if let pide_lsp::LspEvent::Diagnostics { path } = ev
+                    && *path == this.path
+                {
+                    this.diag_edits.clear();
+                    this.apply_diagnostics(store, cx);
                 }
             }));
         self.apply_diagnostics(&store, cx);
@@ -796,11 +796,11 @@ impl gpui_kit::component::dock::BasePanel for EditorPanel {
             .0
             .retain(|w| w.upgrade().is_some_and(|p| p.entity_id() != me));
         // Keep a dirty buffer open in the workspace so reopening the file keeps the edits.
-        if let Some(b) = &self.buffer {
-            if !b.read(cx).is_dirty() {
-                let b = b.clone();
-                self.workspace.update(cx, |w, cx| w.close(&b, cx));
-            }
+        if let Some(b) = &self.buffer
+            && !b.read(cx).is_dirty()
+        {
+            let b = b.clone();
+            self.workspace.update(cx, |w, cx| w.close(&b, cx));
         }
     }
 
