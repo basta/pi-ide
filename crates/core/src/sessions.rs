@@ -193,6 +193,7 @@ pub struct SavedSession {
 }
 
 /// `~/.pi/agent/sessions/--<cwd without leading /, separators as ->--/`
+/// (or under `$PI_CODING_AGENT_DIR`)
 /// (format: pi `docs/session-format.md`).
 pub fn pi_session_dir(cwd: &Path) -> PathBuf {
     let s = cwd.to_string_lossy();
@@ -207,10 +208,17 @@ pub fn pi_session_dir(cwd: &Path) -> PathBuf {
             }
         })
         .collect();
-    let home = std::env::var_os("HOME")
+    // pi's agent folder: `$PI_CODING_AGENT_DIR` if set (pi honours it), else ~/.pi/agent.
+    let agent_dir = std::env::var_os("PI_CODING_AGENT_DIR")
         .map(PathBuf::from)
-        .unwrap_or_default();
-    home.join(".pi/agent/sessions").join(format!("--{enc}--"))
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(|| {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default()
+                .join(".pi/agent")
+        });
+    agent_dir.join("sessions").join(format!("--{enc}--"))
 }
 
 /// Saved sessions for `cwd`, newest first. Blocking: call on a background thread.
