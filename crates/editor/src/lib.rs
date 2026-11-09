@@ -5,6 +5,7 @@
 pub mod diff_panel;
 mod follow;
 mod git_gutter;
+mod goto_line;
 mod lsp;
 mod minimal;
 mod nav;
@@ -123,6 +124,13 @@ pub fn init(cx: &mut App) {
                 ),
             }
         },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("editor.goto_line", "Navigate: Go to Line…")
+            .key("cmd-l")
+            .in_context(pide_core::commands::EDITOR),
+        goto_line::open,
     );
     CommandRegistry::register(
         cx,
