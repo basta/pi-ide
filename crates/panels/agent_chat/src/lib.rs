@@ -89,7 +89,8 @@ enum ToolState {
 }
 
 enum Item {
-    User(String),
+    /// (editor-context chip, the user's text)
+    User(Option<String>, String),
     Assistant {
         markdown: Entity<TextViewState>,
         text: String,
@@ -263,6 +264,11 @@ impl AgentChat {
                 cx.emit(PanelEvent::LayoutChanged); // open sessions are part of the saved layout
             }),
             cx.observe(&sessions, |_, _, cx| cx.notify()),
+            cx.subscribe(&Services::global(cx).workspace, |_, _, ev: &pide_core::WorkspaceEvent, cx| {
+                if matches!(ev, pide_core::WorkspaceEvent::ActiveBufferChanged) {
+                    cx.notify();
+                }
+            }),
         ];
         let mut this = Self {
             sessions,
@@ -316,7 +322,10 @@ impl AgentChat {
                 let mut items: Vec<Item> = hist
                     .into_iter()
                     .map(|h| match h {
-                        HistItem::User(t) => Item::User(t),
+                        HistItem::User(t) => {
+                            let (chip, text) = pide_core::context::split_prompt(&t);
+                            Item::User(chip, text.to_string())
+                        }
                         HistItem::Text(t) => Item::Assistant {
                             markdown: cx.new(|cx| TextViewState::markdown(&t, cx)),
                             text: t,
@@ -377,8 +386,32 @@ impl AgentChat {
         if agent.read(cx).is_busy() {
             agent.update(cx, |a, cx| a.queue(text, follow_up, cx));
         } else {
+            // New prompts carry the editor context (when the toggle is on).
+            let text = match self.send_context(cx).then(|| pide_core::context::current(cx)).flatten() {
+                Some(ctx) => format!("{}{text}", ctx.block()),
+                None => text,
+            };
             agent.update(cx, |a, cx| a.prompt(text, cx));
         }
+    }
+
+    fn send_context(&self, cx: &App) -> bool {
+        cx.try_global::<pide_core::settings::Settings>().is_none_or(|s| s.send_context)
+    }
+
+    fn toggle_context(&mut self, cx: &mut Context<Self>) {
+        let on = !self.send_context(cx);
+        if cx.has_global::<pide_core::settings::Settings>() {
+            cx.global_mut::<pide_core::settings::Settings>().send_context = on;
+        }
+        cx.background_executor()
+            .spawn(async move {
+                if let Err(e) = pide_core::settings::save_key("agent.send_context", serde_json::json!(on)) {
+                    log::error!("save settings: {e}");
+                }
+            })
+            .detach();
+        cx.notify();
     }
 
     fn on_agent_event(&mut self, agent: Entity<Agent>, ev: &AgentEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -400,7 +433,10 @@ impl AgentChat {
         let Some(view) = self.views.get_mut(&agent.entity_id()) else { return };
         let items = &mut view.items;
         match ev {
-            AgentEvent::UserPrompt { text } => items.push(Item::User(text.clone())),
+            AgentEvent::UserPrompt { text } => {
+                let (chip, text) = pide_core::context::split_prompt(text);
+                items.push(Item::User(chip, text.to_string()));
+            }
             AgentEvent::AssistantStart => {
                 let markdown = cx.new(|cx| TextViewState::markdown("", cx));
                 items.push(Item::Assistant {
@@ -997,9 +1033,23 @@ impl AgentChat {
     fn render_item(&self, view: &SessionView, ix: usize, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme();
         match &view.items[ix] {
-            Item::User(text) => {
-                div().px_3().py_2().rounded(theme.radius).bg(theme.secondary).child(text.clone()).into_any_element()
-            }
+            Item::User(chip, text) => v_flex()
+                .gap_1()
+                .px_3()
+                .py_2()
+                .rounded(theme.radius)
+                .bg(theme.secondary)
+                .when_some(chip.clone(), |this, c| {
+                    this.child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .font_family(theme.mono_font_family.clone())
+                            .child(format!("⌁ {c}")),
+                    )
+                })
+                .child(text.clone())
+                .into_any_element(),
             Item::Assistant { markdown, thinking, thinking_open, error, .. } => v_flex()
                 .gap_1()
                 .when(!thinking.is_empty(), |this| {
@@ -1213,7 +1263,23 @@ impl AgentChat {
                             .on_action(cx.listener(|this, _: &QueueFollowUp, window, cx| this.send(true, window, cx)))
                             .child(Textarea::new(&self.input)),
                     )
-                    .child(h_flex().justify_end().gap_2().when(busy, |this| {
+                    .child(h_flex().justify_between().gap_2().child({
+                        let on = self.send_context(cx);
+                        let label = match (on, pide_core::context::current(cx)) {
+                            (false, _) => "No editor context".to_string(),
+                            (true, Some(c)) => format!(
+                                "⌁ Context: {} + selection",
+                                c.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+                            ),
+                            (true, None) => "⌁ Context: no file open".to_string(),
+                        };
+                        Button::new("context-toggle")
+                            .xsmall()
+                            .label(label)
+                            .when(on, |b| b.primary())
+                            .tooltip("Send the active file and selection with new prompts")
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_context(cx)))
+                    }).when(busy, |this| {
                         this.child(Button::new("stop").small().danger().label("Stop").on_click(
                             cx.listener(|this, _, _, cx| this.active(cx).update(cx, |a, cx| a.abort(cx))),
                         ))

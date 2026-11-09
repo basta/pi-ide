@@ -34,6 +34,7 @@ impl Global for OpenEditors {}
 pub fn init(cx: &mut App) {
     cx.set_global(OpenEditors::default());
     diff_panel::init(cx);
+    cx.set_global(pide_core::context::EditorContextSource(std::rc::Rc::new(editor_context)));
 
     // Rebuild editor tabs from a saved layout.
     register_panel(cx, PANEL_NAME, |ctx, window, cx| {
@@ -71,6 +72,34 @@ pub fn open_path(path: PathBuf, window: &mut Window, cx: &mut App) {
     dock.update(cx, |d, cx| d.add_panel_view(panel_handle(panel.clone()), DockPlacement::Center, None, window, cx));
     let focus = panel.read(cx).focus.clone();
     window.defer(cx, move |window, cx| focus.focus(window, cx));
+}
+
+/// The active editor's file and selection, for "send editor context".
+fn editor_context(cx: &App) -> Option<pide_core::context::EditorContext> {
+    use gpui_kit::component::input::RopeExt as _;
+    let services = Services::global(cx);
+    let ws = services.workspace.read(cx);
+    let active = ws.active()?.clone();
+    let panel = cx.global::<OpenEditors>().0.iter().filter_map(|w| w.upgrade()).find(|p| p.read(cx).buffer.as_ref() == Some(&active))?;
+    let panel = panel.read(cx);
+    let state = panel.editor.read(cx);
+    let range = state.selected_range();
+    let text = state.text();
+    let pos = |offset: usize| {
+        let p = text.offset_to_position(offset);
+        (p.line + 1, p.character + 1)
+    };
+    let selected_bytes = range.end - range.start;
+    let selected = (selected_bytes > 0 && selected_bytes <= pide_core::context::MAX_SELECTION_BYTES)
+        .then(|| state.selected_text().to_string());
+    Some(pide_core::context::EditorContext {
+        path: panel.path.strip_prefix(ws.root()).unwrap_or(&panel.path).to_path_buf(),
+        start: pos(range.start),
+        end: pos(range.end),
+        selected,
+        selected_bytes,
+        language: language_for(&panel.path),
+    })
 }
 
 fn save_active(window: &mut Window, cx: &mut App) {

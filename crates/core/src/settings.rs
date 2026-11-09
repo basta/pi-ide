@@ -16,10 +16,20 @@ pub enum ThemeSetting {
     System,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Settings {
     pub theme: ThemeSetting,
+    /// Prepend the active file / selection to prompts (spec: "send editor context"). Default on.
+    pub send_context: bool,
 }
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self { theme: ThemeSetting::default(), send_context: true }
+    }
+}
+
+impl gpui_kit::Global for Settings {}
 
 pub fn settings_file() -> std::path::PathBuf {
     paths::config_dir().join("settings.json")
@@ -40,7 +50,8 @@ pub fn load() -> Settings {
         .get("theme")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
-    Settings { theme }
+    let send_context = raw.get("agent.send_context").and_then(|v| v.as_bool()).unwrap_or(true);
+    Settings { theme, send_context }
 }
 
 /// Persist one key, keeping everything else in the file. Call off the UI thread.

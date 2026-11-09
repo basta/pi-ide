@@ -41,7 +41,9 @@ fn main() {
 
     gpui_kit::application().with_assets(Assets).run(move |cx| {
         gpui_kit::init(cx);
-        theme::apply(pide_core::settings::load().theme, None, cx);
+        let settings = pide_core::settings::load();
+        theme::apply(settings.theme, None, cx);
+        cx.set_global(settings);
 
         let workspace = cx.new(|cx| Workspace::new(root.clone(), cx));
         let factory_root = root.clone();

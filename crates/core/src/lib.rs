@@ -6,6 +6,7 @@ pub mod agent;
 pub mod buffer;
 pub mod changes;
 pub mod commands;
+pub mod context;
 pub mod events;
 pub mod fswatch;
 pub mod keymap;
