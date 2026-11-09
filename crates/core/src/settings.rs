@@ -26,6 +26,9 @@ pub struct Settings {
     /// `"agent.notify"`: a desktop notification when pi finishes or asks while
     /// pide isn't the active app. Default on.
     pub notify: bool,
+    /// `"agent.save_before_send"`: save unsaved files before a prompt goes to the
+    /// agent, which reads files from disk. Default on.
+    pub save_before_send: bool,
 }
 
 impl Default for Settings {
@@ -35,6 +38,7 @@ impl Default for Settings {
             send_context: true,
             lsp: None,
             notify: true,
+            save_before_send: true,
         }
     }
 }
@@ -70,6 +74,10 @@ pub fn load() -> Settings {
         lsp: raw.get("lsp").cloned(),
         notify: raw
             .get("agent.notify")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true),
+        save_before_send: raw
+            .get("agent.save_before_send")
             .and_then(|v| v.as_bool())
             .unwrap_or(true),
     }

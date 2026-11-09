@@ -9,5 +9,6 @@ publish.workspace = true
 gpui-kit.workspace = true
 pide-core.workspace = true
 pide-runtime.workspace = true
+anyhow.workspace = true
 log.workspace = true
 serde_json.workspace = true

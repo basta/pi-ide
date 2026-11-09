@@ -599,47 +599,77 @@ impl AgentChat {
             return;
         }
         let agent = self.active(cx);
-        if !self.attachments.is_empty() {
-            if agent.read(cx).is_busy() {
-                window.push_notification(
-                    Notification::warning(
-                        "Images go with a new prompt: send them when pi is done.",
-                    ),
-                    cx,
-                );
-                return;
-            }
-            let images: Vec<_> = self.attachments.drain(..).map(|(a, _)| a).collect();
-            let n = images.len();
-            self.input.update(cx, |i, cx| i.set_value("", window, cx));
-            let text = match self
-                .send_context(cx)
-                .then(|| pide_core::context::current(window, cx))
-                .flatten()
-            {
-                Some(ctx) => format!("{}{text}", ctx.block()),
-                None => text,
-            };
-            self.image_notes.insert(agent.entity_id(), n);
-            agent.update(cx, |a, cx| a.prompt_with_images(text, images, cx));
-            cx.notify();
+        let busy = agent.read(cx).is_busy();
+        if !self.attachments.is_empty() && busy {
+            window.push_notification(
+                Notification::warning("Images go with a new prompt: send them when pi is done."),
+                cx,
+            );
             return;
         }
+        let images: Vec<_> = self.attachments.drain(..).map(|(a, _)| a).collect();
         self.input.update(cx, |i, cx| i.set_value("", window, cx));
-        if agent.read(cx).is_busy() {
-            agent.update(cx, |a, cx| a.queue(text, follow_up, cx));
+        // New prompts carry the editor context (when the toggle is on).
+        let context = if busy || !self.send_context(cx) {
+            None
         } else {
-            // New prompts carry the editor context (when the toggle is on).
-            let text = match self
-                .send_context(cx)
-                .then(|| pide_core::context::current(window, cx))
-                .flatten()
-            {
-                Some(ctx) => format!("{}{text}", ctx.block()),
-                None => text,
-            };
-            agent.update(cx, |a, cx| a.prompt(text, cx));
+            pide_core::context::current(window, cx)
+        };
+        let text = match context {
+            Some(ctx) => format!("{}{text}", ctx.block()),
+            None => text,
+        };
+        if !images.is_empty() {
+            self.image_notes.insert(agent.entity_id(), images.len());
         }
+        let deliver = move |cx: &mut App| {
+            agent.update(cx, |a, cx| match (busy, images.is_empty()) {
+                (true, _) => a.queue(text, follow_up, cx),
+                (false, true) => a.prompt(text, cx),
+                (false, false) => a.prompt_with_images(text, images, cx),
+            })
+        };
+        // pi reads files from disk: save unsaved edits first.
+        let saves = self.save_dirty(cx);
+        if saves.is_empty() {
+            deliver(cx);
+            return;
+        }
+        cx.spawn(async move |_, cx| {
+            for t in saves {
+                if let Err(e) = t.await {
+                    log::warn!("save before sending to pi: {e:#}");
+                }
+            }
+            let _ = cx.update(deliver);
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// Save every unsaved, writable file of this project (setting `agent.save_before_send`).
+    fn save_dirty(&self, cx: &mut Context<Self>) -> Vec<Task<anyhow::Result<()>>> {
+        let on = cx
+            .try_global::<pide_core::settings::Settings>()
+            .is_none_or(|s| s.save_before_send);
+        if !on {
+            return Vec::new();
+        }
+        let dirty: Vec<_> = self
+            .workspace
+            .read(cx)
+            .buffers()
+            .iter()
+            .filter(|b| {
+                let b = b.read(cx);
+                b.is_dirty() && b.read_only.is_none()
+            })
+            .cloned()
+            .collect();
+        dirty
+            .iter()
+            .map(|b| self.workspace.update(cx, |w, cx| w.save(b, cx)))
+            .collect()
     }
 
     /// Cmd+V with an image on the clipboard: attach it instead of pasting text.
