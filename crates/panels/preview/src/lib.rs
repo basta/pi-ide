@@ -23,7 +23,10 @@ pub fn init(cx: &mut App) {
 }
 
 pub fn is_markdown(path: &std::path::Path) -> bool {
-    matches!(path.extension().and_then(|e| e.to_str()), Some("md" | "markdown" | "mdx"))
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("md" | "markdown" | "mdx")
+    )
 }
 
 pub struct MarkdownPreview {
@@ -41,7 +44,15 @@ impl EventEmitter<PanelEvent> for MarkdownPreview {}
 impl MarkdownPreview {
     pub fn new(path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let view = cx.new(|cx| TextViewState::markdown("", cx));
-        let mut this = Self { path: path.clone(), view, error: None, focus: cx.focus_handle(), _load: None, _update: None, _subs: vec![] };
+        let mut this = Self {
+            path: path.clone(),
+            view,
+            error: None,
+            focus: cx.focus_handle(),
+            _load: None,
+            _update: None,
+            _subs: vec![],
+        };
         if path.as_os_str().is_empty() {
             this.error = Some("This preview's file is unknown.".into());
             return this;
@@ -64,7 +75,8 @@ impl MarkdownPreview {
     fn attach(&mut self, buffer: Entity<Buffer>, cx: &mut Context<Self>) {
         let text = buffer.read(cx).text().to_string();
         self.view.update(cx, |v, cx| v.set_text(&text, cx));
-        self._subs.push(cx.observe(&buffer, |this, buffer, cx| this.schedule(buffer, cx)));
+        self._subs
+            .push(cx.observe(&buffer, |this, buffer, cx| this.schedule(buffer, cx)));
         cx.emit(PanelEvent::LayoutChanged);
         cx.notify();
     }
@@ -72,7 +84,9 @@ impl MarkdownPreview {
     /// Re-render shortly after the last change (typing stays smooth in big files).
     fn schedule(&mut self, buffer: Entity<Buffer>, cx: &mut Context<Self>) {
         self._update = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(Duration::from_millis(150)).await;
+            cx.background_executor()
+                .timer(Duration::from_millis(150))
+                .await;
             let _ = this.update(cx, |this, cx| {
                 let text = buffer.read(cx).text().to_string();
                 this.view.update(cx, |v, cx| v.set_text(&text, cx));
@@ -107,7 +121,14 @@ impl gpui_kit::component::dock::Panel for MarkdownPreview {
 
 impl Panel for MarkdownPreview {
     fn title_text(&self, _: &App) -> SharedString {
-        format!("Preview {}", self.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()).into()
+        format!(
+            "Preview {}",
+            self.path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default()
+        )
+        .into()
     }
     fn default_dock(&self) -> DockPosition {
         DockPosition::Center
@@ -126,8 +147,14 @@ impl Render for MarkdownPreview {
             .px_6()
             .py_4()
             .child(match &self.error {
-                Some(e) => div().text_color(theme.muted_foreground).child(e.clone()).into_any_element(),
-                None => div().max_w(px(820.)).child(TextView::new(&self.view).selectable(true)).into_any_element(),
+                Some(e) => div()
+                    .text_color(theme.muted_foreground)
+                    .child(e.clone())
+                    .into_any_element(),
+                None => div()
+                    .max_w(px(820.))
+                    .child(TextView::new(&self.view).selectable(true))
+                    .into_any_element(),
             })
     }
 }

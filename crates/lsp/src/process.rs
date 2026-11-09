@@ -47,7 +47,10 @@ pub fn spawn(spec: &ServerSpec, root: &Path) -> Started {
         let mut child = match tokio::process::Command::new(&command)
             .args(&args)
             .current_dir(&root)
-            .env("PATH", std::env::join_paths(search_path()).unwrap_or_default())
+            .env(
+                "PATH",
+                std::env::join_paths(search_path()).unwrap_or_default(),
+            )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -56,7 +59,11 @@ pub fn spawn(spec: &ServerSpec, root: &Path) -> Started {
         {
             Ok(c) => c,
             Err(e) => {
-                let _ = exit_tx.send(Exit { code: None, stderr_tail: vec![], spawn_error: Some(format!("{}: {e}", command.display())) });
+                let _ = exit_tx.send(Exit {
+                    code: None,
+                    stderr_tail: vec![],
+                    spawn_error: Some(format!("{}: {e}", command.display())),
+                });
                 return;
             }
         };
@@ -70,7 +77,11 @@ pub fn spawn(spec: &ServerSpec, root: &Path) -> Started {
             let tail = tail.clone();
             let path = pide_core::paths::state_dir().join(format!("lsp-{id}-stderr.log"));
             tokio::spawn(async move {
-                let mut file = std::fs::OpenOptions::new().create(true).append(true).open(&path).ok();
+                let mut file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+                    .ok();
                 let mut lines = tokio::io::BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     if let Some(f) = file.as_mut() {
@@ -85,7 +96,10 @@ pub fn spawn(spec: &ServerSpec, root: &Path) -> Started {
             })
         };
 
-        let log = Arc::new(RawLog::open(pide_core::paths::state_dir().join("lsp-rpc.jsonl"), id));
+        let log = Arc::new(RawLog::open(
+            pide_core::paths::state_dir().join("lsp-rpc.jsonl"),
+            id,
+        ));
         tokio::select! {
             _ = rpc::run(stdout, stdin, out_rx, pending, in_tx, log) => {}
             _ = kill_rx => { let _ = child.start_kill(); }
@@ -97,9 +111,18 @@ pub fn spawn(spec: &ServerSpec, root: &Path) -> Started {
         let _ = tokio::time::timeout(Duration::from_millis(200), stderr_task).await;
         let code = status.ok().and_then(|s| s.ok()).and_then(|s| s.code());
         let stderr_tail = tail.lock().unwrap().iter().cloned().collect();
-        let _ = exit_tx.send(Exit { code, stderr_tail, spawn_error: None });
+        let _ = exit_tx.send(Exit {
+            code,
+            stderr_tail,
+            spawn_error: None,
+        });
     });
-    Started { rpc, incoming, exit, kill }
+    Started {
+        rpc,
+        incoming,
+        exit,
+        kill,
+    }
 }
 
 pub fn file_uri(path: &Path) -> String {
@@ -107,7 +130,9 @@ pub fn file_uri(path: &Path) -> String {
     let mut out = String::from("file://");
     for b in path.to_string_lossy().bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -136,7 +161,10 @@ pub fn uri_path(uri: &str) -> Option<std::path::PathBuf> {
 /// What we tell servers we can do. Only what pide actually handles.
 pub fn initialize_params(root: &Path) -> Value {
     let uri = file_uri(root);
-    let name = root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let name = root
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
     json!({
         "processId": std::process::id(),
         "clientInfo": { "name": "pide", "version": env!("CARGO_PKG_VERSION") },
@@ -197,7 +225,10 @@ mod tests {
         let uri = file_uri(p);
         assert_eq!(uri, "file:///Users/ja/My%20Projects/%C4%8Daj/src/main.rs");
         assert_eq!(uri_path(&uri).as_deref(), Some(p));
-        assert_eq!(uri_path("file:///a/b.rs").as_deref(), Some(Path::new("/a/b.rs")));
+        assert_eq!(
+            uri_path("file:///a/b.rs").as_deref(),
+            Some(Path::new("/a/b.rs"))
+        );
         assert_eq!(uri_path("untitled:1"), None);
     }
 }

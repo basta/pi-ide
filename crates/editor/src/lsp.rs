@@ -12,8 +12,8 @@ use gpui_kit::component::input::{
 };
 use gpui_kit::*;
 use lsp_types::{
-    CodeAction, CodeActionOrCommand, CompletionContext, CompletionResponse, CompletionTextEdit, GotoDefinitionResponse,
-    Hover, LocationLink, TextEdit, WorkspaceEdit,
+    CodeAction, CodeActionOrCommand, CompletionContext, CompletionResponse, CompletionTextEdit,
+    GotoDefinitionResponse, Hover, LocationLink, TextEdit, WorkspaceEdit,
 };
 use pide_lsp::LspStore;
 use pide_lsp::convert::{Encoding, TextLines, offset_to_server, range_from_server};
@@ -27,7 +27,10 @@ pub(crate) struct Providers {
 
 impl Providers {
     pub(crate) fn new(store: &Entity<LspStore>, path: PathBuf) -> Rc<Self> {
-        Rc::new(Self { store: store.downgrade(), path })
+        Rc::new(Self {
+            store: store.downgrade(),
+            path,
+        })
     }
 
     fn encoding(&self, cx: &App) -> Option<Encoding> {
@@ -35,14 +38,26 @@ impl Providers {
         store.read(cx).server_for(&self.path).map(|s| s.encoding)
     }
 
-    fn request(&self, text: &Rope, method: &str, params: Value, cx: &mut App) -> Task<Result<Value>> {
+    fn request(
+        &self,
+        text: &Rope,
+        method: &str,
+        params: Value,
+        cx: &mut App,
+    ) -> Task<Result<Value>> {
         self.request_with(Some(text), method, params, cx)
     }
 
     /// `text`: the editor's current text, synced to the server first. `None`
     /// when the caller can't read the editor (GPUI Kit calls some providers
     /// from inside the editor's own update; reading it there panics).
-    fn request_with(&self, text: Option<&Rope>, method: &str, params: Value, cx: &mut App) -> Task<Result<Value>> {
+    fn request_with(
+        &self,
+        text: Option<&Rope>,
+        method: &str,
+        params: Value,
+        cx: &mut App,
+    ) -> Task<Result<Value>> {
         let Some(store) = self.store.upgrade() else {
             return Task::ready(Err(anyhow::anyhow!("project closed")));
         };
@@ -84,7 +99,12 @@ impl Providers {
 /// A server error that just means "stale, ask again" is an empty answer, not a failure.
 fn quiet<T: Default>(r: Result<T>) -> Result<T> {
     match r {
-        Err(e) if e.downcast_ref::<pide_lsp::rpc::RpcError>().is_some_and(pide_lsp::rpc::is_stale) => Ok(T::default()),
+        Err(e)
+            if e.downcast_ref::<pide_lsp::rpc::RpcError>()
+                .is_some_and(pide_lsp::rpc::is_stale) =>
+        {
+            Ok(T::default())
+        }
         other => other,
     }
 }
@@ -98,7 +118,9 @@ impl CompletionProvider for Providers {
         _: &mut Window,
         cx: &mut App,
     ) -> Task<Result<CompletionResponse>> {
-        let Some(enc) = self.encoding(cx) else { return Task::ready(Ok(CompletionResponse::Array(vec![]))) };
+        let Some(enc) = self.encoding(cx) else {
+            return Task::ready(Ok(CompletionResponse::Array(vec![])));
+        };
         // `offset` is the cursor. GPUI Kit puts the word typed since the menu
         // opened in `trigger_character`; the server wants a trigger character
         // only when one was really typed. Servers leave filtering to the
@@ -111,7 +133,11 @@ impl CompletionProvider for Providers {
         } else {
             json!({ "triggerKind": 1 })
         };
-        let word = if triggers.iter().any(|t| *t == query) { String::new() } else { query };
+        let word = if triggers.iter().any(|t| *t == query) {
+            String::new()
+        } else {
+            query
+        };
         let params = json!({
             "textDocument": self.doc(),
             "position": offset_to_server(text, cursor, enc),
@@ -133,7 +159,9 @@ impl CompletionProvider for Providers {
             rank_completions(items, &word);
             for item in items.iter_mut() {
                 match item.text_edit.as_mut() {
-                    Some(CompletionTextEdit::Edit(e)) => e.range = range_from_server(&rope, e.range, enc),
+                    Some(CompletionTextEdit::Edit(e)) => {
+                        e.range = range_from_server(&rope, e.range, enc)
+                    }
                     Some(CompletionTextEdit::InsertAndReplace(e)) => {
                         e.insert = range_from_server(&rope, e.insert, enc);
                         e.replace = range_from_server(&rope, e.replace, enc);
@@ -146,7 +174,9 @@ impl CompletionProvider for Providers {
     }
 
     fn is_completion_trigger(&self, _offset: usize, new_text: &str, cx: &mut App) -> bool {
-        let Some(c) = new_text.chars().last() else { return false };
+        let Some(c) = new_text.chars().last() else {
+            return false;
+        };
         if c.is_alphanumeric() || c == '_' {
             return true;
         }
@@ -155,9 +185,18 @@ impl CompletionProvider for Providers {
 }
 
 impl HoverProvider for Providers {
-    fn hover(&self, text: &Rope, offset: usize, _: &mut Window, cx: &mut App) -> Task<Result<Option<Hover>>> {
-        let Some(enc) = self.encoding(cx) else { return Task::ready(Ok(None)) };
-        let params = json!({ "textDocument": self.doc(), "position": offset_to_server(text, offset, enc) });
+    fn hover(
+        &self,
+        text: &Rope,
+        offset: usize,
+        _: &mut Window,
+        cx: &mut App,
+    ) -> Task<Result<Option<Hover>>> {
+        let Some(enc) = self.encoding(cx) else {
+            return Task::ready(Ok(None));
+        };
+        let params =
+            json!({ "textDocument": self.doc(), "position": offset_to_server(text, offset, enc) });
         let task = self.request(text, "textDocument/hover", params, cx);
         let rope = text.clone();
         cx.background_executor().spawn(async move {
@@ -173,9 +212,18 @@ impl HoverProvider for Providers {
 }
 
 impl DefinitionProvider for Providers {
-    fn definitions(&self, text: &Rope, offset: usize, _: &mut Window, cx: &mut App) -> Task<Result<Vec<LocationLink>>> {
-        let Some(enc) = self.encoding(cx) else { return Task::ready(Ok(vec![])) };
-        let params = json!({ "textDocument": self.doc(), "position": offset_to_server(text, offset, enc) });
+    fn definitions(
+        &self,
+        text: &Rope,
+        offset: usize,
+        _: &mut Window,
+        cx: &mut App,
+    ) -> Task<Result<Vec<LocationLink>>> {
+        let Some(enc) = self.encoding(cx) else {
+            return Task::ready(Ok(vec![]));
+        };
+        let params =
+            json!({ "textDocument": self.doc(), "position": offset_to_server(text, offset, enc) });
         let task = self.request(text, "textDocument/definition", params, cx);
         let rope = text.clone();
         let me = self.path.clone();
@@ -192,11 +240,14 @@ impl DefinitionProvider for Providers {
             Ok(links
                 .into_iter()
                 .map(|mut l| {
-                    l.origin_selection_range = l.origin_selection_range.map(|r| range_from_server(&rope, r, enc));
+                    l.origin_selection_range = l
+                        .origin_selection_range
+                        .map(|r| range_from_server(&rope, r, enc));
                     // Ranges in other files are converted when that file is open (`show_document`).
                     if uri_path(l.target_uri.as_str()).as_deref() == Some(me.as_path()) {
                         l.target_range = range_from_server(&rope, l.target_range, enc);
-                        l.target_selection_range = range_from_server(&rope, l.target_selection_range, enc);
+                        l.target_selection_range =
+                            range_from_server(&rope, l.target_selection_range, enc);
                     }
                     l
                 })
@@ -210,7 +261,12 @@ impl DefinitionProvider for Providers {
 /// `sortText` order. GPUI Kit shows the list as given.
 fn rank_completions(items: &mut Vec<lsp_types::CompletionItem>, word: &str) {
     let word = word.to_lowercase();
-    let key = |i: &lsp_types::CompletionItem| i.filter_text.clone().unwrap_or_else(|| i.label.clone()).to_lowercase();
+    let key = |i: &lsp_types::CompletionItem| {
+        i.filter_text
+            .clone()
+            .unwrap_or_else(|| i.label.clone())
+            .to_lowercase()
+    };
     let subsequence = |hay: &str| {
         let mut chars = hay.chars();
         word.chars().all(|w| chars.any(|h| h == w))
@@ -218,27 +274,43 @@ fn rank_completions(items: &mut Vec<lsp_types::CompletionItem>, word: &str) {
     items.retain(|i| word.is_empty() || subsequence(&key(i)));
     items.sort_by_cached_key(|i| {
         let k = key(i);
-        (!k.starts_with(&word), i.sort_text.clone().unwrap_or_else(|| i.label.clone()))
+        (
+            !k.starts_with(&word),
+            i.sort_text.clone().unwrap_or_else(|| i.label.clone()),
+        )
     });
 }
 
 fn link(l: lsp_types::Location) -> LocationLink {
-    LocationLink { origin_selection_range: None, target_uri: l.uri, target_range: l.range, target_selection_range: l.range }
+    LocationLink {
+        origin_selection_range: None,
+        target_uri: l.uri,
+        target_range: l.range,
+        target_selection_range: l.range,
+    }
 }
 
 /// Go to definition in another file: open it in pide (the editor would only jump inside its own file).
-pub(crate) fn show_document_handler(me: PathBuf) -> gpui_kit::component::input::ShowDocumentHandler {
-    Rc::new(move |params: &lsp_types::ShowDocumentParams, window: &mut Window, cx: &mut App| {
-        let Some(path) = uri_path(params.uri.as_str()) else { return false };
-        if path == me {
-            return false; // same file: the editor moves the cursor itself
-        }
-        // The column is the server's: exact for UTF-32 servers (rust-analyzer), and
-        // for UTF-16 ones on lines without characters outside the BMP.
-        let pos = params.selection.map(|r| r.start).unwrap_or_default();
-        window.defer(cx, move |window, cx| pide_core::opener::open_file_at(path, pos.line, pos.character, window, cx));
-        true
-    })
+pub(crate) fn show_document_handler(
+    me: PathBuf,
+) -> gpui_kit::component::input::ShowDocumentHandler {
+    Rc::new(
+        move |params: &lsp_types::ShowDocumentParams, window: &mut Window, cx: &mut App| {
+            let Some(path) = uri_path(params.uri.as_str()) else {
+                return false;
+            };
+            if path == me {
+                return false; // same file: the editor moves the cursor itself
+            }
+            // The column is the server's: exact for UTF-32 servers (rust-analyzer), and
+            // for UTF-16 ones on lines without characters outside the BMP.
+            let pos = params.selection.map(|r| r.start).unwrap_or_default();
+            window.defer(cx, move |window, cx| {
+                pide_core::opener::open_file_at(path, pos.line, pos.character, window, cx)
+            });
+            true
+        },
+    )
 }
 
 impl CodeActionProvider for Providers {
@@ -253,7 +325,9 @@ impl CodeActionProvider for Providers {
         _: &mut Window,
         cx: &mut App,
     ) -> Task<Result<Vec<CodeAction>>> {
-        let Some(enc) = self.encoding(cx) else { return Task::ready(Ok(vec![])) };
+        let Some(enc) = self.encoding(cx) else {
+            return Task::ready(Ok(vec![]));
+        };
         let rope = state.read(cx).text().clone();
         let start = offset_to_server(&rope, range.start, enc);
         let end = offset_to_server(&rope, range.end, enc);
@@ -262,7 +336,12 @@ impl CodeActionProvider for Providers {
             .store
             .upgrade()
             .and_then(|s| s.read(cx).diagnostics_for(&self.path).cloned())
-            .map(|d| d.items.into_iter().filter(|d| d.range.start.line <= end.line && d.range.end.line >= start.line).collect())
+            .map(|d| {
+                d.items
+                    .into_iter()
+                    .filter(|d| d.range.start.line <= end.line && d.range.end.line >= start.line)
+                    .collect()
+            })
             .unwrap_or_default();
         let params = json!({
             "textDocument": self.doc(),
@@ -283,11 +362,13 @@ impl CodeActionProvider for Providers {
                 .into_iter()
                 .filter_map(|i| match i {
                     CodeActionOrCommand::CodeAction(a) => Some(a),
-                    CodeActionOrCommand::Command(c) if server_commands.contains(&c.command) => Some(CodeAction {
-                        title: c.title.clone(),
-                        command: Some(c),
-                        ..Default::default()
-                    }),
+                    CodeActionOrCommand::Command(c) if server_commands.contains(&c.command) => {
+                        Some(CodeAction {
+                            title: c.title.clone(),
+                            command: Some(c),
+                            ..Default::default()
+                        })
+                    }
                     CodeActionOrCommand::Command(_) => None,
                 })
                 .collect())
@@ -302,11 +383,18 @@ impl CodeActionProvider for Providers {
         window: &mut Window,
         cx: &mut App,
     ) -> Task<Result<()>> {
-        let Some(enc) = self.encoding(cx) else { return Task::ready(Ok(())) };
+        let Some(enc) = self.encoding(cx) else {
+            return Task::ready(Ok(()));
+        };
         // Called from inside `state`'s update: don't read `state` here.
         let _ = &state;
         let resolve = if action.edit.is_none() && action.data.is_some() {
-            Some(self.request_with(None, "codeAction/resolve", serde_json::to_value(&action).unwrap_or_default(), cx))
+            Some(self.request_with(
+                None,
+                "codeAction/resolve",
+                serde_json::to_value(&action).unwrap_or_default(),
+                cx,
+            ))
         } else {
             None
         };
@@ -322,10 +410,17 @@ impl CodeActionProvider for Providers {
                 cx.update(|window, cx| apply_workspace_edit(edit, enc, window, cx))?;
             }
             // Then its command, if the server runs it (it may send workspace/applyEdit back).
-            if let Some(command) = action.command.filter(|c| server_commands.contains(&c.command)) {
+            if let Some(command) = action
+                .command
+                .filter(|c| server_commands.contains(&c.command))
+            {
                 let params = json!({ "command": command.command, "arguments": command.arguments });
                 let task = cx.update(|_, cx| {
-                    store.upgrade().map(|s| s.update(cx, |s, cx| s.request(&path, None, "workspace/executeCommand", params, cx)))
+                    store.upgrade().map(|s| {
+                        s.update(cx, |s, cx| {
+                            s.request(&path, None, "workspace/executeCommand", params, cx)
+                        })
+                    })
                 })?;
                 if let Some(task) = task {
                     task.await?;
@@ -340,7 +435,9 @@ impl CodeActionProvider for Providers {
 fn edits_by_file(edit: WorkspaceEdit) -> Vec<(PathBuf, Vec<TextEdit>)> {
     let mut out: Vec<(PathBuf, Vec<TextEdit>)> = Vec::new();
     let mut add = |uri: &lsp_types::Uri, edits: Vec<TextEdit>| {
-        let Some(path) = uri_path(uri.as_str()) else { return };
+        let Some(path) = uri_path(uri.as_str()) else {
+            return;
+        };
         match out.iter_mut().find(|(p, _)| *p == path) {
             Some((_, e)) => e.extend(edits),
             None => out.push((path, edits)),
@@ -369,7 +466,10 @@ fn edits_by_file(edit: WorkspaceEdit) -> Vec<(PathBuf, Vec<TextEdit>)> {
 
 /// LSP edits refer to the original text: apply them last-first so earlier ones don't shift later ones.
 fn sorted_desc(mut edits: Vec<TextEdit>) -> Vec<TextEdit> {
-    edits.sort_by(|a, b| (b.range.start.line, b.range.start.character).cmp(&(a.range.start.line, a.range.start.character)));
+    edits.sort_by(|a, b| {
+        (b.range.start.line, b.range.start.character)
+            .cmp(&(a.range.start.line, a.range.start.character))
+    });
     edits
 }
 
@@ -403,7 +503,13 @@ pub fn apply_workspace_edit(edit: WorkspaceEdit, enc: Encoding, window: &mut Win
     }
 }
 
-fn apply_to_file(path: PathBuf, edits: Vec<TextEdit>, enc: Encoding, window: &mut Window, cx: &mut App) {
+fn apply_to_file(
+    path: PathBuf,
+    edits: Vec<TextEdit>,
+    enc: Encoding,
+    window: &mut Window,
+    cx: &mut App,
+) {
     let workspace = pide_core::Services::of(window, cx).workspace;
     let open = workspace.update(cx, |w, cx| w.open(path.clone(), cx));
     cx.spawn(async move |cx| {
@@ -449,7 +555,12 @@ fn byte_offset(text: &str, pos: lsp_types::Position) -> usize {
     for (i, line) in text.split_inclusive('\n').enumerate() {
         if i == pos.line as usize {
             let body = line.strip_suffix('\n').unwrap_or(line);
-            return offset + body.char_indices().nth(pos.character as usize).map(|(b, _)| b).unwrap_or(body.len());
+            return offset
+                + body
+                    .char_indices()
+                    .nth(pos.character as usize)
+                    .map(|(b, _)| b)
+                    .unwrap_or(body.len());
         }
         offset += line.len();
     }
@@ -462,27 +573,37 @@ pub(crate) fn find_usages(window: &mut Window, cx: &mut App) {
     use gpui_kit::component::WindowExt as _;
     use gpui_kit::component::input::RopeExt as _;
     use gpui_kit::component::notification::Notification;
-    let Some(panel) = crate::active_panel(window, cx) else { return };
+    let Some(panel) = crate::active_panel(window, cx) else {
+        return;
+    };
     let (path, editor, store) = {
         let p = panel.read(cx);
         (p.path.clone(), p.editor.clone(), p.lsp.clone())
     };
     let Some(store) = store else { return };
     let Some(enc) = store.read(cx).server_for(&path).map(|s| s.encoding) else {
-        window.push_notification(Notification::warning("No language server is running for this file."), cx);
+        window.push_notification(
+            Notification::warning("No language server is running for this file."),
+            cx,
+        );
         return;
     };
     let (rope, offset) = {
         let e = editor.read(cx);
         (e.text().clone(), e.cursor())
     };
-    let word = rope.word_range(offset).map(|r| rope.slice(r).to_string()).unwrap_or_default();
+    let word = rope
+        .word_range(offset)
+        .map(|r| rope.slice(r).to_string())
+        .unwrap_or_default();
     let params = json!({
         "textDocument": { "uri": file_uri(&path) },
         "position": offset_to_server(&rope, offset, enc),
         "context": { "includeDeclaration": true },
     });
-    let task = store.update(cx, |s, cx| s.request(&path, Some(&rope), "textDocument/references", params, cx));
+    let task = store.update(cx, |s, cx| {
+        s.request(&path, Some(&rope), "textDocument/references", params, cx)
+    });
     // Text of open buffers (unsaved edits count), for the lines shown.
     let open: std::collections::HashMap<PathBuf, String> = pide_core::Services::of(window, cx)
         .workspace
@@ -498,18 +619,38 @@ pub(crate) fn find_usages(window: &mut Window, cx: &mut App) {
             let found = cx
                 .background_executor()
                 .spawn(async move {
-                    let mut texts: std::collections::HashMap<PathBuf, String> = std::collections::HashMap::new();
+                    let mut texts: std::collections::HashMap<PathBuf, String> =
+                        std::collections::HashMap::new();
                     let mut out = Vec::new();
                     for r in refs {
-                        let Some(path) = uri_path(r.uri.as_str()) else { continue };
-                        let text = texts
-                            .entry(path.clone())
-                            .or_insert_with(|| open.get(&path).cloned().or_else(|| std::fs::read_to_string(&path).ok()).unwrap_or_default());
+                        let Some(path) = uri_path(r.uri.as_str()) else {
+                            continue;
+                        };
+                        let text = texts.entry(path.clone()).or_insert_with(|| {
+                            open.get(&path)
+                                .cloned()
+                                .or_else(|| std::fs::read_to_string(&path).ok())
+                                .unwrap_or_default()
+                        });
                         let lines = TextLines::new(text);
                         let range = range_from_server(&lines, r.range, enc);
-                        let line = text.split('\n').nth(range.start.line as usize).unwrap_or("").trim_end_matches('\r').to_string();
-                        let byte = |ch: u32| line.char_indices().nth(ch as usize).map(|(b, _)| b).unwrap_or(line.len());
-                        let end_ch = if range.end.line == range.start.line { range.end.character } else { line.chars().count() as u32 };
+                        let line = text
+                            .split('\n')
+                            .nth(range.start.line as usize)
+                            .unwrap_or("")
+                            .trim_end_matches('\r')
+                            .to_string();
+                        let byte = |ch: u32| {
+                            line.char_indices()
+                                .nth(ch as usize)
+                                .map(|(b, _)| b)
+                                .unwrap_or(line.len())
+                        };
+                        let end_ch = if range.end.line == range.start.line {
+                            range.end.character
+                        } else {
+                            line.chars().count() as u32
+                        };
                         out.push(pide_core::opener::Location {
                             path,
                             line: range.start.line,
@@ -518,15 +659,25 @@ pub(crate) fn find_usages(window: &mut Window, cx: &mut App) {
                             text: line,
                         });
                     }
-                    out.sort_by(|a, b| (&a.path, a.line, a.character).cmp(&(&b.path, b.line, b.character)));
+                    out.sort_by(|a, b| {
+                        (&a.path, a.line, a.character).cmp(&(&b.path, b.line, b.character))
+                    });
                     out
                 })
                 .await;
             let _ = cx.update(|window, cx| {
                 if found.is_empty() {
-                    window.push_notification(Notification::info(format!("No usages of {word} found.")), cx);
+                    window.push_notification(
+                        Notification::info(format!("No usages of {word} found.")),
+                        cx,
+                    );
                 } else {
-                    pide_core::opener::show_locations(format!("Usages of {word}").into(), found, window, cx);
+                    pide_core::opener::show_locations(
+                        format!("Usages of {word}").into(),
+                        found,
+                        window,
+                        cx,
+                    );
                 }
             });
         })
@@ -539,7 +690,9 @@ pub(crate) fn find_usages(window: &mut Window, cx: &mut App) {
 pub(crate) fn organize_imports(window: &mut Window, cx: &mut App) {
     use gpui_kit::component::WindowExt as _;
     use gpui_kit::component::notification::Notification;
-    let Some(panel) = crate::active_panel(window, cx) else { return };
+    let Some(panel) = crate::active_panel(window, cx) else {
+        return;
+    };
     let (path, editor, store) = {
         let p = panel.read(cx);
         (p.path.clone(), p.editor.clone(), p.lsp.clone())
@@ -554,7 +707,10 @@ pub(crate) fn organize_imports(window: &mut Window, cx: &mut App) {
             .unwrap_or_default();
         (s.encoding, commands)
     }) else {
-        window.push_notification(Notification::warning("No language server is running for this file."), cx);
+        window.push_notification(
+            Notification::warning("No language server is running for this file."),
+            cx,
+        );
         return;
     };
     let rope = editor.read(cx).text().clone();
@@ -564,16 +720,27 @@ pub(crate) fn organize_imports(window: &mut Window, cx: &mut App) {
         "range": { "start": { "line": 0, "character": 0 }, "end": end },
         "context": { "diagnostics": [], "only": ["source.organizeImports"], "triggerKind": 1 },
     });
-    let actions = store.update(cx, |s, cx| s.request(&path, Some(&rope), "textDocument/codeAction", params, cx));
+    let actions = store.update(cx, |s, cx| {
+        s.request(&path, Some(&rope), "textDocument/codeAction", params, cx)
+    });
     let fallback = commands
         .into_iter()
         .find(|c| c.to_lowercase().ends_with("organizeimports"))
-        .or_else(|| store.read(cx).server_for(&path).and_then(|s| s.spec.organize_imports_command).map(str::to_string));
+        .or_else(|| {
+            store
+                .read(cx)
+                .server_for(&path)
+                .and_then(|s| s.spec.organize_imports_command)
+                .map(str::to_string)
+        });
     let uri = file_uri(&path);
     window
         .spawn(cx, async move |cx| {
-            let actions: Vec<CodeActionOrCommand> =
-                actions.await.ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+            let actions: Vec<CodeActionOrCommand> = actions
+                .await
+                .ok()
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default();
             let action = actions.into_iter().find_map(|a| match a {
                 CodeActionOrCommand::CodeAction(a) => Some(a),
                 CodeActionOrCommand::Command(_) => None,
@@ -581,18 +748,32 @@ pub(crate) fn organize_imports(window: &mut Window, cx: &mut App) {
             let task = cx.update(|_, cx| match (action, fallback) {
                 (Some(action), _) => {
                     let resolve = (action.edit.is_none() && action.data.is_some()).then(|| {
-                        store.update(cx, |s, cx| s.request(&path, None, "codeAction/resolve", serde_json::to_value(&action).unwrap_or_default(), cx))
+                        store.update(cx, |s, cx| {
+                            s.request(
+                                &path,
+                                None,
+                                "codeAction/resolve",
+                                serde_json::to_value(&action).unwrap_or_default(),
+                                cx,
+                            )
+                        })
                     });
                     Some((Some(action), resolve))
                 }
                 (None, Some(command)) => {
                     let params = json!({ "command": command, "arguments": [uri] });
-                    store.update(cx, |s, cx| s.request(&path, None, "workspace/executeCommand", params, cx)).detach();
+                    store
+                        .update(cx, |s, cx| {
+                            s.request(&path, None, "workspace/executeCommand", params, cx)
+                        })
+                        .detach();
                     None
                 }
                 (None, None) => None,
             })?;
-            let Some((Some(action), resolve)) = task else { return Ok::<(), anyhow::Error>(()) };
+            let Some((Some(action), resolve)) = task else {
+                return Ok::<(), anyhow::Error>(());
+            };
             let action = match resolve {
                 Some(t) => serde_json::from_value::<CodeAction>(t.await?)?,
                 None => action,
@@ -610,7 +791,13 @@ mod tests {
     use super::*;
 
     fn edit(sl: u32, sc: u32, el: u32, ec: u32, t: &str) -> TextEdit {
-        TextEdit { range: lsp_types::Range::new(lsp_types::Position::new(sl, sc), lsp_types::Position::new(el, ec)), new_text: t.into() }
+        TextEdit {
+            range: lsp_types::Range::new(
+                lsp_types::Position::new(sl, sc),
+                lsp_types::Position::new(el, ec),
+            ),
+            new_text: t.into(),
+        }
     }
 
     #[::core::prelude::v1::test]
@@ -620,7 +807,12 @@ mod tests {
             sort_text: Some(sort.into()),
             ..Default::default()
         };
-        let mut items = vec![item("self::", "1"), item("crate::", "2"), item("greet", "3"), item("program_greeting", "0")];
+        let mut items = vec![
+            item("self::", "1"),
+            item("crate::", "2"),
+            item("greet", "3"),
+            item("program_greeting", "0"),
+        ];
         rank_completions(&mut items, "gre");
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert_eq!(labels, ["greet", "program_greeting"]);
@@ -630,7 +822,11 @@ mod tests {
     fn edits_apply_last_first_with_utf16_columns() {
         let text = "fn add(a: i32) {}\nlet s = \"😀\"; add(1);\n";
         // Rename `add` in two places; the second is after an emoji (2 UTF-16 units).
-        let out = apply_text_edits(text, vec![edit(0, 3, 0, 6, "sum"), edit(1, 14, 1, 17, "sum")], Encoding::Utf16);
+        let out = apply_text_edits(
+            text,
+            vec![edit(0, 3, 0, 6, "sum"), edit(1, 14, 1, 17, "sum")],
+            Encoding::Utf16,
+        );
         assert_eq!(out, "fn sum(a: i32) {}\nlet s = \"😀\"; sum(1);\n");
     }
 }

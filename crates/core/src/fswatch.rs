@@ -18,7 +18,10 @@ pub struct Changes {
 
 /// Watch `path`. Keep the returned watcher alive; read batches from the receiver
 /// (works from a GPUI `cx.spawn` task). 100 ms debounce keeps reloads well under 500 ms.
-pub fn watch(path: &Path, recursive: bool) -> anyhow::Result<(Watcher, mpsc::UnboundedReceiver<Changes>)> {
+pub fn watch(
+    path: &Path,
+    recursive: bool,
+) -> anyhow::Result<(Watcher, mpsc::UnboundedReceiver<Changes>)> {
     let (tx, rx) = mpsc::unbounded_channel();
     let mut debouncer = new_debouncer(
         Duration::from_millis(100),
@@ -31,7 +34,12 @@ pub fn watch(path: &Path, recursive: bool) -> anyhow::Result<(Watcher, mpsc::Unb
                         continue;
                     }
                     if matches!(e.kind, EventKind::Create(_) | EventKind::Remove(_))
-                        || matches!(e.kind, EventKind::Modify(notify_debouncer_full::notify::event::ModifyKind::Name(_)))
+                        || matches!(
+                            e.kind,
+                            EventKind::Modify(
+                                notify_debouncer_full::notify::event::ModifyKind::Name(_)
+                            )
+                        )
                     {
                         changes.structure_changed = true;
                     }
@@ -52,7 +60,11 @@ pub fn watch(path: &Path, recursive: bool) -> anyhow::Result<(Watcher, mpsc::Unb
             }
         },
     )?;
-    let mode = if recursive { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
+    let mode = if recursive {
+        RecursiveMode::Recursive
+    } else {
+        RecursiveMode::NonRecursive
+    };
     debouncer.watch(path, mode)?;
     Ok((debouncer, rx))
 }

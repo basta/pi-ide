@@ -45,17 +45,36 @@ pub fn decode(bytes: &[u8]) -> Result<Decoded, String> {
         None => (false, bytes),
     };
     let text = std::str::from_utf8(body).map_err(|e| {
-        format!("not valid UTF-8 (first bad byte at offset {})", e.valid_up_to() + if bom { 3 } else { 0 })
+        format!(
+            "not valid UTF-8 (first bad byte at offset {})",
+            e.valid_up_to() + if bom { 3 } else { 0 }
+        )
     })?;
     let crlf = text.matches("\r\n").count();
     let lf = text.matches('\n').count();
     let (line_ending, mixed) = match (crlf, lf - crlf) {
         (0, _) => (LineEnding::Lf, false),
         (_, 0) => (LineEnding::Crlf, false),
-        (c, l) => (if c >= l { LineEnding::Crlf } else { LineEnding::Lf }, true),
+        (c, l) => (
+            if c >= l {
+                LineEnding::Crlf
+            } else {
+                LineEnding::Lf
+            },
+            true,
+        ),
     };
-    let text = if crlf > 0 { text.replace("\r\n", "\n") } else { text.to_string() };
-    Ok(Decoded { text, line_ending, bom, mixed })
+    let text = if crlf > 0 {
+        text.replace("\r\n", "\n")
+    } else {
+        text.to_string()
+    };
+    Ok(Decoded {
+        text,
+        line_ending,
+        bom,
+        mixed,
+    })
 }
 
 /// Encode editor text (`\n` endings) back to file bytes.
@@ -114,7 +133,11 @@ impl Buffer {
                 dirty: false,
                 read_only: None,
                 notice: d.mixed.then(|| {
-                    format!("Mixed line endings; saving will use {} throughout.", d.line_ending.label()).into()
+                    format!(
+                        "Mixed line endings; saving will use {} throughout.",
+                        d.line_ending.label()
+                    )
+                    .into()
                 }),
                 conflict: false,
                 disk_hash,
@@ -196,7 +219,10 @@ mod tests {
         let original = b"one\r\ntwo\r\nthree\r\n";
         let d = decode(original).unwrap();
         let edited = d.text.replace("two", "TWO");
-        assert_eq!(encode(&edited, d.line_ending, d.bom), b"one\r\nTWO\r\nthree\r\n");
+        assert_eq!(
+            encode(&edited, d.line_ending, d.bom),
+            b"one\r\nTWO\r\nthree\r\n"
+        );
     }
 
     #[test]

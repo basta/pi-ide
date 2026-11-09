@@ -27,7 +27,11 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { theme: ThemeSetting::default(), send_context: true, lsp: None }
+        Self {
+            theme: ThemeSetting::default(),
+            send_context: true,
+            lsp: None,
+        }
     }
 }
 
@@ -52,8 +56,15 @@ pub fn load() -> Settings {
         .get("theme")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
-    let send_context = raw.get("agent.send_context").and_then(|v| v.as_bool()).unwrap_or(true);
-    Settings { theme, send_context, lsp: raw.get("lsp").cloned() }
+    let send_context = raw
+        .get("agent.send_context")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    Settings {
+        theme,
+        send_context,
+        lsp: raw.get("lsp").cloned(),
+    }
 }
 
 /// Persist one key, keeping everything else in the file. Call off the UI thread.
@@ -64,5 +75,8 @@ pub fn save_key(key: &str, value: Value) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::write(path, serde_json::to_string_pretty(&Value::Object(raw))? + "\n")
+    std::fs::write(
+        path,
+        serde_json::to_string_pretty(&Value::Object(raw))? + "\n",
+    )
 }

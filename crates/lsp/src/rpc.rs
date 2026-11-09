@@ -35,8 +35,15 @@ pub fn is_stale(e: &RpcError) -> bool {
 /// What the server sends us, besides responses.
 #[derive(Debug)]
 pub enum Incoming {
-    Notification { method: String, params: Value },
-    Request { id: Value, method: String, params: Value },
+    Notification {
+        method: String,
+        params: Value,
+    },
+    Request {
+        id: Value,
+        method: String,
+        params: Value,
+    },
 }
 
 type Pending = Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value, RpcError>>>>>;
@@ -50,7 +57,11 @@ pub struct Rpc {
 }
 
 impl Rpc {
-    pub fn request(&self, method: &str, params: Value) -> oneshot::Receiver<Result<Value, RpcError>> {
+    pub fn request(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> oneshot::Receiver<Result<Value, RpcError>> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap().insert(id, tx);
@@ -88,18 +99,32 @@ impl RawLog {
         if std::fs::metadata(&path).is_ok_and(|m| m.len() > 50 * 1024 * 1024) {
             let _ = std::fs::rename(&path, path.with_extension("jsonl.old"));
         }
-        let file = std::fs::OpenOptions::new().create(true).append(true).open(&path).ok().map(Mutex::new);
-        Self { file, server: server.to_string() }
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .ok()
+            .map(Mutex::new);
+        Self {
+            file,
+            server: server.to_string(),
+        }
     }
 
     pub fn disabled() -> Self {
-        Self { file: None, server: String::new() }
+        Self {
+            file: None,
+            server: String::new(),
+        }
     }
 
     fn write(&self, dir: &str, body: &str) {
         let Some(f) = &self.file else { return };
         let body = clip(body);
-        let ts = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
         let rec = json!({ "ts": ts, "server": self.server, "dir": dir, "body": body });
         if let Ok(mut f) = f.lock() {
             let _ = writeln!(f, "{rec}");
@@ -119,18 +144,32 @@ fn clip(body: &str) -> std::borrow::Cow<'_, str> {
     while !body.is_char_boundary(cut) {
         cut -= 1;
     }
-    std::borrow::Cow::Owned(format!("{}… [{} bytes, clipped in this log]", &body[..cut], body.len()))
+    std::borrow::Cow::Owned(format!(
+        "{}… [{} bytes, clipped in this log]",
+        &body[..cut],
+        body.len()
+    ))
 }
 
 /// A new connection: the `Rpc` handle and the outgoing queue the pump drains.
 pub fn channel() -> (Rpc, mpsc::UnboundedReceiver<String>, Pending) {
     let (out, out_rx) = mpsc::unbounded_channel();
     let pending: Pending = Arc::default();
-    (Rpc { out, pending: pending.clone(), next_id: Arc::new(AtomicI64::new(1)) }, out_rx, pending)
+    (
+        Rpc {
+            out,
+            pending: pending.clone(),
+            next_id: Arc::new(AtomicI64::new(1)),
+        },
+        out_rx,
+        pending,
+    )
 }
 
 /// Read one framed message. `Ok(None)` at a clean end of stream.
-pub async fn read_message<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> std::io::Result<Option<String>> {
+pub async fn read_message<R: AsyncRead + Unpin>(
+    reader: &mut BufReader<R>,
+) -> std::io::Result<Option<String>> {
     let mut length: Option<usize> = None;
     let mut line = String::new();
     loop {
@@ -201,7 +240,10 @@ pub async fn run<R, W>(
         }
     }
     for (_, tx) in pending.lock().unwrap().drain() {
-        let _ = tx.send(Err(RpcError { code: -32099, message: "language server stopped".into() }));
+        let _ = tx.send(Err(RpcError {
+            code: -32099,
+            message: "language server stopped".into(),
+        }));
     }
 }
 
@@ -219,11 +261,17 @@ fn dispatch(v: Value, pending: &Pending, incoming: &mpsc::UnboundedSender<Incomi
         }
         (None, Some(id)) => {
             let Some(id) = id.as_i64() else { return };
-            let Some(tx) = pending.lock().unwrap().remove(&id) else { return };
+            let Some(tx) = pending.lock().unwrap().remove(&id) else {
+                return;
+            };
             let result = match v.get("error") {
                 Some(e) => Err(RpcError {
                     code: e.get("code").and_then(Value::as_i64).unwrap_or(0),
-                    message: e.get("message").and_then(Value::as_str).unwrap_or("error").to_string(),
+                    message: e
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("error")
+                        .to_string(),
                 }),
                 None => Ok(v.get("result").cloned().unwrap_or(Value::Null)),
             };
@@ -243,7 +291,9 @@ mod tests {
         assert_eq!(clip(&small), small);
         let big = "č".repeat(LOG_BODY_MAX); // 2 bytes each
         let c = clip(&big);
-        assert!(c.len() < 3000 && c.ends_with(&format!("[{} bytes, clipped in this log]", big.len())));
+        assert!(
+            c.len() < 3000 && c.ends_with(&format!("[{} bytes, clipped in this log]", big.len()))
+        );
     }
 
     #[tokio::test]
@@ -265,7 +315,14 @@ mod tests {
         let (client_r, client_w) = tokio::io::split(client_side);
         let (rpc, out_rx, pending) = channel();
         let (in_tx, mut in_rx) = mpsc::unbounded_channel();
-        tokio::spawn(run(client_r, client_w, out_rx, pending, in_tx, Arc::new(RawLog::disabled())));
+        tokio::spawn(run(
+            client_r,
+            client_w,
+            out_rx,
+            pending,
+            in_tx,
+            Arc::new(RawLog::disabled()),
+        ));
 
         let answer = rpc.request("initialize", json!({}));
         let (server_r, mut server_w) = {
@@ -273,17 +330,23 @@ mod tests {
             (BufReader::new(r), w)
         };
         let mut server_r = server_r;
-        let sent: Value = serde_json::from_str(&read_message(&mut server_r).await.unwrap().unwrap()).unwrap();
+        let sent: Value =
+            serde_json::from_str(&read_message(&mut server_r).await.unwrap().unwrap()).unwrap();
         assert_eq!(sent["method"], "initialize");
         let id = sent["id"].clone();
         let reply = json!({"jsonrpc":"2.0","id":id,"result":{"capabilities":{}}}).to_string();
         let note = json!({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///a.rs","diagnostics":[]}}).to_string();
         let req = json!({"jsonrpc":"2.0","id":"r1","method":"workspace/configuration","params":{"items":[]}}).to_string();
-        server_w.write_all(format!("{}{}{}", frame(&reply), frame(&note), frame(&req)).as_bytes()).await.unwrap();
+        server_w
+            .write_all(format!("{}{}{}", frame(&reply), frame(&note), frame(&req)).as_bytes())
+            .await
+            .unwrap();
 
         assert_eq!(answer.await.unwrap().unwrap()["capabilities"], json!({}));
         match in_rx.recv().await.unwrap() {
-            Incoming::Notification { method, .. } => assert_eq!(method, "textDocument/publishDiagnostics"),
+            Incoming::Notification { method, .. } => {
+                assert_eq!(method, "textDocument/publishDiagnostics")
+            }
             other => panic!("{other:?}"),
         }
         match in_rx.recv().await.unwrap() {
@@ -301,7 +364,14 @@ mod tests {
         let (client_r, client_w) = tokio::io::split(client_side);
         let (rpc, out_rx, pending) = channel();
         let (in_tx, _in_rx) = mpsc::unbounded_channel();
-        let pump = tokio::spawn(run(client_r, client_w, out_rx, pending, in_tx, Arc::new(RawLog::disabled())));
+        let pump = tokio::spawn(run(
+            client_r,
+            client_w,
+            out_rx,
+            pending,
+            in_tx,
+            Arc::new(RawLog::disabled()),
+        ));
         let answer = rpc.request("textDocument/hover", json!({}));
         drop(server_side);
         pump.await.unwrap();

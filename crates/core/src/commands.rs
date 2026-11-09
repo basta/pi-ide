@@ -38,7 +38,12 @@ pub const EDITOR: &str = "Input && mode == editor";
 
 impl CommandSpec {
     pub fn new(id: &'static str, title: impl Into<SharedString>) -> Self {
-        Self { id, title: title.into(), default_key: None, key_context: None }
+        Self {
+            id,
+            title: title.into(),
+            default_key: None,
+            key_context: None,
+        }
     }
 
     pub fn key(mut self, keystrokes: &'static str) -> Self {
@@ -107,11 +112,14 @@ impl CommandRegistry {
     }
 
     pub fn contains(cx: &App, id: &str) -> bool {
-        cx.try_global::<Self>().is_some_and(|r| r.handlers.contains_key(id))
+        cx.try_global::<Self>()
+            .is_some_and(|r| r.handlers.contains_key(id))
     }
 
     /// All commands, in registration order.
     pub fn all(cx: &App) -> Vec<CommandSpec> {
-        cx.try_global::<Self>().map(|r| r.specs.clone()).unwrap_or_default()
+        cx.try_global::<Self>()
+            .map(|r| r.specs.clone())
+            .unwrap_or_default()
     }
 }

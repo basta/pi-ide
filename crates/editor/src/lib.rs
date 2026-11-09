@@ -23,7 +23,9 @@ use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ActiveTheme, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use pide_core::{Buffer, CommandRegistry, CommandSpec, DockPosition, Panel, Services, Workspace, WorkspaceEvent};
+use pide_core::{
+    Buffer, CommandRegistry, CommandSpec, DockPosition, Panel, Services, Workspace, WorkspaceEvent,
+};
 
 pub const PANEL_NAME: &str = "editor";
 
@@ -41,7 +43,10 @@ pub fn remove_host(window: WindowId, cx: &mut App) {
 }
 
 pub(crate) fn host(window: &Window, cx: &App) -> Option<Entity<DockArea>> {
-    cx.try_global::<EditorHosts>()?.0.get(&window.window_handle().window_id())?.upgrade()
+    cx.try_global::<EditorHosts>()?
+        .0
+        .get(&window.window_handle().window_id())?
+        .upgrade()
 }
 
 #[derive(Default)]
@@ -51,7 +56,9 @@ impl Global for OpenEditors {}
 pub fn init(cx: &mut App) {
     cx.set_global(OpenEditors::default());
     diff_panel::init(cx);
-    cx.set_global(pide_core::context::EditorContextSource(std::rc::Rc::new(editor_context)));
+    cx.set_global(pide_core::context::EditorContextSource(std::rc::Rc::new(
+        editor_context,
+    )));
 
     // Rebuild editor tabs from a saved layout.
     register_panel(cx, PANEL_NAME, |ctx, window, cx| {
@@ -63,40 +70,103 @@ pub fn init(cx: &mut App) {
         panel_handle(panel)
     });
 
-    CommandRegistry::register(cx, CommandSpec::new("editor.save", "File: Save").key("cmd-s"), save_active);
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("editor.save", "File: Save").key("cmd-s"),
+        save_active,
+    );
     // JetBrains keys for GPUI Kit's editor actions (which have no default binding, or a VS Code one).
-    CommandRegistry::register(cx, CommandSpec::new("editor.go_to_definition", "Navigate: Go to Declaration").key("cmd-b").in_context(pide_core::commands::EDITOR), |window, cx| {
-        window.dispatch_action(Box::new(gpui_kit::component::input::GoToDefinition), cx)
-    });
-    CommandRegistry::register(cx, CommandSpec::new("editor.parameter_info", "Code: Parameter Info").key("cmd-p").in_context(pide_core::commands::EDITOR), |window, cx| {
-        if let Some(panel) = active_panel(window, cx) {
-            panel.update(cx, |p, cx| p.request_signature(signature::Trigger::Invoked, cx));
-        }
-    });
-    CommandRegistry::register(cx, CommandSpec::new("lsp.restart", "Code: Restart Language Server"), |window, cx| {
-        let Some(panel) = active_panel(window, cx) else { return };
-        let (path, store) = {
-            let p = panel.read(cx);
-            (p.path.clone(), p.lsp.clone())
-        };
-        let Some(store) = store else { return };
-        let id = pide_lsp::registry::spec_for(store.read(cx).specs(), &path).map(|s| s.id);
-        match id {
-            Some(id) => store.update(cx, |s, cx| s.restart(id, cx)),
-            None => window.push_notification(Notification::warning("This file has no language server."), cx),
-        }
-    });
-    CommandRegistry::register(cx, CommandSpec::new("editor.find_usages", "Navigate: Find Usages").key("alt-f7").in_context(pide_core::commands::EDITOR), lsp::find_usages);
-    CommandRegistry::register(cx, CommandSpec::new("editor.file_structure", "Navigate: File Structure").key("cmd-f12").in_context(pide_core::commands::EDITOR), symbols::file_structure);
-    CommandRegistry::register(cx, CommandSpec::new("editor.go_to_symbol", "Navigate: Go to Symbol…").key("cmd-alt-o"), symbols::go_to_symbol);
-    CommandRegistry::register(cx, CommandSpec::new("editor.organize_imports", "Code: Optimize Imports").key("ctrl-alt-o").in_context(pide_core::commands::EDITOR), lsp::organize_imports);
-    CommandRegistry::register(cx, CommandSpec::new("editor.rename", "Refactor: Rename…").key("shift-f6").in_context(pide_core::commands::EDITOR), rename::rename_symbol);
-    CommandRegistry::register(cx, CommandSpec::new("editor.quick_fix", "Code: Show Quick Fixes").key("alt-enter").in_context(pide_core::commands::EDITOR), |window, cx| {
-        window.dispatch_action(Box::new(gpui_kit::component::input::ToggleCodeActions), cx)
-    });
-    CommandRegistry::register(cx, CommandSpec::new("editor.close", "File: Close Tab").key("cmd-w"), |window, cx| {
-        window.dispatch_action(Box::new(ClosePanel), cx)
-    });
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("editor.go_to_definition", "Navigate: Go to Declaration")
+            .key("cmd-b")
+            .in_context(pide_core::commands::EDITOR),
+        |window, cx| {
+            window.dispatch_action(Box::new(gpui_kit::component::input::GoToDefinition), cx)
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("editor.parameter_info", "Code: Parameter Info")
+            .key("cmd-p")
+            .in_context(pide_core::commands::EDITOR),
+        |window, cx| {
+            if let Some(panel) = active_panel(window, cx) {
+                panel.update(cx, |p, cx| {
+                    p.request_signature(signature::Trigger::Invoked, cx)
+                });
+            }
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("lsp.restart", "Code: Restart Language Server"),
+        |window, cx| {
+            let Some(panel) = active_panel(window, cx) else {
+                return;
+            };
+            let (path, store) = {
+                let p = panel.read(cx);
+                (p.path.clone(), p.lsp.clone())
+            };
+            let Some(store) = store else { return };
+            let id = pide_lsp::registry::spec_for(store.read(cx).specs(), &path).map(|s| s.id);
+            match id {
+                Some(id) => store.update(cx, |s, cx| s.restart(id, cx)),
+                None => window.push_notification(
+                    Notification::warning("This file has no language server."),
+                    cx,
+                ),
+            }
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("editor.find_usages", "Navigate: Find Usages")
+            .key("alt-f7")
+            .in_context(pide_core::commands::EDITOR),
+        lsp::find_usages,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("editor.file_structure", "Navigate: File Structure")
+            .key("cmd-f12")
+            .in_context(pide_core::commands::EDITOR),
+        symbols::file_structure,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("editor.go_to_symbol", "Navigate: Go to Symbol…").key("cmd-alt-o"),
+        symbols::go_to_symbol,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("editor.organize_imports", "Code: Optimize Imports")
+            .key("ctrl-alt-o")
+            .in_context(pide_core::commands::EDITOR),
+        lsp::organize_imports,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("editor.rename", "Refactor: Rename…")
+            .key("shift-f6")
+            .in_context(pide_core::commands::EDITOR),
+        rename::rename_symbol,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("editor.quick_fix", "Code: Show Quick Fixes")
+            .key("alt-enter")
+            .in_context(pide_core::commands::EDITOR),
+        |window, cx| {
+            window.dispatch_action(Box::new(gpui_kit::component::input::ToggleCodeActions), cx)
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("editor.close", "File: Close Tab").key("cmd-w"),
+        |window, cx| window.dispatch_action(Box::new(ClosePanel), cx),
+    );
 }
 
 /// Open `path` in a tab (or switch to its existing tab) and focus it.
@@ -107,7 +177,9 @@ pub fn open_path(path: PathBuf, window: &mut Window, cx: &mut App) {
 /// Open `path` and put the cursor at a 0-based line and character column
 /// (once the file has loaded, if it's new).
 pub fn open_path_at(path: PathBuf, line: u32, character: u32, window: &mut Window, cx: &mut App) {
-    let Some(panel) = open_panel(path, window, cx) else { return };
+    let Some(panel) = open_panel(path, window, cx) else {
+        return;
+    };
     panel.update(cx, |p, cx| p.go_to(line, character, window, cx));
 }
 
@@ -133,7 +205,15 @@ fn open_panel(path: PathBuf, window: &mut Window, cx: &mut App) -> Option<Entity
         return None;
     };
     let panel = cx.new(|cx| EditorPanel::new(path, window, cx));
-    dock.update(cx, |d, cx| d.add_panel_view(panel_handle(panel.clone()), DockPlacement::Center, None, window, cx));
+    dock.update(cx, |d, cx| {
+        d.add_panel_view(
+            panel_handle(panel.clone()),
+            DockPlacement::Center,
+            None,
+            window,
+            cx,
+        )
+    });
     let focus = panel.read(cx).focus.clone();
     window.defer(cx, move |window, cx| focus.focus(window, cx));
     Some(panel)
@@ -142,10 +222,21 @@ fn open_panel(path: PathBuf, window: &mut Window, cx: &mut App) -> Option<Entity
 /// Make `panel` the selected tab of its group. Call it with no panel being
 /// updated: `TabGroup::select_tab` reads every panel in the group, and reading
 /// one mid-update panics (this crashed on clicking an already-open file).
-pub(crate) fn select_tab_of(group: Option<WeakEntity<TabGroup>>, panel: EntityId, window: &mut Window, cx: &mut App) {
-    let Some(group) = group.and_then(|g| g.upgrade()) else { return };
+pub(crate) fn select_tab_of(
+    group: Option<WeakEntity<TabGroup>>,
+    panel: EntityId,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let Some(group) = group.and_then(|g| g.upgrade()) else {
+        return;
+    };
     group.update(cx, |g, cx| {
-        if let Some(ix) = g.panels().iter().position(|p| p.view().entity_id() == panel) {
+        if let Some(ix) = g
+            .panels()
+            .iter()
+            .position(|p| p.view().entity_id() == panel)
+        {
             g.select_tab(ix, window, cx);
         }
     });
@@ -154,7 +245,11 @@ pub(crate) fn select_tab_of(group: Option<WeakEntity<TabGroup>>, panel: EntityId
 /// The editor tab showing this window's active buffer.
 pub(crate) fn active_panel(window: &Window, cx: &App) -> Option<Entity<EditorPanel>> {
     let win = window.window_handle().window_id();
-    let active = Services::for_window(win, cx)?.workspace.read(cx).active()?.clone();
+    let active = Services::for_window(win, cx)?
+        .workspace
+        .read(cx)
+        .active()?
+        .clone();
     cx.global::<OpenEditors>()
         .0
         .iter()
@@ -168,7 +263,12 @@ fn editor_context(window: &Window, cx: &App) -> Option<pide_core::context::Edito
     let services = Services::for_window(window.window_handle().window_id(), cx)?;
     let ws = services.workspace.read(cx);
     let active = ws.active()?.clone();
-    let panel = cx.global::<OpenEditors>().0.iter().filter_map(|w| w.upgrade()).find(|p| p.read(cx).buffer.as_ref() == Some(&active))?;
+    let panel = cx
+        .global::<OpenEditors>()
+        .0
+        .iter()
+        .filter_map(|w| w.upgrade())
+        .find(|p| p.read(cx).buffer.as_ref() == Some(&active))?;
     let panel = panel.read(cx);
     let state = panel.editor.read(cx);
     let range = state.selected_range();
@@ -178,10 +278,15 @@ fn editor_context(window: &Window, cx: &App) -> Option<pide_core::context::Edito
         (p.line + 1, p.character + 1)
     };
     let selected_bytes = range.end - range.start;
-    let selected = (selected_bytes > 0 && selected_bytes <= pide_core::context::MAX_SELECTION_BYTES)
+    let selected = (selected_bytes > 0
+        && selected_bytes <= pide_core::context::MAX_SELECTION_BYTES)
         .then(|| state.selected_text().to_string());
     Some(pide_core::context::EditorContext {
-        path: panel.path.strip_prefix(ws.root()).unwrap_or(&panel.path).to_path_buf(),
+        path: panel
+            .path
+            .strip_prefix(ws.root())
+            .unwrap_or(&panel.path)
+            .to_path_buf(),
         start: pos(range.start),
         end: pos(range.end),
         selected,
@@ -192,7 +297,9 @@ fn editor_context(window: &Window, cx: &App) -> Option<pide_core::context::Edito
 
 fn save_active(window: &mut Window, cx: &mut App) {
     let workspace = Services::of(window, cx).workspace;
-    let Some(buffer) = workspace.read(cx).active().cloned() else { return };
+    let Some(buffer) = workspace.read(cx).active().cloned() else {
+        return;
+    };
     let task = workspace.update(cx, |w, cx| w.save(&buffer, cx));
     window
         .spawn(cx, async move |cx| {
@@ -208,7 +315,11 @@ fn save_active(window: &mut Window, cx: &mut App) {
 
 /// GPUI Kit language name for a file, by extension.
 pub(crate) fn language_for(path: &Path) -> &'static str {
-    match path.extension().and_then(|e| e.to_str()).unwrap_or_default() {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+    {
         "rs" => "rust",
         "py" | "pyi" => "python",
         "md" | "markdown" => "markdown",
@@ -260,7 +371,10 @@ impl EditorPanel {
                 .language(language_for(&path).to_string())
                 .line_number(true)
                 .indent_guides(true)
-                .tab_size(TabSize { tab_size: 4, hard_tabs: false })
+                .tab_size(TabSize {
+                    tab_size: 4,
+                    hard_tabs: false,
+                })
                 .soft_wrap(false);
             state.set_readonly(true, cx); // until loaded
             state
@@ -272,7 +386,8 @@ impl EditorPanel {
                 InputEvent::Change => {
                     if let Some(buffer) = this.buffer.clone() {
                         let text = editor.read(cx).text().clone();
-                        this.workspace.update(cx, |w, cx| w.edited(&buffer, text, cx));
+                        this.workspace
+                            .update(cx, |w, cx| w.edited(&buffer, text, cx));
                     }
                     this.signature_after_edit(cx);
                     this.refresh_git_marks(std::time::Duration::from_millis(250), cx);
@@ -333,7 +448,12 @@ impl EditorPanel {
     fn attach(&mut self, buffer: Entity<Buffer>, window: &mut Window, cx: &mut Context<Self>) {
         let (text, read_only, revision, path) = {
             let b = buffer.read(cx);
-            (b.text().to_string(), b.read_only.is_some(), b.revision(), b.path.clone())
+            (
+                b.text().to_string(),
+                b.read_only.is_some(),
+                b.revision(),
+                b.path.clone(),
+            )
         };
         self.path = path;
         self.applied_revision = revision;
@@ -345,7 +465,8 @@ impl EditorPanel {
         self._subs.push(cx.observe(&buffer, |_, _, cx| cx.notify()));
         self.buffer = Some(buffer.clone());
         if self.is_active {
-            self.workspace.update(cx, |w, cx| w.set_active(Some(buffer), cx));
+            self.workspace
+                .update(cx, |w, cx| w.set_active(Some(buffer), cx));
         }
         self.attach_lsp(window, cx);
         self.load_git_base(cx);
@@ -357,25 +478,36 @@ impl EditorPanel {
     }
 
     /// Put the cursor at a 0-based line and character column (or once loaded).
-    pub fn go_to(&mut self, line: u32, character: u32, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn go_to(
+        &mut self,
+        line: u32,
+        character: u32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.buffer.is_none() {
             self.pending_cursor = Some((line, character));
             return;
         }
         self.editor.update(cx, |e, cx| {
-            e.set_cursor_position(gpui_kit::component::input::Position::new(line, character), window, cx)
+            e.set_cursor_position(
+                gpui_kit::component::input::Position::new(line, character),
+                window,
+                cx,
+            )
         });
     }
 
     fn attach_lsp(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let store = pide_lsp::LspStore::for_workspace(&self.workspace, cx);
-        self._subs.push(cx.subscribe_in(&store, window, |this, store, ev, _, cx| {
-            if let pide_lsp::LspEvent::Diagnostics { path } = ev {
-                if *path == this.path {
-                    this.apply_diagnostics(store, cx);
+        self._subs
+            .push(cx.subscribe_in(&store, window, |this, store, ev, _, cx| {
+                if let pide_lsp::LspEvent::Diagnostics { path } = ev {
+                    if *path == this.path {
+                        this.apply_diagnostics(store, cx);
+                    }
                 }
-            }
-        }));
+            }));
         self.apply_diagnostics(&store, cx);
         if pide_lsp::registry::spec_for(store.read(cx).specs(), &self.path).is_some() {
             let providers = lsp::Providers::new(&store, self.path.clone());
@@ -397,12 +529,18 @@ impl EditorPanel {
         let diags = store.read(cx).diagnostics_for(&self.path).cloned();
         self.editor.update(cx, |e, cx| {
             let text = e.text().clone();
-            let Some(set) = e.diagnostics_mut() else { return };
+            let Some(set) = e.diagnostics_mut() else {
+                return;
+            };
             set.reset(&text);
-            for mut d in diags.into_iter().flat_map(|f| f.items.into_iter().map(move |i| (f.encoding, i))).map(|(enc, mut i)| {
-                i.range = pide_lsp::convert::range_from_server(&text, i.range, enc);
-                i
-            }) {
+            for mut d in diags
+                .into_iter()
+                .flat_map(|f| f.items.into_iter().map(move |i| (f.encoding, i)))
+                .map(|(enc, mut i)| {
+                    i.range = pide_lsp::convert::range_from_server(&text, i.range, enc);
+                    i
+                })
+            {
                 d.message = d.message.trim().to_string();
                 set.push(d);
             }
@@ -422,7 +560,10 @@ impl EditorPanel {
         cx: &mut Context<Self>,
     ) {
         match ev {
-            WorkspaceEvent::FileChangedOnDisk { buffer, reloaded: true } if self.is_mine(buffer) => {
+            WorkspaceEvent::FileChangedOnDisk {
+                buffer,
+                reloaded: true,
+            } if self.is_mine(buffer) => {
                 let b = buffer.read(cx);
                 if b.revision() == self.applied_revision {
                     return;
@@ -471,7 +612,9 @@ impl EditorPanel {
 
     fn reload(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(b) = self.buffer.clone() {
-            self.workspace.update(cx, |w, cx| w.reload(&b, cx)).detach_and_log_err(cx);
+            self.workspace
+                .update(cx, |w, cx| w.reload(&b, cx))
+                .detach_and_log_err(cx);
         }
     }
 
@@ -487,7 +630,9 @@ impl EditorPanel {
             cx.notify();
             return;
         }
-        let Some(buffer) = self.buffer.clone() else { return };
+        let Some(buffer) = self.buffer.clone() else {
+            return;
+        };
         let mine = buffer.read(cx).text().to_string();
         let name = buffer.read(cx).file_name();
         let language = language_for(&self.path);
@@ -552,7 +697,9 @@ impl gpui_kit::component::dock::BasePanel for EditorPanel {
 
     fn on_removed(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         let me = cx.entity_id();
-        cx.global_mut::<OpenEditors>().0.retain(|w| w.upgrade().is_some_and(|p| p.entity_id() != me));
+        cx.global_mut::<OpenEditors>()
+            .0
+            .retain(|w| w.upgrade().is_some_and(|p| p.entity_id() != me));
         // Keep a dirty buffer open in the workspace so reopening the file keeps the edits.
         if let Some(b) = &self.buffer {
             if !b.read(cx).is_dirty() {
@@ -575,7 +722,9 @@ impl gpui_kit::component::dock::Panel for EditorPanel {
         h_flex()
             .gap_1()
             .child(self.title_text(cx))
-            .when(dirty, |this| this.child(div().text_color(cx.theme().warning).child("●")))
+            .when(dirty, |this| {
+                this.child(div().text_color(cx.theme().warning).child("●"))
+            })
     }
 }
 
@@ -615,20 +764,42 @@ impl Render for EditorPanel {
             .when_some(read_only, |this, r| this.child(self.bar(cx, false, r)))
             .when_some(notice, |this, n| this.child(self.bar(cx, false, n)))
             .when(deleted, |this| {
-                this.child(self.bar(cx, true, "This file was deleted on disk. Saving will create it again."))
+                this.child(self.bar(
+                    cx,
+                    true,
+                    "This file was deleted on disk. Saving will create it again.",
+                ))
             })
             .when(conflict, |this| {
                 this.child(
-                    self.bar(cx, true, "This file changed on disk, and you have unsaved changes.")
-                        .child(Button::new("reload").xsmall().label("Reload").on_click(cx.listener(Self::reload)))
-                        .child(Button::new("keep").xsmall().label("Keep mine").on_click(cx.listener(Self::keep_mine)))
-                        .child(
-                            Button::new("diff")
-                                .xsmall()
-                                .ghost()
-                                .label(if self.diff.is_some() { "Hide diff" } else { "Show diff" })
-                                .on_click(cx.listener(Self::toggle_diff)),
-                        ),
+                    self.bar(
+                        cx,
+                        true,
+                        "This file changed on disk, and you have unsaved changes.",
+                    )
+                    .child(
+                        Button::new("reload")
+                            .xsmall()
+                            .label("Reload")
+                            .on_click(cx.listener(Self::reload)),
+                    )
+                    .child(
+                        Button::new("keep")
+                            .xsmall()
+                            .label("Keep mine")
+                            .on_click(cx.listener(Self::keep_mine)),
+                    )
+                    .child(
+                        Button::new("diff")
+                            .xsmall()
+                            .ghost()
+                            .label(if self.diff.is_some() {
+                                "Hide diff"
+                            } else {
+                                "Show diff"
+                            })
+                            .on_click(cx.listener(Self::toggle_diff)),
+                    ),
                 )
             })
             .when_some(self.diff.clone(), |this, diff| {

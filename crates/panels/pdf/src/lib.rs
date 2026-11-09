@@ -36,7 +36,9 @@ pub fn init(cx: &mut App) {
 }
 
 pub fn is_pdf(path: &std::path::Path) -> bool {
-    path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -67,15 +69,24 @@ impl Cache {
     }
 
     /// Insert; returns evicted images (to free from the GPU atlas).
-    fn insert(&mut self, key: (usize, u32), img: Arc<RenderImage>, size: usize) -> Vec<Arc<RenderImage>> {
+    fn insert(
+        &mut self,
+        key: (usize, u32),
+        img: Arc<RenderImage>,
+        size: usize,
+    ) -> Vec<Arc<RenderImage>> {
         self.images.insert(key, img);
         self.order.push_back(key);
         self.bytes += size;
         let mut evicted = Vec::new();
         while self.bytes > CACHE_BYTES && self.order.len() > 1 {
-            let Some(old) = self.order.pop_front() else { break };
+            let Some(old) = self.order.pop_front() else {
+                break;
+            };
             if let Some(i) = self.images.remove(&old) {
-                self.bytes = self.bytes.saturating_sub(i.size(0).width.0 as usize * i.size(0).height.0 as usize * 4);
+                self.bytes = self
+                    .bytes
+                    .saturating_sub(i.size(0).width.0 as usize * i.size(0).height.0 as usize * 4);
                 evicted.push(i);
             }
         }
@@ -114,15 +125,17 @@ impl EventEmitter<PanelEvent> for PdfPanel {}
 impl PdfPanel {
     pub fn new(path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search in PDF (Enter)"));
-        let subs = vec![cx.subscribe_in(&search, window, |this, _, ev: &InputEvent, _, cx| {
-            if let InputEvent::PressEnter { shift, .. } = ev {
-                if this.hits.is_empty() {
-                    this.run_search(cx);
-                } else {
-                    this.step(if *shift { -1 } else { 1 }, cx);
+        let subs = vec![
+            cx.subscribe_in(&search, window, |this, _, ev: &InputEvent, _, cx| {
+                if let InputEvent::PressEnter { shift, .. } = ev {
+                    if this.hits.is_empty() {
+                        this.run_search(cx);
+                    } else {
+                        this.step(if *shift { -1 } else { 1 }, cx);
+                    }
                 }
-            }
-        })];
+            }),
+        ];
         let mut this = Self {
             path,
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
@@ -175,17 +188,38 @@ impl PdfPanel {
     /// Download and unpack pdfium, then open the document. Only on the user's click.
     fn install(&mut self, cx: &mut Context<Self>) {
         let Some(url) = worker::download_url() else {
-            self.install = Some(Install { lines: vec![], done: Some(Err("No pdfium build for this platform.".into())) });
+            self.install = Some(Install {
+                lines: vec![],
+                done: Some(Err("No pdfium build for this platform.".into())),
+            });
             cx.notify();
             return;
         };
-        let dir = worker::library_dir().parent().map(|p| p.to_path_buf()).unwrap_or_default();
+        let dir = worker::library_dir()
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_default();
         let tgz = std::env::temp_dir().join("pide-pdfium.tgz");
         let _ = std::fs::create_dir_all(&dir);
-        self.install = Some(Install { lines: vec![format!("Downloading {url}")], done: None });
+        self.install = Some(Install {
+            lines: vec![format!("Downloading {url}")],
+            done: None,
+        });
         let steps = vec![
-            vec!["curl".to_string(), "-fL".into(), "-o".into(), tgz.display().to_string(), url],
-            vec!["tar".to_string(), "-xzf".into(), tgz.display().to_string(), "-C".into(), dir.display().to_string()],
+            vec![
+                "curl".to_string(),
+                "-fL".into(),
+                "-o".into(),
+                tgz.display().to_string(),
+                url,
+            ],
+            vec![
+                "tar".to_string(),
+                "-xzf".into(),
+                tgz.display().to_string(),
+                "-C".into(),
+                dir.display().to_string(),
+            ],
         ];
         self._tasks.push(cx.spawn(async move |this, cx| {
             for step in steps {
@@ -252,8 +286,13 @@ impl PdfPanel {
 
     /// Scroll so the current hit is in view.
     fn reveal_current(&mut self) {
-        let (Doc::Ready(sizes), Some(hit)) = (&self.doc, self.hits.get(self.current)) else { return };
-        let top: f32 = sizes[..hit.page].iter().map(|s| s.height * self.scale + PAGE_GAP).sum();
+        let (Doc::Ready(sizes), Some(hit)) = (&self.doc, self.hits.get(self.current)) else {
+            return;
+        };
+        let top: f32 = sizes[..hit.page]
+            .iter()
+            .map(|s| s.height * self.scale + PAGE_GAP)
+            .sum();
         let y = top + hit.rects.first().map(|r| r.y * self.scale).unwrap_or(0.) - 80.;
         self.scroll.set_offset(point(px(0.), px(-y.max(0.))));
     }
@@ -279,7 +318,10 @@ impl PdfPanel {
                 match r {
                     Ok(Ok(b)) => {
                         let size = b.bgra.len();
-                        let Some(buf) = image::RgbaImage::from_raw(b.width, b.height, b.bgra) else { return };
+                        let Some(buf) = image::RgbaImage::from_raw(b.width, b.height, b.bgra)
+                        else {
+                            return;
+                        };
                         let img = Arc::new(RenderImage::new(vec![image::Frame::new(buf)]));
                         let evicted = this.cache.insert(key, img, size);
                         this.to_drop.extend(evicted);
@@ -328,7 +370,11 @@ impl gpui_kit::component::dock::Panel for PdfPanel {
 
 impl Panel for PdfPanel {
     fn title_text(&self, _: &App) -> SharedString {
-        self.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "PDF".into()).into()
+        self.path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "PDF".into())
+            .into()
     }
     fn default_dock(&self) -> DockPosition {
         DockPosition::Center
@@ -343,8 +389,16 @@ impl Render for PdfPanel {
         let theme = cx.theme().clone();
         let body: AnyElement = match &self.doc {
             Doc::NotInstalled => self.render_install(cx),
-            Doc::Loading => div().p_4().text_color(theme.muted_foreground).child("Opening…").into_any_element(),
-            Doc::Failed(e) => div().p_4().text_color(theme.danger).child(format!("Can't show this PDF: {e}")).into_any_element(),
+            Doc::Loading => div()
+                .p_4()
+                .text_color(theme.muted_foreground)
+                .child("Opening…")
+                .into_any_element(),
+            Doc::Failed(e) => div()
+                .p_4()
+                .text_color(theme.danger)
+                .child(format!("Can't show this PDF: {e}"))
+                .into_any_element(),
             Doc::Ready(sizes) => {
                 let sizes = sizes.clone();
                 self.render_pages(&sizes, window, cx)
@@ -365,25 +419,72 @@ impl Render for PdfPanel {
                     .py_1()
                     .border_b_1()
                     .border_color(theme.border)
-                    .child(Button::new("zoom-out").xsmall().label("−").disabled(!ready).on_click(cx.listener(|t, _, _, cx| t.zoom(1. / 1.2, cx))))
-                    .child(div().w(px(48.)).text_xs().text_center().child(format!("{:.0}%", self.scale * 100.)))
-                    .child(Button::new("zoom-in").xsmall().label("+").disabled(!ready).on_click(cx.listener(|t, _, _, cx| t.zoom(1.2, cx))))
-                    .child(Button::new("fit").xsmall().label("Fit width").when(self.fit_width, |b| b.primary()).disabled(!ready).on_click(
-                        cx.listener(|t, _, _, cx| {
-                            t.fit_width = true;
-                            cx.notify();
-                        }),
-                    ))
-                    .child(div().text_xs().text_color(theme.muted_foreground).px_2().child(if ready { format!("{page_count} pages") } else { String::new() }))
+                    .child(
+                        Button::new("zoom-out")
+                            .xsmall()
+                            .label("−")
+                            .disabled(!ready)
+                            .on_click(cx.listener(|t, _, _, cx| t.zoom(1. / 1.2, cx))),
+                    )
+                    .child(
+                        div()
+                            .w(px(48.))
+                            .text_xs()
+                            .text_center()
+                            .child(format!("{:.0}%", self.scale * 100.)),
+                    )
+                    .child(
+                        Button::new("zoom-in")
+                            .xsmall()
+                            .label("+")
+                            .disabled(!ready)
+                            .on_click(cx.listener(|t, _, _, cx| t.zoom(1.2, cx))),
+                    )
+                    .child(
+                        Button::new("fit")
+                            .xsmall()
+                            .label("Fit width")
+                            .when(self.fit_width, |b| b.primary())
+                            .disabled(!ready)
+                            .on_click(cx.listener(|t, _, _, cx| {
+                                t.fit_width = true;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .px_2()
+                            .child(if ready {
+                                format!("{page_count} pages")
+                            } else {
+                                String::new()
+                            }),
+                    )
                     .child(div().flex_1())
                     .child(div().w(px(240.)).child(Input::new(&self.search).xsmall()))
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(if self.hits.is_empty() {
-                        String::new()
-                    } else {
-                        format!("{}/{}", self.current + 1, self.hits.len())
-                    }))
-                    .child(Button::new("prev").xsmall().label("↑").disabled(self.hits.is_empty()).on_click(cx.listener(|t, _, _, cx| t.step(-1, cx))))
-                    .child(Button::new("next").xsmall().label("↓").disabled(self.hits.is_empty()).on_click(cx.listener(|t, _, _, cx| t.step(1, cx)))),
+                    .child(div().text_xs().text_color(theme.muted_foreground).child(
+                        if self.hits.is_empty() {
+                            String::new()
+                        } else {
+                            format!("{}/{}", self.current + 1, self.hits.len())
+                        },
+                    ))
+                    .child(
+                        Button::new("prev")
+                            .xsmall()
+                            .label("↑")
+                            .disabled(self.hits.is_empty())
+                            .on_click(cx.listener(|t, _, _, cx| t.step(-1, cx))),
+                    )
+                    .child(
+                        Button::new("next")
+                            .xsmall()
+                            .label("↓")
+                            .disabled(self.hits.is_empty())
+                            .on_click(cx.listener(|t, _, _, cx| t.step(1, cx))),
+                    ),
             )
             .child(div().flex_1().min_h_0().child(body))
     }
@@ -426,7 +527,12 @@ impl PdfPanel {
             .into_any_element()
     }
 
-    fn render_pages(&mut self, sizes: &[PageSize], window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn render_pages(
+        &mut self,
+        sizes: &[PageSize],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = cx.theme().clone();
         let viewport = self.scroll.bounds();
         if self.fit_width && viewport.size.width > px(0.) {
@@ -450,7 +556,11 @@ impl PdfPanel {
                     None => {
                         self.request(i, width_px, cx);
                         // Show any other size of this page while the right one renders.
-                        self.cache.images.iter().find(|((p, _), _)| *p == i).map(|(_, img)| img.clone())
+                        self.cache
+                            .images
+                            .iter()
+                            .find(|((p, _), _)| *p == i)
+                            .map(|(_, img)| img.clone())
                     }
                 }
             } else {
@@ -463,7 +573,11 @@ impl PdfPanel {
                 .filter(|(_, h)| h.page == i)
                 .flat_map(|(n, h)| {
                     let current = n == self.current;
-                    let color = if current { theme.warning.opacity(0.55) } else { theme.warning.opacity(0.25) };
+                    let color = if current {
+                        theme.warning.opacity(0.55)
+                    } else {
+                        theme.warning.opacity(0.25)
+                    };
                     h.rects.iter().map(move |r| {
                         div()
                             .absolute()
@@ -484,7 +598,9 @@ impl PdfPanel {
                     .h(px(h))
                     .bg(gpui_kit::white())
                     .shadow_sm()
-                    .when_some(image, |d, img| d.child(gpui_kit::img(ImageSource::Render(img)).size_full()))
+                    .when_some(image, |d, img| {
+                        d.child(gpui_kit::img(ImageSource::Render(img)).size_full())
+                    })
                     .children(highlights)
                     .into_any_element(),
             );
@@ -496,7 +612,14 @@ impl PdfPanel {
             .overflow_scroll()
             .track_scroll(&self.scroll)
             .bg(theme.secondary)
-            .child(v_flex().items_center().gap(px(PAGE_GAP)).py_4().px_6().children(pages))
+            .child(
+                v_flex()
+                    .items_center()
+                    .gap(px(PAGE_GAP))
+                    .py_4()
+                    .px_6()
+                    .children(pages),
+            )
             .into_any_element()
     }
 }

@@ -13,7 +13,9 @@ use gpui_kit::component::{ActiveTheme, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use pide_agent_chat::AgentChat;
-use pide_core::{AgentStatus, CommandRegistry, RunCommand, Services, WorkspaceEvent, buffer::hash_bytes, paths};
+use pide_core::{
+    AgentStatus, CommandRegistry, RunCommand, Services, WorkspaceEvent, buffer::hash_bytes, paths,
+};
 use pide_file_tree::FileTree;
 
 const DOCK_ID: &str = "pide-main";
@@ -31,7 +33,10 @@ pub fn forget(window: WindowId, cx: &mut App) {
 
 pub fn toggle_dock(placement: DockPlacement, window: &mut Window, cx: &mut App) {
     let id = window.window_handle().window_id();
-    if let Some(shell) = cx.try_global::<Shells>().and_then(|h| h.0.get(&id)?.upgrade()) {
+    if let Some(shell) = cx
+        .try_global::<Shells>()
+        .and_then(|h| h.0.get(&id)?.upgrade())
+    {
         let dock = shell.read(cx).dock.clone();
         dock.update(cx, |d, cx| d.toggle_dock(placement, window, cx));
     }
@@ -40,7 +45,9 @@ pub fn toggle_dock(placement: DockPlacement, window: &mut Window, cx: &mut App) 
 /// One saved layout per project root.
 fn layout_file(root: &Path) -> PathBuf {
     let key = hash_bytes(root.to_string_lossy().as_bytes());
-    paths::state_dir().join("layouts").join(format!("{key:016x}.json"))
+    paths::state_dir()
+        .join("layouts")
+        .join(format!("{key:016x}.json"))
 }
 
 pub struct Shell {
@@ -80,7 +87,11 @@ impl Shell {
             Self::default_layout(&dock, window, cx);
         }
         dock.update(cx, |d, cx| {
-            for p in [DockPlacement::Left, DockPlacement::Right, DockPlacement::Bottom] {
+            for p in [
+                DockPlacement::Left,
+                DockPlacement::Right,
+                DockPlacement::Bottom,
+            ] {
                 d.set_dock_collapsible(p, true, window, cx);
             }
         });
@@ -92,7 +103,9 @@ impl Shell {
                 }
             }),
             cx.observe(&services.sessions, |_, _, cx| cx.notify()),
-            cx.observe_window_appearance(window, |_, window, cx| crate::theme::on_system_appearance_changed(window, cx)),
+            cx.observe_window_appearance(window, |_, window, cx| {
+                crate::theme::on_system_appearance_changed(window, cx)
+            }),
             cx.subscribe(&services.workspace, |_, _, ev: &WorkspaceEvent, cx| {
                 if !matches!(ev, WorkspaceEvent::TreeChanged) {
                     cx.notify();
@@ -141,21 +154,26 @@ impl Shell {
             }
         }));
         let branch_root = root.clone();
-        let branch_poll = cx.spawn(async move |this, cx| loop {
-            let r = branch_root.clone();
-            let b = cx.background_executor().spawn(async move { pide_core::git::branch(&r) }).await;
-            if this
-                .update(cx, |this, cx| {
-                    if this.branch != b {
-                        this.branch = b;
-                        cx.notify();
-                    }
-                })
-                .is_err()
-            {
-                break;
+        let branch_poll = cx.spawn(async move |this, cx| {
+            loop {
+                let r = branch_root.clone();
+                let b = cx
+                    .background_executor()
+                    .spawn(async move { pide_core::git::branch(&r) })
+                    .await;
+                if this
+                    .update(cx, |this, cx| {
+                        if this.branch != b {
+                            this.branch = b;
+                            cx.notify();
+                        }
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+                cx.background_executor().timer(Duration::from_secs(3)).await;
             }
-            cx.background_executor().timer(Duration::from_secs(3)).await;
         });
         let this = Self {
             pdfs: Vec::new(),
@@ -175,11 +193,16 @@ impl Shell {
             _subs: subs,
         };
         if let Some(file) = std::env::var_os("PIDE_BENCH") {
-            window.defer(cx, move |window, cx| pide_editor::run_benchmark(PathBuf::from(file), window, cx));
+            window.defer(cx, move |window, cx| {
+                pide_editor::run_benchmark(PathBuf::from(file), window, cx)
+            });
         }
         window.on_next_frame(|_, _| {
             if let Some(t) = crate::STARTED.get() {
-                log::info!("startup: process start -> first frame {} ms", t.elapsed().as_millis());
+                log::info!(
+                    "startup: process start -> first frame {} ms",
+                    t.elapsed().as_millis()
+                );
             }
         });
         this.focus.focus(window, cx);
@@ -187,7 +210,9 @@ impl Shell {
         crate::unsaved::guard_window(window, cx);
         if !keymap_errors.is_empty() {
             let msg = keymap_errors.join("\n");
-            window.defer(cx, move |window, cx| window.push_notification(Notification::error(msg), cx));
+            window.defer(cx, move |window, cx| {
+                window.push_notification(Notification::error(msg), cx)
+            });
         }
         this
     }
@@ -206,11 +231,19 @@ impl Shell {
         });
     }
 
-    fn load_layout(dock: &Entity<DockArea>, path: &Path, window: &mut Window, cx: &mut Context<Self>) -> anyhow::Result<()> {
+    fn load_layout(
+        dock: &Entity<DockArea>,
+        path: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> anyhow::Result<()> {
         // A few KB, read once at startup before the window is shown.
         let json = std::fs::read_to_string(path)?;
         let state: DockAreaState = serde_json::from_str(&json)?;
-        anyhow::ensure!(state.version == Some(DOCK_VERSION), "saved layout version differs");
+        anyhow::ensure!(
+            state.version == Some(DOCK_VERSION),
+            "saved layout version differs"
+        );
         dock.update(cx, |d, cx| d.load(state, window, cx))?;
         log::info!("restored layout from {}", path.display());
         Ok(())
@@ -218,7 +251,9 @@ impl Shell {
 
     fn schedule_save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self._save = Some(cx.spawn_in(window, async move |this, cx| {
-            cx.background_executor().timer(Duration::from_millis(500)).await;
+            cx.background_executor()
+                .timer(Duration::from_millis(500))
+                .await;
             let Ok(Some((path, state))) = this.update(cx, |this, cx| {
                 let state = this.dock.read(cx).dump(cx);
                 if this.last_saved.as_ref() == Some(&state) {
@@ -229,7 +264,9 @@ impl Shell {
             }) else {
                 return;
             };
-            cx.background_executor().spawn(async move { save_state(&path, &state) }).await;
+            cx.background_executor()
+                .spawn(async move { save_state(&path, &state) })
+                .await;
         }));
     }
 
@@ -239,13 +276,26 @@ impl Shell {
         let root = ws.root().to_path_buf();
         let file = ws.active().map(|b| {
             let b = b.read(cx);
-            let rel = b.path.strip_prefix(&root).unwrap_or(&b.path).display().to_string();
-            (rel, b.line_ending.label(), b.is_dirty(), b.read_only.is_some())
+            let rel = b
+                .path
+                .strip_prefix(&root)
+                .unwrap_or(&b.path)
+                .display()
+                .to_string();
+            (
+                rel,
+                b.line_ending.label(),
+                b.is_dirty(),
+                b.read_only.is_some(),
+            )
         });
         let (errors, warnings) = pide_problems::counts(self.lsp.read(cx));
         let server_label = ws.active().and_then(|b| {
             let path = b.read(cx).path.clone();
-            self.lsp.read(cx).server_of(&path).map(|s| format!("{}: {}", s.spec.id, s.status_text()))
+            self.lsp
+                .read(cx)
+                .server_of(&path)
+                .map(|s| format!("{}: {}", s.spec.id, s.status_text()))
         });
         let sessions = services.sessions.read(cx);
         let (mut working, mut waiting, mut crashed) = (0, 0, 0);
@@ -259,16 +309,31 @@ impl Shell {
             }
         }
         let mut parts = Vec::new();
-        if working > 0 { parts.push(format!("{working} working")); }
-        if waiting > 0 { parts.push(format!("{waiting} need you")); }
-        if crashed > 0 { parts.push(format!("{crashed} crashed")); }
+        if working > 0 {
+            parts.push(format!("{working} working"));
+        }
+        if waiting > 0 {
+            parts.push(format!("{waiting} need you"));
+        }
+        if crashed > 0 {
+            parts.push(format!("{crashed} crashed"));
+        }
         let agent_label = if parts.is_empty() {
-            format!("pi: {} session{}, idle", sessions.all().len(), if sessions.all().len() == 1 { "" } else { "s" })
+            format!(
+                "pi: {} session{}, idle",
+                sessions.all().len(),
+                if sessions.all().len() == 1 { "" } else { "s" }
+            )
         } else {
             format!("pi: {}", parts.join(", "))
         };
         let active = sessions.active();
-        let items: Vec<String> = active.read(cx).status_items.iter().map(|(_, t)| t.clone()).collect();
+        let items: Vec<String> = active
+            .read(cx)
+            .status_items
+            .iter()
+            .map(|(_, t)| t.clone())
+            .collect();
         let theme = cx.theme();
         h_flex()
             .w_full()
@@ -281,22 +346,34 @@ impl Shell {
             .border_t_1()
             .border_color(theme.border)
             .text_color(theme.muted_foreground)
-            .child(h_flex().gap_3().when_some(self.branch.clone(), |this, b| this.child(format!("⎇ {b}"))).when(errors + warnings > 0, |this| {
-                this.child(
-                    div()
-                        .id("problems-count")
-                        .cursor_pointer()
-                        .child(format!("⊘ {errors}  ⚠ {warnings}"))
-                        .on_click(|_, window, cx| {
-                            CommandRegistry::run("view.problems", window, cx);
-                        }),
-                )
-            }).when_some(file, |this, (rel, le, dirty, ro)| {
-                this.child(format!("{rel}{}", if dirty { " ●" } else { "" }))
-                    .child(le)
-                    .when(ro, |this| this.child("read-only"))
-            }))
-            .child(h_flex().gap_3().children(server_label).children(items).child(agent_label))
+            .child(
+                h_flex()
+                    .gap_3()
+                    .when_some(self.branch.clone(), |this, b| this.child(format!("⎇ {b}")))
+                    .when(errors + warnings > 0, |this| {
+                        this.child(
+                            div()
+                                .id("problems-count")
+                                .cursor_pointer()
+                                .child(format!("⊘ {errors}  ⚠ {warnings}"))
+                                .on_click(|_, window, cx| {
+                                    CommandRegistry::run("view.problems", window, cx);
+                                }),
+                        )
+                    })
+                    .when_some(file, |this, (rel, le, dirty, ro)| {
+                        this.child(format!("{rel}{}", if dirty { " ●" } else { "" }))
+                            .child(le)
+                            .when(ro, |this| this.child("read-only"))
+                    }),
+            )
+            .child(
+                h_flex()
+                    .gap_3()
+                    .children(server_label)
+                    .children(items)
+                    .child(agent_label),
+            )
     }
 }
 
@@ -314,17 +391,32 @@ fn save_state(path: &Path, state: &DockAreaState) {
 /// Open (or focus) the Language Servers tab in `window`.
 pub fn show_language_servers(window: &mut Window, cx: &mut App) {
     let id = window.window_handle().window_id();
-    let Some(shell) = cx.try_global::<Shells>().and_then(|h| h.0.get(&id)?.upgrade()) else { return };
+    let Some(shell) = cx
+        .try_global::<Shells>()
+        .and_then(|h| h.0.get(&id)?.upgrade())
+    else {
+        return;
+    };
     shell.update(cx, |shell, cx| {
         if let Some(p) = pide_language_servers::existing(window, cx) {
             let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
             if shell.dock.read(cx).panel(pid).is_some() {
-                shell.dock.update(cx, |d, cx| d.select_panel(pid, window, cx));
+                shell
+                    .dock
+                    .update(cx, |d, cx| d.select_panel(pid, window, cx));
                 return;
             }
         }
         let p = cx.new(|cx| pide_language_servers::LanguageServers::new(window, cx));
-        shell.dock.update(cx, |d, cx| d.add_panel_view(panel_handle(p.clone()), DockPlacement::Center, None, window, cx));
+        shell.dock.update(cx, |d, cx| {
+            d.add_panel_view(
+                panel_handle(p.clone()),
+                DockPlacement::Center,
+                None,
+                window,
+                cx,
+            )
+        });
         let _ = p;
     });
 }
@@ -332,17 +424,26 @@ pub fn show_language_servers(window: &mut Window, cx: &mut App) {
 /// Open (or focus) the pi Settings tab in `window`.
 pub fn show_pi_settings(window: &mut Window, cx: &mut App) {
     let id = window.window_handle().window_id();
-    let Some(shell) = cx.try_global::<Shells>().and_then(|h| h.0.get(&id)?.upgrade()) else { return };
+    let Some(shell) = cx
+        .try_global::<Shells>()
+        .and_then(|h| h.0.get(&id)?.upgrade())
+    else {
+        return;
+    };
     shell.update(cx, |shell, cx| {
         if let Some(p) = pide_pi_settings::existing(window, cx) {
             let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
             if shell.dock.read(cx).panel(pid).is_some() {
-                shell.dock.update(cx, |d, cx| d.select_panel(pid, window, cx));
+                shell
+                    .dock
+                    .update(cx, |d, cx| d.select_panel(pid, window, cx));
                 return;
             }
         }
         let p = cx.new(|cx| pide_pi_settings::PiSettings::new(window, cx));
-        shell.dock.update(cx, |d, cx| d.add_panel_view(panel_handle(p), DockPlacement::Center, None, window, cx));
+        shell.dock.update(cx, |d, cx| {
+            d.add_panel_view(panel_handle(p), DockPlacement::Center, None, window, cx)
+        });
     });
 }
 
@@ -350,7 +451,12 @@ pub fn show_pi_settings(window: &mut Window, cx: &mut App) {
 pub fn show_find_in_files(window: &mut Window, cx: &mut App) {
     let selection = pide_core::context::current(window, cx).and_then(|c| c.selected);
     let id = window.window_handle().window_id();
-    let Some(shell) = cx.try_global::<Shells>().and_then(|h| h.0.get(&id)?.upgrade()) else { return };
+    let Some(shell) = cx
+        .try_global::<Shells>()
+        .and_then(|h| h.0.get(&id)?.upgrade())
+    else {
+        return;
+    };
     let panel = shell.update(cx, |shell, cx| {
         if let Some(p) = pide_search::existing(window, cx) {
             let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
@@ -366,14 +472,22 @@ pub fn show_find_in_files(window: &mut Window, cx: &mut App) {
         }
         let p = cx.new(|cx| pide_search::FindInFiles::new(window, cx));
         shell.dock.update(cx, |d, cx| {
-            d.add_panel_view(panel_handle(p.clone()), DockPlacement::Bottom, Some(px(260.)), window, cx);
+            d.add_panel_view(
+                panel_handle(p.clone()),
+                DockPlacement::Bottom,
+                Some(px(260.)),
+                window,
+                cx,
+            );
             if !d.is_dock_open(DockPlacement::Bottom) {
                 d.toggle_dock(DockPlacement::Bottom, window, cx);
             }
         });
         p
     });
-    window.defer(cx, move |window, cx| panel.update(cx, |p, cx| p.focus_query(selection, window, cx)));
+    window.defer(cx, move |window, cx| {
+        panel.update(cx, |p, cx| p.focus_query(selection, window, cx))
+    });
 }
 
 /// The file of the active editor tab in `window`.
@@ -390,13 +504,20 @@ pub fn show_markdown_preview(window: &mut Window, cx: &mut App) {
         return;
     };
     let id = window.window_handle().window_id();
-    let Some(shell) = cx.try_global::<Shells>().and_then(|h| h.0.get(&id)?.upgrade()) else { return };
+    let Some(shell) = cx
+        .try_global::<Shells>()
+        .and_then(|h| h.0.get(&id)?.upgrade())
+    else {
+        return;
+    };
     shell.update(cx, |shell, cx| {
         let p = cx.new(|cx| pide_preview::MarkdownPreview::new(path, window, cx));
         let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
         shell.dock.update(cx, |d, cx| {
             d.add_panel_view(panel_handle(p), DockPlacement::Center, None, window, cx);
-            let node = d.layout(DockPlacement::Center).and_then(|t| t.find_panel_node(pid));
+            let node = d
+                .layout(DockPlacement::Center)
+                .and_then(|t| t.find_panel_node(pid));
             if let Some(node) = node {
                 // `move_panel` detaches it from the group it was added to (`split_at` only inserts).
                 let target = gpui_kit::component::dock::InsertTarget::Split {
@@ -413,36 +534,75 @@ pub fn show_markdown_preview(window: &mut Window, cx: &mut App) {
 /// Open a PDF in the center (or switch to its tab).
 pub fn open_pdf(path: PathBuf, window: &mut Window, cx: &mut App) {
     let id = window.window_handle().window_id();
-    let Some(shell) = cx.try_global::<Shells>().and_then(|h| h.0.get(&id)?.upgrade()) else { return };
+    let Some(shell) = cx
+        .try_global::<Shells>()
+        .and_then(|h| h.0.get(&id)?.upgrade())
+    else {
+        return;
+    };
     shell.update(cx, |shell, cx| {
-        let open = shell.pdfs.iter().filter_map(|(p, w)| (p == &path).then(|| w.upgrade()).flatten()).next();
+        let open = shell
+            .pdfs
+            .iter()
+            .filter_map(|(p, w)| (p == &path).then(|| w.upgrade()).flatten())
+            .next();
         if let Some(p) = open {
             let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
             if shell.dock.read(cx).panel(pid).is_some() {
-                shell.dock.update(cx, |d, cx| d.select_panel(pid, window, cx));
+                shell
+                    .dock
+                    .update(cx, |d, cx| d.select_panel(pid, window, cx));
                 return;
             }
         }
         let p = cx.new(|cx| pide_pdf::PdfPanel::new(path.clone(), window, cx));
         shell.pdfs.retain(|(_, w)| w.upgrade().is_some());
         shell.pdfs.push((path, p.downgrade()));
-        shell.dock.update(cx, |d, cx| d.add_panel_view(panel_handle(p), DockPlacement::Center, None, window, cx));
+        shell.dock.update(cx, |d, cx| {
+            d.add_panel_view(panel_handle(p), DockPlacement::Center, None, window, cx)
+        });
     });
 }
 
 /// Show locations (Find Usages) in the bottom dock, reusing the panel.
-pub fn show_locations(title: SharedString, items: Vec<pide_core::opener::Location>, window: &mut Window, cx: &mut App) {
+pub fn show_locations(
+    title: SharedString,
+    items: Vec<pide_core::opener::Location>,
+    window: &mut Window,
+    cx: &mut App,
+) {
     let id = window.window_handle().window_id();
-    let Some(shell) = cx.try_global::<Shells>().and_then(|h| h.0.get(&id)?.upgrade()) else { return };
+    let Some(shell) = cx
+        .try_global::<Shells>()
+        .and_then(|h| h.0.get(&id)?.upgrade())
+    else {
+        return;
+    };
     shell.update(cx, |shell, cx| {
-        let existing = shell.locations.as_ref().and_then(|w| w.upgrade()).filter(|p| {
-            shell.dock.read(cx).panel(gpui_kit::component::dock::PanelId::from(p.entity_id())).is_some()
-        });
+        let existing = shell
+            .locations
+            .as_ref()
+            .and_then(|w| w.upgrade())
+            .filter(|p| {
+                shell
+                    .dock
+                    .read(cx)
+                    .panel(gpui_kit::component::dock::PanelId::from(p.entity_id()))
+                    .is_some()
+            });
         let p = match existing {
             Some(p) => p,
             None => {
                 let p = cx.new(|cx| pide_search::locations::Locations::new(window, cx));
-                shell.dock.update(cx, |d, cx| d.add_panel_view(panel_handle(p.clone()), DockPlacement::Bottom, Some(px(240.)), window, cx));
+                shell.dock.update(cx, |d, cx| {
+                    d.add_panel_view(
+                        panel_handle(p.clone()),
+                        DockPlacement::Bottom,
+                        Some(px(240.)),
+                        window,
+                        cx,
+                    )
+                });
                 shell.locations = Some(p.downgrade());
                 p
             }
@@ -461,10 +621,19 @@ pub fn show_locations(title: SharedString, items: Vec<pide_core::opener::Locatio
 /// Show the Problems panel in the bottom dock (adding it the first time); hide it if it's showing.
 pub fn toggle_problems(window: &mut Window, cx: &mut App) {
     let id = window.window_handle().window_id();
-    let Some(shell) = cx.try_global::<Shells>().and_then(|h| h.0.get(&id)?.upgrade()) else { return };
+    let Some(shell) = cx
+        .try_global::<Shells>()
+        .and_then(|h| h.0.get(&id)?.upgrade())
+    else {
+        return;
+    };
     shell.update(cx, |shell, cx| {
         let existing = pide_problems::existing(window, cx).filter(|p| {
-            shell.dock.read(cx).panel(gpui_kit::component::dock::PanelId::from(p.entity_id())).is_some()
+            shell
+                .dock
+                .read(cx)
+                .panel(gpui_kit::component::dock::PanelId::from(p.entity_id()))
+                .is_some()
         });
         match existing {
             Some(p) => {
@@ -481,7 +650,13 @@ pub fn toggle_problems(window: &mut Window, cx: &mut App) {
             None => {
                 let p = cx.new(|cx| pide_problems::Problems::new(window, cx));
                 shell.dock.update(cx, |d, cx| {
-                    d.add_panel_view(panel_handle(p.clone()), DockPlacement::Bottom, Some(px(220.)), window, cx);
+                    d.add_panel_view(
+                        panel_handle(p.clone()),
+                        DockPlacement::Bottom,
+                        Some(px(220.)),
+                        window,
+                        cx,
+                    );
                     if !d.is_dock_open(DockPlacement::Bottom) {
                         d.toggle_dock(DockPlacement::Bottom, window, cx);
                     }
@@ -515,7 +690,13 @@ impl Render for Shell {
                     .bg(cx.theme().title_bar)
                     .child(self.menu_bar.clone()),
             )
-            .child(div().flex_1().w_full().overflow_hidden().child(self.dock.clone()))
+            .child(
+                div()
+                    .flex_1()
+                    .w_full()
+                    .overflow_hidden()
+                    .child(self.dock.clone()),
+            )
             .child(self.render_status_bar(cx))
     }
 }

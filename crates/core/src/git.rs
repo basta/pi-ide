@@ -47,14 +47,22 @@ pub fn head_text(path: &Path) -> Option<String> {
         .arg(path.parent()?)
         .args(["show", "--no-textconv"])
         .arg(format!("HEAD:./{}", path.file_name()?.to_string_lossy()))
-        .env("PATH", std::env::join_paths(path_dirs()).unwrap_or_default())
+        .env(
+            "PATH",
+            std::env::join_paths(path_dirs()).unwrap_or_default(),
+        )
         .output()
         .ok()?;
-    out.status.success().then(|| String::from_utf8(out.stdout).ok()).flatten()
+    out.status
+        .success()
+        .then(|| String::from_utf8(out.stdout).ok())
+        .flatten()
 }
 
 fn path_dirs() -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
     dirs.extend(["/usr/bin", "/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
     dirs
 }
@@ -77,20 +85,29 @@ pub struct LineChange {
 /// What changed from `base` to `current`, line by line, for gutter marks.
 pub fn line_changes(base: &str, current: &str) -> Vec<LineChange> {
     use similar::{DiffOp, TextDiff};
-    let diff = TextDiff::configure().algorithm(similar::Algorithm::Patience).diff_lines(base, current);
+    let diff = TextDiff::configure()
+        .algorithm(similar::Algorithm::Patience)
+        .diff_lines(base, current);
     let mut out = Vec::new();
     for op in diff.ops() {
         match *op {
             DiffOp::Equal { .. } => {}
-            DiffOp::Insert { new_index, new_len, .. } => {
-                out.push(LineChange { kind: ChangeKind::Added, lines: new_index as u32..(new_index + new_len) as u32 })
-            }
-            DiffOp::Delete { new_index, .. } => {
-                out.push(LineChange { kind: ChangeKind::Deleted, lines: new_index as u32..new_index as u32 })
-            }
-            DiffOp::Replace { new_index, new_len, .. } => {
-                out.push(LineChange { kind: ChangeKind::Modified, lines: new_index as u32..(new_index + new_len) as u32 })
-            }
+            DiffOp::Insert {
+                new_index, new_len, ..
+            } => out.push(LineChange {
+                kind: ChangeKind::Added,
+                lines: new_index as u32..(new_index + new_len) as u32,
+            }),
+            DiffOp::Delete { new_index, .. } => out.push(LineChange {
+                kind: ChangeKind::Deleted,
+                lines: new_index as u32..new_index as u32,
+            }),
+            DiffOp::Replace {
+                new_index, new_len, ..
+            } => out.push(LineChange {
+                kind: ChangeKind::Modified,
+                lines: new_index as u32..(new_index + new_len) as u32,
+            }),
         }
     }
     out
@@ -102,8 +119,14 @@ mod tests {
 
     #[test]
     fn head_file_parsing() {
-        assert_eq!(parse_head("ref: refs/heads/main\n").as_deref(), Some("main"));
-        assert_eq!(parse_head("ref: refs/heads/feature/x").as_deref(), Some("feature/x"));
+        assert_eq!(
+            parse_head("ref: refs/heads/main\n").as_deref(),
+            Some("main")
+        );
+        assert_eq!(
+            parse_head("ref: refs/heads/feature/x").as_deref(),
+            Some("feature/x")
+        );
         assert_eq!(parse_head("2780c1e9d1b3a4f\n").as_deref(), Some("2780c1e"));
     }
 
@@ -112,12 +135,30 @@ mod tests {
         let base = "a\nb\nc\nd\n";
         let cur = "a\nB\nc\nnew\n";
         let ch = line_changes(base, cur);
-        assert!(ch.contains(&LineChange { kind: ChangeKind::Modified, lines: 1..2 }), "{ch:?}");
+        assert!(
+            ch.contains(&LineChange {
+                kind: ChangeKind::Modified,
+                lines: 1..2
+            }),
+            "{ch:?}"
+        );
         assert!(ch.iter().any(|c| c.lines.contains(&3)), "{ch:?}");
         let del = line_changes("a\nb\nc\n", "a\nc\n");
-        assert_eq!(del, vec![LineChange { kind: ChangeKind::Deleted, lines: 1..1 }]);
+        assert_eq!(
+            del,
+            vec![LineChange {
+                kind: ChangeKind::Deleted,
+                lines: 1..1
+            }]
+        );
         let add = line_changes("a\n", "a\nb\nc\n");
-        assert_eq!(add, vec![LineChange { kind: ChangeKind::Added, lines: 1..3 }]);
+        assert_eq!(
+            add,
+            vec![LineChange {
+                kind: ChangeKind::Added,
+                lines: 1..3
+            }]
+        );
         assert!(line_changes("same\n", "same\n").is_empty());
     }
 
@@ -127,14 +168,29 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let git = |args: &[&str]| {
-            Command::new("git").arg("-C").arg(&dir).args(args).output().map(|o| o.status.success()).unwrap_or(false)
+            Command::new("git")
+                .arg("-C")
+                .arg(&dir)
+                .args(args)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
         };
         if !git(&["init", "-q", "-b", "trunk"]) {
             return; // no git here
         }
         std::fs::write(dir.join("f.txt"), "one\n").unwrap();
         git(&["add", "f.txt"]);
-        git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"]);
+        git(&[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "x",
+        ]);
         std::fs::write(dir.join("f.txt"), "one\ntwo\n").unwrap();
         assert_eq!(branch(&dir).as_deref(), Some("trunk"));
         assert_eq!(head_text(&dir.join("f.txt")).as_deref(), Some("one\n"));

@@ -19,7 +19,10 @@ pub enum WorkspaceEvent {
     BufferSaved(Entity<Buffer>),
     /// The file changed on disk. `reloaded` = the clean buffer took the new
     /// text; otherwise the buffer is dirty and now has a conflict.
-    FileChangedOnDisk { buffer: Entity<Buffer>, reloaded: bool },
+    FileChangedOnDisk {
+        buffer: Entity<Buffer>,
+        reloaded: bool,
+    },
     FileDeleted(Entity<Buffer>),
     BufferClosed(PathBuf),
     /// The focused editor changed (or none is focused).
@@ -76,36 +79,84 @@ pub enum AgentEvent {
     /// `Agent::status` changed.
     StatusChanged,
     /// A prompt the user sent (echoed once the backend accepted it).
-    UserPrompt { text: String },
+    UserPrompt {
+        text: String,
+    },
     /// An assistant message started streaming.
     AssistantStart,
-    TextDelta { index: usize, delta: String },
-    TextEnd { index: usize, content: String },
-    ThinkingDelta { index: usize, delta: String },
-    ThinkingEnd { index: usize, content: String },
+    TextDelta {
+        index: usize,
+        delta: String,
+    },
+    TextEnd {
+        index: usize,
+        content: String,
+    },
+    ThinkingDelta {
+        index: usize,
+        delta: String,
+    },
+    ThinkingEnd {
+        index: usize,
+        content: String,
+    },
     /// The assistant message finished; `error` set if it ended in an error/abort.
-    AssistantEnd { error: Option<String> },
-    ToolStart { id: String, name: String, args: Value },
-    ToolUpdate { id: String, partial: Value },
-    ToolEnd { id: String, name: String, result: Value, is_error: bool, duration_ms: Option<u64> },
+    AssistantEnd {
+        error: Option<String>,
+    },
+    ToolStart {
+        id: String,
+        name: String,
+        args: Value,
+    },
+    ToolUpdate {
+        id: String,
+        partial: Value,
+    },
+    ToolEnd {
+        id: String,
+        name: String,
+        result: Value,
+        is_error: bool,
+        duration_ms: Option<u64>,
+    },
     /// A file-changing tool call (`edit`, `write`) started on `path` (absolute);
     /// `before` is the file as read right then (`None` = it didn't exist).
-    FileTouched { tool_call_id: String, tool: String, path: PathBuf, before: Option<String> },
+    FileTouched {
+        tool_call_id: String,
+        tool: String,
+        path: PathBuf,
+        before: Option<String>,
+    },
     /// pi's pending messages changed: steering (delivered after the current tool
     /// calls) and follow-ups (delivered when the run ends). Complete lists.
-    Queue { steering: Vec<String>, follow_up: Vec<String> },
+    Queue {
+        steering: Vec<String>,
+        follow_up: Vec<String>,
+    },
     /// The agent will not continue on its own.
-    Settled { aborted: bool },
+    Settled {
+        aborted: bool,
+    },
     /// A blocking extension dialog; pi waits until it's answered (or its timeout).
     Dialog(DialogRequest),
     /// Fire-and-forget extension UI: status bar item.
-    Status { key: String, text: Option<String> },
+    Status {
+        key: String,
+        text: Option<String>,
+    },
     /// Fire-and-forget extension UI: toast.
-    Notify { message: String, error: bool },
+    Notify {
+        message: String,
+        error: bool,
+    },
     /// Something the backend wants the user to see (rejected prompt, extension error…).
     Error(String),
     /// The agent process exited.
-    Exited { code: Option<i32>, stderr_tail: Vec<String> },
+    Exited {
+        code: Option<i32>,
+        stderr_tail: Vec<String>,
+    },
     /// A record we don't understand yet. Shown raw; never a crash.
     Unknown(Value),
 }

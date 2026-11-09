@@ -38,8 +38,16 @@ impl PiConfig {
     pub fn new(root: &Path) -> Self {
         let agent_dir = std::env::var_os("PI_CODING_AGENT_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|| std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default().join(".pi/agent"));
-        Self { agent_dir, root: root.to_path_buf() }
+            .unwrap_or_else(|| {
+                std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .unwrap_or_default()
+                    .join(".pi/agent")
+            });
+        Self {
+            agent_dir,
+            root: root.to_path_buf(),
+        }
     }
 
     pub fn dir(&self, scope: Scope) -> PathBuf {
@@ -62,7 +70,11 @@ impl PiConfig {
     }
 
     /// Change one scope's `settings.json` (created if missing), keeping other keys.
-    pub fn update_settings(&self, scope: Scope, f: impl FnOnce(&mut Map<String, Value>)) -> Result<()> {
+    pub fn update_settings(
+        &self,
+        scope: Scope,
+        f: impl FnOnce(&mut Map<String, Value>),
+    ) -> Result<()> {
         let path = self.settings_path(scope);
         let mut map = read_json(&path)?;
         f(&mut map);
@@ -72,7 +84,9 @@ impl PiConfig {
     pub fn update_mcp(&self, scope: Scope, f: impl FnOnce(&mut Map<String, Value>)) -> Result<()> {
         let path = self.mcp_path(scope);
         let mut map = read_json(&path)?;
-        let servers = map.entry("mcpServers").or_insert_with(|| Value::Object(Map::new()));
+        let servers = map
+            .entry("mcpServers")
+            .or_insert_with(|| Value::Object(Map::new()));
         if let Some(servers) = servers.as_object_mut() {
             f(servers);
         }
@@ -84,7 +98,9 @@ impl PiConfig {
 pub fn read_json(path: &Path) -> Result<Map<String, Value>> {
     match std::fs::read_to_string(path) {
         Ok(text) if text.trim().is_empty() => Ok(Map::new()),
-        Ok(text) => match serde_json::from_str::<Value>(&text).with_context(|| format!("{} is not valid JSON", path.display()))? {
+        Ok(text) => match serde_json::from_str::<Value>(&text)
+            .with_context(|| format!("{} is not valid JSON", path.display()))?
+        {
             Value::Object(m) => Ok(m),
             _ => anyhow::bail!("{} is not a JSON object", path.display()),
         },
@@ -104,7 +120,11 @@ pub fn write_json(path: &Path, map: &Map<String, Value>) -> Result<()> {
 }
 
 fn string_list(v: Option<&Value>) -> Option<Vec<String>> {
-    v.and_then(Value::as_array).map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect())
+    v.and_then(Value::as_array).map(|a| {
+        a.iter()
+            .filter_map(|s| s.as_str().map(str::to_string))
+            .collect()
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -119,15 +139,25 @@ pub const BUILTIN_TOOLS: &[(&str, &str)] = &[
     ("grep", "Search file contents"),
     ("find", "Find files by name"),
     ("ls", "List directories"),
-    ("powershell", "Run PowerShell commands (instead of bash on Windows)"),
+    (
+        "powershell",
+        "Run PowerShell commands (instead of bash on Windows)",
+    ),
     ("codemode", "Let the model call tools from scripts"),
-    ("tool_search", "Find tools by description instead of listing them all"),
+    (
+        "tool_search",
+        "Find tools by description instead of listing them all",
+    ),
 ];
 pub const DEFAULT_TOOLS: &[&str] = &["read", "bash", "edit", "write"];
 
 /// pi's rule: plain names replace the selection; `+name` / `-name` then apply in order.
 pub fn apply_tool_list(mut base: Vec<String>, list: &[String]) -> Vec<String> {
-    let plain: Vec<String> = list.iter().filter(|e| !e.starts_with(['+', '-'])).cloned().collect();
+    let plain: Vec<String> = list
+        .iter()
+        .filter(|e| !e.starts_with(['+', '-']))
+        .cloned()
+        .collect();
     if !plain.is_empty() {
         base = plain;
     }
@@ -148,7 +178,11 @@ pub fn resolve_tools(user: Option<&[String]>, project: Option<&[String]>) -> Vec
     let mut tools: Vec<String> = DEFAULT_TOOLS.iter().map(|s| s.to_string()).collect();
     for list in [user, project].into_iter().flatten() {
         // An explicitly empty list disables every built-in tool.
-        tools = if list.is_empty() { vec![] } else { apply_tool_list(tools, list) };
+        tools = if list.is_empty() {
+            vec![]
+        } else {
+            apply_tool_list(tools, list)
+        };
     }
     tools
 }
@@ -156,7 +190,12 @@ pub fn resolve_tools(user: Option<&[String]>, project: Option<&[String]>) -> Vec
 /// New `defaultTools` for `scope` so that `tool` is `on`, given what it inherits.
 /// Lists of plain names are edited in place; otherwise a `+name`/`-name` entry is
 /// added only when it differs from what the scope inherits.
-pub fn set_tool(list: Option<&[String]>, inherited: &[String], tool: &str, on: bool) -> Option<Vec<String>> {
+pub fn set_tool(
+    list: Option<&[String]>,
+    inherited: &[String],
+    tool: &str,
+    on: bool,
+) -> Option<Vec<String>> {
     let mut list: Vec<String> = list.map(<[String]>::to_vec).unwrap_or_default();
     let has_plain = list.iter().any(|e| !e.starts_with(['+', '-']));
     list.retain(|e| e.trim_start_matches(['+', '-']) != tool);
@@ -165,7 +204,9 @@ pub fn set_tool(list: Option<&[String]>, inherited: &[String], tool: &str, on: b
             list.push(tool.to_string());
         }
     } else {
-        let inherited_on = apply_tool_list(inherited.to_vec(), &list).iter().any(|t| t == tool);
+        let inherited_on = apply_tool_list(inherited.to_vec(), &list)
+            .iter()
+            .any(|t| t == tool);
         if inherited_on != on {
             list.push(format!("{}{tool}", if on { '+' } else { '-' }));
         }
@@ -184,7 +225,11 @@ pub const BUILTIN_EXTENSIONS: &[(&str, &str)] = &[
 ];
 
 /// On unless a scope says otherwise; the project's word wins.
-pub fn builtin_extension_on(name: &str, user: Option<&[String]>, project: Option<&[String]>) -> bool {
+pub fn builtin_extension_on(
+    name: &str,
+    user: Option<&[String]>,
+    project: Option<&[String]>,
+) -> bool {
     let mut on = true;
     for list in [user, project].into_iter().flatten() {
         for e in list {
@@ -199,7 +244,12 @@ pub fn builtin_extension_on(name: &str, user: Option<&[String]>, project: Option
 }
 
 /// New `extensions` list for a scope with `builtin:name` set `on` (relative to `inherited_on`).
-pub fn set_builtin_extension(list: Option<&[String]>, name: &str, on: bool, inherited_on: bool) -> Option<Vec<String>> {
+pub fn set_builtin_extension(
+    list: Option<&[String]>,
+    name: &str,
+    on: bool,
+    inherited_on: bool,
+) -> Option<Vec<String>> {
     let mut list: Vec<String> = list.map(<[String]>::to_vec).unwrap_or_default();
     list.retain(|e| e != &format!("-builtin:{name}") && e != &format!("+builtin:{name}"));
     if on != inherited_on {
@@ -212,7 +262,10 @@ pub fn set_builtin_extension(list: Option<&[String]>, name: &str, on: bool, inhe
 pub fn put_list(map: &mut Map<String, Value>, key: &str, list: Option<Vec<String>>) {
     match list {
         Some(l) => {
-            map.insert(key.into(), Value::Array(l.into_iter().map(Value::String).collect()));
+            map.insert(
+                key.into(),
+                Value::Array(l.into_iter().map(Value::String).collect()),
+            );
         }
         None => {
             map.remove(key);
@@ -247,22 +300,37 @@ pub struct Package {
 pub fn package_identity(source: &str) -> (&'static str, String) {
     if let Some(rest) = source.strip_prefix("npm:") {
         let name = match rest.strip_prefix('@') {
-            Some(scoped) => format!("@{}", scoped.split_once('@').map(|(n, _)| n).unwrap_or(scoped)),
-            None => rest.split_once('@').map(|(n, _)| n).unwrap_or(rest).to_string(),
+            Some(scoped) => format!(
+                "@{}",
+                scoped.split_once('@').map(|(n, _)| n).unwrap_or(scoped)
+            ),
+            None => rest
+                .split_once('@')
+                .map(|(n, _)| n)
+                .unwrap_or(rest)
+                .to_string(),
         };
         return ("npm", name);
     }
-    let git = source.strip_prefix("git:").or_else(|| source.strip_prefix("https://"));
+    let git = source
+        .strip_prefix("git:")
+        .or_else(|| source.strip_prefix("https://"));
     if let Some(rest) = git {
         let rest = rest.trim_end_matches(".git");
-        let name = rest.rsplit_once('@').filter(|(_, r)| !r.contains('/')).map(|(n, _)| n).unwrap_or(rest);
+        let name = rest
+            .rsplit_once('@')
+            .filter(|(_, r)| !r.contains('/'))
+            .map(|(n, _)| n)
+            .unwrap_or(rest);
         return ("git", name.to_string());
     }
     ("local", source.to_string())
 }
 
 pub fn packages(cfg: &PiConfig, scope: Scope, settings: &Map<String, Value>) -> Vec<Package> {
-    let Some(list) = settings.get("packages").and_then(Value::as_array) else { return vec![] };
+    let Some(list) = settings.get("packages").and_then(Value::as_array) else {
+        return vec![];
+    };
     list.iter()
         .filter_map(|p| match p {
             Value::String(s) => Some(s.clone()),
@@ -274,22 +342,41 @@ pub fn packages(cfg: &PiConfig, scope: Scope, settings: &Map<String, Value>) -> 
             let dir = cfg.dir(scope);
             let installed_at = match kind {
                 "npm" => Some(dir.join("npm/node_modules").join(&name)),
-                "local" => Some(if Path::new(&name).is_absolute() { PathBuf::from(&name) } else { dir.join(&name) }),
+                "local" => Some(if Path::new(&name).is_absolute() {
+                    PathBuf::from(&name)
+                } else {
+                    dir.join(&name)
+                }),
                 _ => None,
             }
             .filter(|p| p.exists());
-            let manifest = installed_at.as_ref().and_then(|p| read_json(&p.join("package.json")).ok()).unwrap_or_default();
-            let resources = installed_at.as_ref().map(|p| package_resources(p, &manifest)).unwrap_or_default();
+            let manifest = installed_at
+                .as_ref()
+                .and_then(|p| read_json(&p.join("package.json")).ok())
+                .unwrap_or_default();
+            let resources = installed_at
+                .as_ref()
+                .map(|p| package_resources(p, &manifest))
+                .unwrap_or_default();
             let display = if kind == "local" {
-                Path::new(&name).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| name.clone())
+                Path::new(&name)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| name.clone())
             } else {
                 name.clone()
             };
             Package {
                 scope,
                 display,
-                version: manifest.get("version").and_then(Value::as_str).map(str::to_string),
-                description: manifest.get("description").and_then(Value::as_str).map(str::to_string),
+                version: manifest
+                    .get("version")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                description: manifest
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 source,
                 name,
                 kind,
@@ -304,12 +391,22 @@ pub fn packages(cfg: &PiConfig, scope: Scope, settings: &Map<String, Value>) -> 
 fn package_resources(dir: &Path, manifest: &Map<String, Value>) -> Vec<(&'static str, String)> {
     let mut out = Vec::new();
     for kind in ["extensions", "skills", "prompts", "themes"] {
-        match manifest.get("pi").and_then(|p| p.get(kind)).and_then(Value::as_array) {
-            Some(list) => out.extend(list.iter().filter_map(Value::as_str).map(|s| (kind, s.trim_start_matches("./").to_string()))),
+        match manifest
+            .get("pi")
+            .and_then(|p| p.get(kind))
+            .and_then(Value::as_array)
+        {
+            Some(list) => out.extend(
+                list.iter()
+                    .filter_map(Value::as_str)
+                    .map(|s| (kind, s.trim_start_matches("./").to_string())),
+            ),
             None => {
                 if let Ok(entries) = std::fs::read_dir(dir.join(kind)) {
-                    let mut names: Vec<String> =
-                        entries.flatten().map(|e| format!("{kind}/{}", e.file_name().to_string_lossy())).collect();
+                    let mut names: Vec<String> = entries
+                        .flatten()
+                        .map(|e| format!("{kind}/{}", e.file_name().to_string_lossy()))
+                        .collect();
                     names.sort();
                     out.extend(names.into_iter().map(|n| (kind, n)));
                 }
@@ -321,11 +418,19 @@ fn package_resources(dir: &Path, manifest: &Map<String, Value>) -> Vec<(&'static
 
 /// Extension files you put in `<scope dir>/extensions/` yourself.
 pub fn local_extensions(cfg: &PiConfig, scope: Scope) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(cfg.dir(scope).join("extensions")) else { return vec![] };
+    let Ok(entries) = std::fs::read_dir(cfg.dir(scope).join("extensions")) else {
+        return vec![];
+    };
     let mut v: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.is_dir() || matches!(p.extension().and_then(|e| e.to_str()), Some("ts" | "js" | "mjs")))
+        .filter(|p| {
+            p.is_dir()
+                || matches!(
+                    p.extension().and_then(|e| e.to_str()),
+                    Some("ts" | "js" | "mjs")
+                )
+        })
         .collect();
     v.sort();
     v
@@ -346,7 +451,9 @@ pub struct McpServer {
 }
 
 pub fn mcp_servers(scope: Scope, file: &Map<String, Value>) -> Vec<McpServer> {
-    let Some(servers) = file.get("mcpServers").and_then(Value::as_object) else { return vec![] };
+    let Some(servers) = file.get("mcpServers").and_then(Value::as_object) else {
+        return vec![];
+    };
     servers
         .iter()
         .map(|(name, v)| {
@@ -354,7 +461,12 @@ pub fn mcp_servers(scope: Scope, file: &Map<String, Value>) -> Vec<McpServer> {
             let target = match url {
                 Some(u) => u.to_string(),
                 None => {
-                    let mut parts = vec![v.get("command").and_then(Value::as_str).unwrap_or("").to_string()];
+                    let mut parts = vec![
+                        v.get("command")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                    ];
                     parts.extend(string_list(v.get("args")).unwrap_or_default());
                     parts.join(" ").trim().to_string()
                 }
@@ -365,7 +477,10 @@ pub fn mcp_servers(scope: Scope, file: &Map<String, Value>) -> Vec<McpServer> {
                 http: url.is_some(),
                 target,
                 enabled: v.get("enabled").and_then(Value::as_bool).unwrap_or(true),
-                description: v.get("description").and_then(Value::as_str).map(str::to_string),
+                description: v
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
             }
         })
         .collect()
@@ -395,13 +510,20 @@ pub fn mcp_entry(target: &str) -> Value {
     if !cur.is_empty() {
         words.push(cur);
     }
-    let command = if words.is_empty() { String::new() } else { words.remove(0) };
+    let command = if words.is_empty() {
+        String::new()
+    } else {
+        words.remove(0)
+    };
     serde_json::json!({ "command": command, "args": words })
 }
 
 /// Server names pi accepts.
 pub fn valid_mcp_name(name: &str) -> bool {
-    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 // ---------------------------------------------------------------------------
@@ -419,7 +541,9 @@ pub struct Model {
 
 /// Parse `pi --list-models` (a whitespace table under a `provider model …` header).
 pub fn parse_models(out: &str) -> Vec<Model> {
-    let mut lines = out.lines().skip_while(|l| !l.trim_start().starts_with("provider"));
+    let mut lines = out
+        .lines()
+        .skip_while(|l| !l.trim_start().starts_with("provider"));
     if lines.next().is_none() {
         return vec![];
     }
@@ -440,14 +564,30 @@ pub fn parse_models(out: &str) -> Vec<Model> {
 /// Models from custom providers in `models.json`. pi lists only models whose key
 /// it can find, so these fill the gap with a note on what's missing.
 pub fn custom_models(models_json: &Map<String, Value>, env: impl Fn(&str) -> bool) -> Vec<Model> {
-    let Some(providers) = models_json.get("providers").and_then(Value::as_object) else { return vec![] };
+    let Some(providers) = models_json.get("providers").and_then(Value::as_object) else {
+        return vec![];
+    };
     let mut out = Vec::new();
     for (provider, p) in providers {
         let key = p.get("apiKey").and_then(Value::as_str).unwrap_or("");
-        let note = key.strip_prefix('$').filter(|var| !env(var)).map(|var| format!("needs ${var}"));
-        for m in p.get("models").and_then(Value::as_array).into_iter().flatten() {
-            let Some(id) = m.get("id").and_then(Value::as_str) else { continue };
-            let context = m.get("contextWindow").and_then(Value::as_u64).map(|c| format!("{}K", c / 1000)).unwrap_or_default();
+        let note = key
+            .strip_prefix('$')
+            .filter(|var| !env(var))
+            .map(|var| format!("needs ${var}"));
+        for m in p
+            .get("models")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(id) = m.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            let context = m
+                .get("contextWindow")
+                .and_then(Value::as_u64)
+                .map(|c| format!("{}K", c / 1000))
+                .unwrap_or_default();
             out.push(Model {
                 provider: provider.clone(),
                 id: id.to_string(),
@@ -473,13 +613,19 @@ pub fn list_models(cwd: &Path) -> Result<Vec<Model>> {
     let out = std::process::Command::new(pi)
         .arg("--list-models")
         .current_dir(cwd)
-        .env("PATH", std::env::join_paths(pide_runtime::process::search_path()).unwrap_or_default())
+        .env(
+            "PATH",
+            std::env::join_paths(pide_runtime::process::search_path()).unwrap_or_default(),
+        )
         .output()?;
     let mut models = parse_models(&String::from_utf8_lossy(&out.stdout));
     // Custom providers pi left out (no key in this environment).
     let custom = read_json(&PiConfig::new(cwd).agent_dir.join("models.json")).unwrap_or_default();
     for m in custom_models(&custom, |var| std::env::var_os(var).is_some()) {
-        if !models.iter().any(|x| x.provider == m.provider && x.id == m.id) {
+        if !models
+            .iter()
+            .any(|x| x.provider == m.provider && x.id == m.id)
+        {
             models.insert(0, m);
         }
     }
@@ -515,7 +661,11 @@ pub struct SourceInfo {
 
 pub fn parse_get_commands(line: &str) -> Result<Vec<PiCommand>> {
     let v: Value = serde_json::from_str(line)?;
-    anyhow::ensure!(v["success"].as_bool() == Some(true), "get_commands failed: {}", v["error"]);
+    anyhow::ensure!(
+        v["success"].as_bool() == Some(true),
+        "get_commands failed: {}",
+        v["error"]
+    );
     Ok(serde_json::from_value(v["data"]["commands"].clone())?)
 }
 
@@ -526,7 +676,10 @@ pub fn list_commands(cwd: &Path) -> Result<Vec<PiCommand>> {
     let mut child = std::process::Command::new(pi)
         .args(["--mode", "rpc", "--no-session"])
         .current_dir(cwd)
-        .env("PATH", std::env::join_paths(pide_runtime::process::search_path()).unwrap_or_default())
+        .env(
+            "PATH",
+            std::env::join_paths(pide_runtime::process::search_path()).unwrap_or_default(),
+        )
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -563,7 +716,11 @@ pub fn set_resource(list: Option<&[String]>, path: &Path, on: bool) -> Option<Ve
 
 /// Resources a scope has switched off (`-path` entries), for listing them.
 pub fn disabled_resources(list: Option<&[String]>) -> Vec<PathBuf> {
-    list.unwrap_or_default().iter().filter_map(|e| e.strip_prefix('-')).map(PathBuf::from).collect()
+    list.unwrap_or_default()
+        .iter()
+        .filter_map(|e| e.strip_prefix('-'))
+        .map(PathBuf::from)
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -580,14 +737,46 @@ pub struct InstructionFile {
 
 pub fn instruction_files(cfg: &PiConfig) -> Vec<InstructionFile> {
     let entries: [(Scope, PathBuf, &str); 6] = [
-        (Scope::User, cfg.agent_dir.join("AGENTS.md"), "Your instructions for every project"),
-        (Scope::User, cfg.agent_dir.join("APPEND_SYSTEM.md"), "Added to pi's system prompt everywhere"),
-        (Scope::User, cfg.agent_dir.join("SYSTEM.md"), "Replaces pi's system prompt everywhere"),
-        (Scope::Project, cfg.root.join("AGENTS.md"), "Instructions for this project (also read by other agents)"),
-        (Scope::Project, cfg.root.join(".pi/APPEND_SYSTEM.md"), "Added to the system prompt in this project"),
-        (Scope::Project, cfg.root.join(".pi/SYSTEM.md"), "Replaces the system prompt in this project"),
+        (
+            Scope::User,
+            cfg.agent_dir.join("AGENTS.md"),
+            "Your instructions for every project",
+        ),
+        (
+            Scope::User,
+            cfg.agent_dir.join("APPEND_SYSTEM.md"),
+            "Added to pi's system prompt everywhere",
+        ),
+        (
+            Scope::User,
+            cfg.agent_dir.join("SYSTEM.md"),
+            "Replaces pi's system prompt everywhere",
+        ),
+        (
+            Scope::Project,
+            cfg.root.join("AGENTS.md"),
+            "Instructions for this project (also read by other agents)",
+        ),
+        (
+            Scope::Project,
+            cfg.root.join(".pi/APPEND_SYSTEM.md"),
+            "Added to the system prompt in this project",
+        ),
+        (
+            Scope::Project,
+            cfg.root.join(".pi/SYSTEM.md"),
+            "Replaces the system prompt in this project",
+        ),
     ];
-    entries.into_iter().map(|(scope, path, role)| InstructionFile { scope, exists: path.is_file(), path, role }).collect()
+    entries
+        .into_iter()
+        .map(|(scope, path, role)| InstructionFile {
+            scope,
+            exists: path.is_file(),
+            path,
+            role,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -601,39 +790,92 @@ mod tests {
 
     #[test]
     fn tools_follow_pis_rules() {
-        assert_eq!(resolve_tools(None, None), v(&["read", "bash", "edit", "write"]));
-        assert_eq!(resolve_tools(Some(&v(&["+grep"])), None), v(&["read", "bash", "edit", "write", "grep"]));
-        assert_eq!(resolve_tools(Some(&v(&["-bash", "+powershell", "+grep"])), None), v(&["read", "edit", "write", "powershell", "grep"]));
-        assert_eq!(resolve_tools(Some(&v(&["read", "ls"])), Some(&v(&["+grep"]))), v(&["read", "ls", "grep"]));
+        assert_eq!(
+            resolve_tools(None, None),
+            v(&["read", "bash", "edit", "write"])
+        );
+        assert_eq!(
+            resolve_tools(Some(&v(&["+grep"])), None),
+            v(&["read", "bash", "edit", "write", "grep"])
+        );
+        assert_eq!(
+            resolve_tools(Some(&v(&["-bash", "+powershell", "+grep"])), None),
+            v(&["read", "edit", "write", "powershell", "grep"])
+        );
+        assert_eq!(
+            resolve_tools(Some(&v(&["read", "ls"])), Some(&v(&["+grep"]))),
+            v(&["read", "ls", "grep"])
+        );
         assert_eq!(resolve_tools(Some(&v(&[])), None), Vec::<String>::new());
     }
 
     #[test]
     fn toggling_a_tool_writes_the_smallest_change() {
         let inherited = resolve_tools(None, None);
-        assert_eq!(set_tool(None, &inherited, "grep", true), Some(v(&["+grep"])));
-        assert_eq!(set_tool(Some(&v(&["+grep"])), &inherited, "grep", false), None);
-        assert_eq!(set_tool(None, &inherited, "bash", false), Some(v(&["-bash"])));
+        assert_eq!(
+            set_tool(None, &inherited, "grep", true),
+            Some(v(&["+grep"]))
+        );
+        assert_eq!(
+            set_tool(Some(&v(&["+grep"])), &inherited, "grep", false),
+            None
+        );
+        assert_eq!(
+            set_tool(None, &inherited, "bash", false),
+            Some(v(&["-bash"]))
+        );
         // A plain list is edited in place.
-        assert_eq!(set_tool(Some(&v(&["read", "ls"])), &inherited, "grep", true), Some(v(&["read", "ls", "grep"])));
-        assert_eq!(set_tool(Some(&v(&["read", "ls"])), &inherited, "ls", false), Some(v(&["read"])));
+        assert_eq!(
+            set_tool(Some(&v(&["read", "ls"])), &inherited, "grep", true),
+            Some(v(&["read", "ls", "grep"]))
+        );
+        assert_eq!(
+            set_tool(Some(&v(&["read", "ls"])), &inherited, "ls", false),
+            Some(v(&["read"]))
+        );
     }
 
     #[test]
     fn builtin_extensions_project_wins() {
         assert!(builtin_extension_on("mcp", None, None));
-        assert!(!builtin_extension_on("mcp", Some(&v(&["-builtin:mcp"])), None));
-        assert!(builtin_extension_on("mcp", Some(&v(&["-builtin:mcp"])), Some(&v(&["+builtin:mcp"]))));
-        assert_eq!(set_builtin_extension(Some(&v(&["./x.ts"])), "mcp", false, true), Some(v(&["./x.ts", "-builtin:mcp"])));
-        assert_eq!(set_builtin_extension(Some(&v(&["-builtin:mcp"])), "mcp", true, true), None);
+        assert!(!builtin_extension_on(
+            "mcp",
+            Some(&v(&["-builtin:mcp"])),
+            None
+        ));
+        assert!(builtin_extension_on(
+            "mcp",
+            Some(&v(&["-builtin:mcp"])),
+            Some(&v(&["+builtin:mcp"]))
+        ));
+        assert_eq!(
+            set_builtin_extension(Some(&v(&["./x.ts"])), "mcp", false, true),
+            Some(v(&["./x.ts", "-builtin:mcp"]))
+        );
+        assert_eq!(
+            set_builtin_extension(Some(&v(&["-builtin:mcp"])), "mcp", true, true),
+            None
+        );
     }
 
     #[test]
     fn package_names() {
-        assert_eq!(package_identity("npm:pi-search-hub"), ("npm", "pi-search-hub".into()));
-        assert_eq!(package_identity("npm:@scope/tools@1.2.3"), ("npm", "@scope/tools".into()));
-        assert_eq!(package_identity("git:github.com/a/b@v1"), ("git", "github.com/a/b".into()));
-        assert_eq!(package_identity("https://github.com/a/b.git"), ("git", "github.com/a/b".into()));
+        assert_eq!(
+            package_identity("npm:pi-search-hub"),
+            ("npm", "pi-search-hub".into())
+        );
+        assert_eq!(
+            package_identity("npm:@scope/tools@1.2.3"),
+            ("npm", "@scope/tools".into())
+        );
+        assert_eq!(
+            package_identity("git:github.com/a/b@v1"),
+            ("git", "github.com/a/b".into())
+        );
+        assert_eq!(
+            package_identity("https://github.com/a/b.git"),
+            ("git", "github.com/a/b".into())
+        );
         assert_eq!(package_identity("./pkg"), ("local", "./pkg".into()));
     }
 
@@ -645,11 +887,20 @@ mod tests {
         }});
         let servers = mcp_servers(Scope::User, file.as_object().unwrap());
         let fs = servers.iter().find(|s| s.name == "fs").unwrap();
-        assert_eq!((fs.target.as_str(), fs.http, fs.enabled), ("npx -y server-fs .", false, true));
+        assert_eq!(
+            (fs.target.as_str(), fs.http, fs.enabled),
+            ("npx -y server-fs .", false, true)
+        );
         let docs = servers.iter().find(|s| s.name == "docs").unwrap();
         assert_eq!((docs.http, docs.enabled), (true, false));
-        assert_eq!(mcp_entry("https://x.dev/mcp"), json!({ "url": "https://x.dev/mcp" }));
-        assert_eq!(mcp_entry(r#"npx -y "my server" ."#), json!({ "command": "npx", "args": ["-y", "my server", "."] }));
+        assert_eq!(
+            mcp_entry("https://x.dev/mcp"),
+            json!({ "url": "https://x.dev/mcp" })
+        );
+        assert_eq!(
+            mcp_entry(r#"npx -y "my server" ."#),
+            json!({ "command": "npx", "args": ["-y", "my server", "."] })
+        );
         assert!(valid_mcp_name("my-server_2") && !valid_mcp_name("my server"));
     }
 
@@ -660,7 +911,10 @@ mod tests {
                    e-infra     glm-5.2         200K     32K      no        no\n";
         let m = parse_models(out);
         assert_eq!(m.len(), 2);
-        assert_eq!((m[1].provider.as_str(), m[1].id.as_str(), m[1].thinking), ("e-infra", "glm-5.2", false));
+        assert_eq!(
+            (m[1].provider.as_str(), m[1].id.as_str(), m[1].thinking),
+            ("e-infra", "glm-5.2", false)
+        );
     }
 
     #[test]
@@ -671,9 +925,16 @@ mod tests {
         }});
         let m = custom_models(file.as_object().unwrap(), |_| false);
         let glm = m.iter().find(|m| m.id == "glm-5.2").unwrap();
-        assert_eq!((glm.context.as_str(), glm.thinking, glm.note.as_deref()), ("200K", true, Some("needs $EINFRA_API_KEY")));
+        assert_eq!(
+            (glm.context.as_str(), glm.thinking, glm.note.as_deref()),
+            ("200K", true, Some("needs $EINFRA_API_KEY"))
+        );
         assert_eq!(m.iter().find(|m| m.id == "m").unwrap().note, None);
-        assert!(custom_models(file.as_object().unwrap(), |_| true).iter().all(|m| m.note.is_none()));
+        assert!(
+            custom_models(file.as_object().unwrap(), |_| true)
+                .iter()
+                .all(|m| m.note.is_none())
+        );
     }
 
     #[test]
@@ -681,17 +942,30 @@ mod tests {
         let line = include_str!("../tests/fixtures/get_commands_response.json");
         let cmds = parse_get_commands(line.trim()).unwrap();
         let search = cmds.iter().find(|c| c.name == "search-setup").unwrap();
-        assert_eq!((search.source.as_str(), search.source_info.origin.as_str()), ("extension", "package"));
+        assert_eq!(
+            (search.source.as_str(), search.source_info.origin.as_str()),
+            ("extension", "package")
+        );
         assert_eq!(search.source_info.source, "npm:pi-search-hub");
     }
 
     #[test]
     fn settings_round_trip_keeps_unknown_keys() {
         let dir = std::env::temp_dir().join(format!("pide-picfg-{}", std::process::id()));
-        let cfg = PiConfig { agent_dir: dir.join("agent"), root: dir.join("proj") };
+        let cfg = PiConfig {
+            agent_dir: dir.join("agent"),
+            root: dir.join("proj"),
+        };
         std::fs::create_dir_all(&cfg.agent_dir).unwrap();
-        std::fs::write(cfg.settings_path(Scope::User), r#"{ "theme": "dark", "lastChangelogVersion": "1.0" }"#).unwrap();
-        cfg.update_settings(Scope::User, |m| put_list(m, "defaultTools", Some(v(&["+grep"])))).unwrap();
+        std::fs::write(
+            cfg.settings_path(Scope::User),
+            r#"{ "theme": "dark", "lastChangelogVersion": "1.0" }"#,
+        )
+        .unwrap();
+        cfg.update_settings(Scope::User, |m| {
+            put_list(m, "defaultTools", Some(v(&["+grep"])))
+        })
+        .unwrap();
         let back = cfg.settings(Scope::User).unwrap();
         assert_eq!(back["theme"], "dark");
         assert_eq!(back["lastChangelogVersion"], "1.0");
@@ -705,7 +979,10 @@ mod tests {
         // A broken file is reported, never overwritten.
         std::fs::write(cfg.settings_path(Scope::User), "{ nope").unwrap();
         assert!(cfg.update_settings(Scope::User, |_| {}).is_err());
-        assert_eq!(std::fs::read_to_string(cfg.settings_path(Scope::User)).unwrap(), "{ nope");
+        assert_eq!(
+            std::fs::read_to_string(cfg.settings_path(Scope::User)).unwrap(),
+            "{ nope"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -720,6 +997,12 @@ mod tests {
         eprintln!("{} models, {} commands", models.len(), cmds.len());
         let cfg = PiConfig::new(&cwd);
         let user = cfg.settings(Scope::User).unwrap();
-        eprintln!("packages: {:?}", packages(&cfg, Scope::User, &user).iter().map(|p| (&p.name, &p.version, p.resources.len())).collect::<Vec<_>>());
+        eprintln!(
+            "packages: {:?}",
+            packages(&cfg, Scope::User, &user)
+                .iter()
+                .map(|p| (&p.name, &p.version, p.resources.len()))
+                .collect::<Vec<_>>()
+        );
     }
 }

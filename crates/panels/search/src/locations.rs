@@ -22,8 +22,17 @@ impl EventEmitter<PanelEvent> for Locations {}
 
 impl Locations {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let root = Services::of(window, cx).workspace.read(cx).root().to_path_buf();
-        Self { root, title: "Usages".into(), items: vec![], focus: cx.focus_handle() }
+        let root = Services::of(window, cx)
+            .workspace
+            .read(cx)
+            .root()
+            .to_path_buf();
+        Self {
+            root,
+            title: "Usages".into(),
+            items: vec![],
+            focus: cx.focus_handle(),
+        }
     }
 
     pub fn set(&mut self, title: SharedString, items: Vec<Location>, cx: &mut Context<Self>) {
@@ -77,7 +86,12 @@ impl Render for Locations {
         for (i, l) in self.items.iter().enumerate() {
             if last != Some(&l.path) {
                 let n = self.items.iter().filter(|x| x.path == l.path).count();
-                let rel = l.path.strip_prefix(&self.root).unwrap_or(&l.path).display().to_string();
+                let rel = l
+                    .path
+                    .strip_prefix(&self.root)
+                    .unwrap_or(&l.path)
+                    .display()
+                    .to_string();
                 rows.push(
                     h_flex()
                         .gap_2()
@@ -85,13 +99,22 @@ impl Render for Locations {
                         .pt_1p5()
                         .text_sm()
                         .child(div().font_weight(FontWeight::SEMIBOLD).child(rel))
-                        .child(div().text_xs().text_color(theme.muted_foreground).child(n.to_string()))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(n.to_string()),
+                        )
                         .into_any_element(),
                 );
                 last = Some(&l.path);
             }
             let r = l.range.start.min(l.text.len())..l.range.end.min(l.text.len());
-            let (before, hit, after) = (l.text[..r.start].trim_start().to_string(), l.text[r.clone()].to_string(), l.text[r.end..].to_string());
+            let (before, hit, after) = (
+                l.text[..r.start].trim_start().to_string(),
+                l.text[r.clone()].to_string(),
+                l.text[r.end..].to_string(),
+            );
             let (path, line, ch) = (l.path.clone(), l.line, l.character);
             rows.push(
                 h_flex()
@@ -102,8 +125,17 @@ impl Render for Locations {
                     .py_0p5()
                     .cursor_pointer()
                     .hover(|s| s.bg(theme.list_hover))
-                    .on_click(move |_, window, cx| pide_core::opener::open_file_at(path.clone(), line, ch, window, cx))
-                    .child(div().w(px(44.)).flex_none().text_xs().text_color(theme.muted_foreground).child((line + 1).to_string()))
+                    .on_click(move |_, window, cx| {
+                        pide_core::opener::open_file_at(path.clone(), line, ch, window, cx)
+                    })
+                    .child(
+                        div()
+                            .w(px(44.))
+                            .flex_none()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child((line + 1).to_string()),
+                    )
                     .child(
                         h_flex()
                             .flex_1()
@@ -130,8 +162,21 @@ impl Render for Locations {
                     .border_color(theme.border)
                     .text_xs()
                     .text_color(theme.muted_foreground)
-                    .child(format!("{} in {} file{}", self.items.len(), files, if files == 1 { "" } else { "s" })),
+                    .child(format!(
+                        "{} in {} file{}",
+                        self.items.len(),
+                        files,
+                        if files == 1 { "" } else { "s" }
+                    )),
             )
-            .child(div().id("locations").flex_1().min_h_0().overflow_y_scroll().pb_2().children(rows))
+            .child(
+                div()
+                    .id("locations")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .pb_2()
+                    .children(rows),
+            )
     }
 }

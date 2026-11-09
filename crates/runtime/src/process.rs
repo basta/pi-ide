@@ -10,7 +10,9 @@ use tokio::sync::{mpsc, oneshot};
 /// Directories searched for commands: PATH, plus where rustup and npm put things
 /// (an app started from Finder doesn't get the shell's PATH).
 pub fn search_path() -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
         for extra in [".cargo/bin", ".local/bin", ".npm-global/bin"] {
             dirs.push(home.join(extra));
@@ -29,7 +31,10 @@ pub fn find_command(command: &str) -> Option<PathBuf> {
     if p.components().count() > 1 {
         return p.is_file().then(|| p.to_path_buf());
     }
-    search_path().into_iter().map(|d| d.join(command)).find(|c| c.is_file())
+    search_path()
+        .into_iter()
+        .map(|d| d.join(command))
+        .find(|c| c.is_file())
 }
 
 /// A running command: output lines (stdout and stderr interleaved) and the exit.
@@ -55,7 +60,10 @@ pub fn run_streaming(command: Vec<String>, cwd: Option<std::path::PathBuf>) -> S
         }
         let mut child = match cmd
             .args(args)
-            .env("PATH", std::env::join_paths(search_path()).unwrap_or_default())
+            .env(
+                "PATH",
+                std::env::join_paths(search_path()).unwrap_or_default(),
+            )
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -68,7 +76,8 @@ pub fn run_streaming(command: Vec<String>, cwd: Option<std::path::PathBuf>) -> S
                 return;
             }
         };
-        let pump = |r: Box<dyn tokio::io::AsyncRead + Unpin + Send>, tx: mpsc::UnboundedSender<String>| {
+        let pump = |r: Box<dyn tokio::io::AsyncRead + Unpin + Send>,
+                    tx: mpsc::UnboundedSender<String>| {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(r).lines();
                 while let Ok(Some(l)) = lines.next_line().await {
@@ -76,7 +85,10 @@ pub fn run_streaming(command: Vec<String>, cwd: Option<std::path::PathBuf>) -> S
                 }
             })
         };
-        let out = pump(Box::new(child.stdout.take().expect("piped")), line_tx.clone());
+        let out = pump(
+            Box::new(child.stdout.take().expect("piped")),
+            line_tx.clone(),
+        );
         let err = pump(Box::new(child.stderr.take().expect("piped")), line_tx);
         let status = child.wait().await;
         let _ = out.await;
@@ -93,7 +105,14 @@ mod tests {
     #[test]
     fn streams_output_and_reports_the_exit_code() {
         crate::init();
-        let mut install = run_streaming(vec!["sh".into(), "-c".into(), "echo one; echo two >&2; exit 3".into()], None);
+        let mut install = run_streaming(
+            vec![
+                "sh".into(),
+                "-c".into(),
+                "echo one; echo two >&2; exit 3".into(),
+            ],
+            None,
+        );
         let code = crate::handle().block_on(async { install.done.await.unwrap() });
         assert_eq!(code, Ok(Some(3)));
         let mut lines = Vec::new();

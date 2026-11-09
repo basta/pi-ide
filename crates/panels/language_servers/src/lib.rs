@@ -16,12 +16,20 @@ use pide_lsp::{LspStore, ServerState};
 pub const PANEL_NAME: &str = "language_servers";
 
 pub fn init(cx: &mut App) {
-    register_panel(cx, PANEL_NAME, |_, window, cx| panel_handle(cx.new(|cx| LanguageServers::new(window, cx))));
+    register_panel(cx, PANEL_NAME, |_, window, cx| {
+        panel_handle(cx.new(|cx| LanguageServers::new(window, cx)))
+    });
 }
 
 enum InstallRun {
-    Running { lines: Vec<String> },
-    Done { ok: bool, summary: String, lines: Vec<String> },
+    Running {
+        lines: Vec<String>,
+    },
+    Done {
+        ok: bool,
+        summary: String,
+        lines: Vec<String>,
+    },
 }
 
 /// The open instance per window (restored from a layout or opened by command),
@@ -32,7 +40,10 @@ impl Global for Instances {}
 
 /// This window's open LanguageServers panel, if any.
 pub fn existing(window: &Window, cx: &App) -> Option<Entity<LanguageServers>> {
-    cx.try_global::<Instances>()?.0.get(&window.window_handle().window_id())?.upgrade()
+    cx.try_global::<Instances>()?
+        .0
+        .get(&window.window_handle().window_id())?
+        .upgrade()
 }
 
 pub struct LanguageServers {
@@ -52,7 +63,9 @@ impl LanguageServers {
         let workspace = Services::of(window, cx).workspace;
         let store = LspStore::for_workspace(&workspace, cx);
         let me = cx.weak_entity();
-        cx.default_global::<Instances>().0.insert(window.window_handle().window_id(), me);
+        cx.default_global::<Instances>()
+            .0
+            .insert(window.window_handle().window_id(), me);
         let mut this = Self {
             _subs: vec![cx.observe(&store, |_, _, cx| cx.notify())],
             store,
@@ -68,7 +81,10 @@ impl LanguageServers {
     fn detect_all(&mut self, cx: &mut Context<Self>) {
         let specs = self.store.read(cx).specs().to_vec();
         let task = cx.background_executor().spawn(async move {
-            specs.iter().map(|s| (s.id, registry::detect(s))).collect::<Vec<_>>()
+            specs
+                .iter()
+                .map(|s| (s.id, registry::detect(s)))
+                .collect::<Vec<_>>()
         });
         self._tasks.push(cx.spawn(async move |this, cx| {
             let found = task.await;
@@ -80,10 +96,17 @@ impl LanguageServers {
     }
 
     fn install(&mut self, spec: &ServerSpec, cx: &mut Context<Self>) {
-        let Some(command) = spec.install.clone() else { return };
+        let Some(command) = spec.install.clone() else {
+            return;
+        };
         let id = spec.id;
         log::info!("installing {id}: {}", command.join(" "));
-        self.installs.insert(id, InstallRun::Running { lines: vec![format!("$ {}", command.join(" "))] });
+        self.installs.insert(
+            id,
+            InstallRun::Running {
+                lines: vec![format!("$ {}", command.join(" "))],
+            },
+        );
         let mut run = pide_lsp::install::run(command);
         self._tasks.push(cx.spawn(async move |this, cx| {
             while let Some(line) = run.lines.recv().await {
@@ -106,7 +129,8 @@ impl LanguageServers {
                     Ok(None) => (false, "Stopped.".to_string()),
                     Err(e) => (false, format!("Couldn't run it: {e}")),
                 };
-                this.installs.insert(id, InstallRun::Done { ok, summary, lines });
+                this.installs
+                    .insert(id, InstallRun::Done { ok, summary, lines });
                 this.detect_all(cx);
                 // Start it for open files of its language.
                 this.store.update(cx, |s, cx| s.redetect(cx));
@@ -119,12 +143,25 @@ impl LanguageServers {
         let theme = cx.theme().clone();
         let store = self.store.read(cx);
         let server = store.server(spec.id);
-        let installed = server.and_then(|s| s.installed.clone()).or_else(|| self.detected.get(spec.id).cloned());
+        let installed = server
+            .and_then(|s| s.installed.clone())
+            .or_else(|| self.detected.get(spec.id).cloned());
         let (dot, status) = match (server.map(|s| &s.state), &installed) {
-            (Some(ServerState::Running), _) => (theme.success, format!("running · {}", server.unwrap().status_text())),
+            (Some(ServerState::Running), _) => (
+                theme.success,
+                format!("running · {}", server.unwrap().status_text()),
+            ),
             (Some(ServerState::Starting), _) => (theme.warning, "starting".to_string()),
-            (Some(ServerState::Crashed { message, .. }), _) => (theme.danger, format!("crashed: {message}")),
-            (_, Some(Installed::Yes { .. })) => (theme.muted_foreground, format!("installed · starts when you open a .{} file", spec.extensions[0])),
+            (Some(ServerState::Crashed { message, .. }), _) => {
+                (theme.danger, format!("crashed: {message}"))
+            }
+            (_, Some(Installed::Yes { .. })) => (
+                theme.muted_foreground,
+                format!(
+                    "installed · starts when you open a .{} file",
+                    spec.extensions[0]
+                ),
+            ),
             (_, Some(Installed::No { .. })) => (theme.danger, "not installed".to_string()),
             (_, None) => (theme.muted_foreground, "checking…".to_string()),
         };
@@ -134,10 +171,15 @@ impl LanguageServers {
             None => String::new(),
         };
         let crash_tail: Vec<String> = match server.map(|s| &s.state) {
-            Some(ServerState::Crashed { stderr_tail, .. }) => stderr_tail.iter().rev().take(6).rev().cloned().collect(),
+            Some(ServerState::Crashed { stderr_tail, .. }) => {
+                stderr_tail.iter().rev().take(6).rev().cloned().collect()
+            }
             _ => vec![],
         };
-        let can_restart = matches!(server.map(|s| &s.state), Some(ServerState::Running | ServerState::Crashed { .. } | ServerState::Starting));
+        let can_restart = matches!(
+            server.map(|s| &s.state),
+            Some(ServerState::Running | ServerState::Crashed { .. } | ServerState::Starting)
+        );
         let missing = matches!(installed, Some(Installed::No { .. }));
         let installing = matches!(self.installs.get(spec.id), Some(InstallRun::Running { .. }));
         let install_cmd = spec.install.as_ref().map(|c| c.join(" "));
@@ -158,7 +200,14 @@ impl LanguageServers {
                             .gap_2()
                             .child(div().font_weight(FontWeight::SEMIBOLD).child(spec.language))
                             .child(div().text_color(theme.muted_foreground).child(spec.id))
-                            .when(spec.overridden, |this| this.child(div().text_xs().text_color(theme.muted_foreground).child("(from settings.json)"))),
+                            .when(spec.overridden, |this| {
+                                this.child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(theme.muted_foreground)
+                                        .child("(from settings.json)"),
+                                )
+                            }),
                     )
                     .child(
                         h_flex()
@@ -168,7 +217,13 @@ impl LanguageServers {
                     ),
             )
             .when(!detail.is_empty(), |this| {
-                this.child(div().text_xs().font_family(theme.mono_font_family.clone()).text_color(theme.muted_foreground).child(detail))
+                this.child(
+                    div()
+                        .text_xs()
+                        .font_family(theme.mono_font_family.clone())
+                        .text_color(theme.muted_foreground)
+                        .child(detail),
+                )
             })
             .when(!crash_tail.is_empty(), |this| {
                 this.child(
@@ -183,22 +238,41 @@ impl LanguageServers {
                 h_flex()
                     .gap_2()
                     .items_center()
-                    .when_some(install_cmd.filter(|_| missing || installing), |this, cmd| {
-                        this.child(div().text_sm().child("Install with"))
-                            .child(div().text_sm().font_family(theme.mono_font_family.clone()).child(cmd))
-                            .child(
-                                Button::new(SharedString::from(format!("install-{id}")))
-                                    .small()
-                                    .primary()
-                                    .label(if installing { "Installing…" } else { "Install" })
-                                    .disabled(installing)
-                                    .on_click(cx.listener(move |this, _, _, cx| this.install(&spec_for_install, cx))),
-                            )
-                    })
+                    .when_some(
+                        install_cmd.filter(|_| missing || installing),
+                        |this, cmd| {
+                            this.child(div().text_sm().child("Install with"))
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .font_family(theme.mono_font_family.clone())
+                                        .child(cmd),
+                                )
+                                .child(
+                                    Button::new(SharedString::from(format!("install-{id}")))
+                                        .small()
+                                        .primary()
+                                        .label(if installing {
+                                            "Installing…"
+                                        } else {
+                                            "Install"
+                                        })
+                                        .disabled(installing)
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.install(&spec_for_install, cx)
+                                        })),
+                                )
+                        },
+                    )
                     .when(can_restart, |this| {
-                        this.child(Button::new(SharedString::from(format!("restart-{id}"))).small().label("Restart").on_click(cx.listener(
-                            move |this, _, _, cx| this.store.update(cx, |s, cx| s.restart(id, cx)),
-                        )))
+                        this.child(
+                            Button::new(SharedString::from(format!("restart-{id}")))
+                                .small()
+                                .label("Restart")
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.store.update(cx, |s, cx| s.restart(id, cx))
+                                })),
+                        )
                     }),
             )
             .when_some(self.installs.get(spec.id), |this, run| {
@@ -216,7 +290,12 @@ impl LanguageServers {
                         .font_family(theme.mono_font_family.clone())
                         .child(tail.join("\n"))
                         .when_some(summary, |this, s| {
-                            this.child(div().pt_1().text_color(if ok { theme.success } else { theme.danger }).child(s))
+                            this.child(
+                                div()
+                                    .pt_1()
+                                    .text_color(if ok { theme.success } else { theme.danger })
+                                    .child(s),
+                            )
                         }),
                 )
             })

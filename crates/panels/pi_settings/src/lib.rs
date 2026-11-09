@@ -10,17 +10,23 @@ use gpui_kit::component::dock::{PanelEvent, PanelState, panel_handle, register_p
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::{ActiveTheme, Disableable as _, Sizable as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{
+    ActiveTheme, Disableable as _, Sizable as _, WindowExt as _, h_flex, v_flex,
+};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use pide_agent_pi::config::{self, InstructionFile, McpServer, Model, Package, PiCommand, PiConfig, Scope};
+use pide_agent_pi::config::{
+    self, InstructionFile, McpServer, Model, Package, PiCommand, PiConfig, Scope,
+};
 use pide_core::{DockPosition, Panel, Services, Sessions};
 use serde_json::{Map, Value};
 
 pub const PANEL_NAME: &str = "pi_settings";
 
 pub fn init(cx: &mut App) {
-    register_panel(cx, PANEL_NAME, |_, window, cx| panel_handle(cx.new(|cx| PiSettings::new(window, cx))));
+    register_panel(cx, PANEL_NAME, |_, window, cx| {
+        panel_handle(cx.new(|cx| PiSettings::new(window, cx)))
+    });
 }
 
 #[derive(Default)]
@@ -29,7 +35,10 @@ impl Global for Instances {}
 
 /// This window's open pi Settings tab, if any.
 pub fn existing(window: &Window, cx: &App) -> Option<Entity<PiSettings>> {
-    cx.try_global::<Instances>()?.0.get(&window.window_handle().window_id())?.upgrade()
+    cx.try_global::<Instances>()?
+        .0
+        .get(&window.window_handle().window_id())?
+        .upgrade()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -43,7 +52,14 @@ enum Section {
 }
 
 impl Section {
-    const ALL: [Section; 6] = [Self::Packages, Self::Tools, Self::Skills, Self::Mcp, Self::Model, Self::Instructions];
+    const ALL: [Section; 6] = [
+        Self::Packages,
+        Self::Tools,
+        Self::Skills,
+        Self::Mcp,
+        Self::Model,
+        Self::Instructions,
+    ];
     fn title(self) -> &'static str {
         match self {
             Self::Packages => "Packages",
@@ -81,7 +97,10 @@ impl Snapshot {
         config::list_setting(self.settings(scope), key)
     }
     fn tools(&self) -> Vec<String> {
-        config::resolve_tools(self.list(Scope::User, "defaultTools").as_deref(), self.list(Scope::Project, "defaultTools").as_deref())
+        config::resolve_tools(
+            self.list(Scope::User, "defaultTools").as_deref(),
+            self.list(Scope::Project, "defaultTools").as_deref(),
+        )
     }
     fn mcp(&self) -> Vec<McpServer> {
         let mut v = config::mcp_servers(Scope::User, &self.user_mcp);
@@ -130,10 +149,15 @@ impl EventEmitter<PanelEvent> for PiSettings {}
 
 impl PiSettings {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let Services { workspace, sessions } = Services::of(window, cx);
+        let Services {
+            workspace,
+            sessions,
+        } = Services::of(window, cx);
         let root = workspace.read(cx).root().to_path_buf();
         let me = cx.weak_entity();
-        cx.default_global::<Instances>().0.insert(window.window_handle().window_id(), me);
+        cx.default_global::<Instances>()
+            .0
+            .insert(window.window_handle().window_id(), me);
         let input = |placeholder: &'static str, window: &mut Window, cx: &mut Context<Self>| {
             cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
         };
@@ -149,7 +173,11 @@ impl PiSettings {
             commands: None,
             run: None,
             changed: false,
-            package_input: input("npm:package-name, git:github.com/user/repo, or a folder", window, cx),
+            package_input: input(
+                "npm:package-name, git:github.com/user/repo, or a folder",
+                window,
+                cx,
+            ),
             mcp_name: input("name (letters, digits, - and _)", window, cx),
             mcp_target: input("command and arguments, or https:// URL", window, cx),
             _subs: vec![cx.observe(&model_filter, |_, _, cx| cx.notify())],
@@ -178,9 +206,14 @@ impl PiSettings {
             let user_mcp = read(cfg.mcp_path(Scope::User));
             let project_mcp = read(cfg.mcp_path(Scope::Project));
             s.packages = config::packages(&cfg, Scope::User, &user);
-            s.packages.extend(config::packages(&cfg, Scope::Project, &project));
+            s.packages
+                .extend(config::packages(&cfg, Scope::Project, &project));
             for scope in [Scope::User, Scope::Project] {
-                s.local_extensions.extend(config::local_extensions(&cfg, scope).into_iter().map(|p| (scope, p)));
+                s.local_extensions.extend(
+                    config::local_extensions(&cfg, scope)
+                        .into_iter()
+                        .map(|p| (scope, p)),
+                );
             }
             s.instructions = config::instruction_files(&cfg);
             (s.user, s.project, s.user_mcp, s.project_mcp) = (user, project, user_mcp, project_mcp);
@@ -202,7 +235,9 @@ impl PiSettings {
         }
         self.models = Some(Ok(vec![]));
         let root = self.cfg.root.clone();
-        let task = cx.background_executor().spawn(async move { config::list_models(&root).map_err(|e| format!("{e:#}")) });
+        let task = cx
+            .background_executor()
+            .spawn(async move { config::list_models(&root).map_err(|e| format!("{e:#}")) });
         self._tasks.push(cx.spawn(async move |this, cx| {
             let r = task.await;
             let _ = this.update(cx, |this, cx| {
@@ -218,7 +253,9 @@ impl PiSettings {
         }
         self.commands = None;
         let root = self.cfg.root.clone();
-        let task = cx.background_executor().spawn(async move { config::list_commands(&root).map_err(|e| format!("{e:#}")) });
+        let task = cx
+            .background_executor()
+            .spawn(async move { config::list_commands(&root).map_err(|e| format!("{e:#}")) });
         self._tasks.push(cx.spawn(async move |this, cx| {
             let r = task.await;
             let _ = this.update(cx, |this, cx| {
@@ -239,24 +276,43 @@ impl PiSettings {
     }
 
     /// Change the current scope's `settings.json`, then reload.
-    fn edit_settings(&mut self, f: impl FnOnce(&mut Map<String, Value>) + Send + 'static, window: &mut Window, cx: &mut Context<Self>) {
+    fn edit_settings(
+        &mut self,
+        f: impl FnOnce(&mut Map<String, Value>) + Send + 'static,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let (cfg, scope) = (self.cfg.clone(), self.scope);
         self.write(move || cfg.update_settings(scope, f), window, cx);
     }
 
-    fn edit_mcp(&mut self, scope: Scope, f: impl FnOnce(&mut Map<String, Value>) + Send + 'static, window: &mut Window, cx: &mut Context<Self>) {
+    fn edit_mcp(
+        &mut self,
+        scope: Scope,
+        f: impl FnOnce(&mut Map<String, Value>) + Send + 'static,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let cfg = self.cfg.clone();
         self.write(move || cfg.update_mcp(scope, f), window, cx);
     }
 
-    fn write(&mut self, op: impl FnOnce() -> anyhow::Result<()> + Send + 'static, window: &mut Window, cx: &mut Context<Self>) {
+    fn write(
+        &mut self,
+        op: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let task = cx.background_executor().spawn(async move { op() });
         self._tasks.push(cx.spawn_in(window, async move |this, cx| {
             let r = task.await;
             let _ = this.update_in(cx, |this, window, cx| {
                 match r {
                     Ok(()) => this.changed = true,
-                    Err(e) => window.push_notification(Notification::error(format!("Couldn't save: {e:#}")), cx),
+                    Err(e) => window.push_notification(
+                        Notification::error(format!("Couldn't save: {e:#}")),
+                        cx,
+                    ),
                 }
                 this.reload(cx);
             });
@@ -266,13 +322,21 @@ impl PiSettings {
     /// Run `pi <args>` in the project root, output streamed into the tab.
     fn run_pi(&mut self, title: String, args: Vec<String>, cx: &mut Context<Self>) {
         let Some(pi) = config::find_pi() else {
-            self.run = Some(Run { title, lines: vec![], done: Some((false, "pi isn't installed.".into())) });
+            self.run = Some(Run {
+                title,
+                lines: vec![],
+                done: Some((false, "pi isn't installed.".into())),
+            });
             cx.notify();
             return;
         };
         let mut command = vec![pi.display().to_string()];
         command.extend(args.iter().cloned());
-        self.run = Some(Run { title, lines: vec![format!("$ pi {}", args.join(" "))], done: None });
+        self.run = Some(Run {
+            title,
+            lines: vec![format!("$ pi {}", args.join(" "))],
+            done: None,
+        });
         let mut run = pide_runtime::process::run_streaming(command, Some(self.cfg.root.clone()));
         self._tasks.push(cx.spawn(async move |this, cx| {
             while let Some(line) = run.lines.recv().await {
@@ -305,7 +369,11 @@ impl PiSettings {
     }
 
     fn local_flag(&self) -> Vec<String> {
-        if self.scope == Scope::Project { vec!["--local".into()] } else { vec![] }
+        if self.scope == Scope::Project {
+            vec!["--local".into()]
+        } else {
+            vec![]
+        }
     }
 
     fn open(path: PathBuf, window: &mut Window, cx: &mut App) {
@@ -319,17 +387,26 @@ impl PiSettings {
 /// `/Users/ja/x` -> `~/x`, for display.
 fn tilde(path: &std::path::Path) -> String {
     match std::env::var_os("HOME").map(PathBuf::from) {
-        Some(home) if path.starts_with(&home) => format!("~/{}", path.strip_prefix(&home).unwrap().display()),
+        Some(home) if path.starts_with(&home) => {
+            format!("~/{}", path.strip_prefix(&home).unwrap().display())
+        }
         _ => path.display().to_string(),
     }
 }
 
 /// The command name pi gives a skill (its folder) or prompt (its file name).
 fn resource_name(kind: &str, path: &std::path::Path) -> String {
-    let stem = |p: &std::path::Path| p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let stem = |p: &std::path::Path| {
+        p.file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default()
+    };
     match kind {
         "skill" if path.file_name().is_some_and(|n| n == "SKILL.md") => {
-            format!("skill:{}", path.parent().map(|d| stem(d)).unwrap_or_default())
+            format!(
+                "skill:{}",
+                path.parent().map(|d| stem(d)).unwrap_or_default()
+            )
         }
         "skill" => format!("skill:{}", stem(path)),
         _ => stem(path),
@@ -338,22 +415,45 @@ fn resource_name(kind: &str, path: &std::path::Path) -> String {
 
 fn section_box(cx: &App) -> Div {
     let theme = cx.theme();
-    v_flex().gap_2().p_3().rounded(theme.radius).border_1().border_color(theme.border)
+    v_flex()
+        .gap_2()
+        .p_3()
+        .rounded(theme.radius)
+        .border_1()
+        .border_color(theme.border)
 }
 
 fn muted(text: impl Into<SharedString>, cx: &App) -> Div {
-    div().text_sm().text_color(cx.theme().muted_foreground).child(text.into())
+    div()
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .child(text.into())
 }
 
 fn mono(text: impl Into<SharedString>, cx: &App) -> Div {
-    div().text_xs().font_family(cx.theme().mono_font_family.clone()).text_color(cx.theme().muted_foreground).child(text.into())
+    div()
+        .text_xs()
+        .font_family(cx.theme().mono_font_family.clone())
+        .text_color(cx.theme().muted_foreground)
+        .child(text.into())
 }
 
 impl PiSettings {
     fn render_packages(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let scope = self.scope;
-        let pkgs: Vec<Package> = self.snap.packages.iter().filter(|p| p.scope == scope).cloned().collect();
-        let other = self.snap.packages.iter().filter(|p| p.scope != scope).count();
+        let pkgs: Vec<Package> = self
+            .snap
+            .packages
+            .iter()
+            .filter(|p| p.scope == scope)
+            .cloned()
+            .collect();
+        let other = self
+            .snap
+            .packages
+            .iter()
+            .filter(|p| p.scope != scope)
+            .count();
         let busy = self.run.as_ref().is_some_and(|r| r.done.is_none());
         let mut col = v_flex().gap_3();
         col = col.child(muted(
@@ -367,7 +467,14 @@ impl PiSettings {
                 for kind in ["extensions", "skills", "prompts", "themes"] {
                     let n = p.resources.iter().filter(|(k, _)| *k == kind).count();
                     if n > 0 {
-                        counts.push(format!("{n} {}", if n == 1 { kind.trim_end_matches('s') } else { kind }));
+                        counts.push(format!(
+                            "{n} {}",
+                            if n == 1 {
+                                kind.trim_end_matches('s')
+                            } else {
+                                kind
+                            }
+                        ));
                     }
                 }
                 counts.join(" · ")
@@ -433,10 +540,14 @@ impl PiSettings {
         }
         if other > 0 {
             col = col.child(muted(
-                format!("{other} more package{} under {}.", if other == 1 { "" } else { "s" }, match scope {
-                    Scope::User => Scope::Project.label(),
-                    Scope::Project => Scope::User.label(),
-                }),
+                format!(
+                    "{other} more package{} under {}.",
+                    if other == 1 { "" } else { "s" },
+                    match scope {
+                        Scope::User => Scope::Project.label(),
+                        Scope::Project => Scope::User.label(),
+                    }
+                ),
                 cx,
             ));
         }
@@ -444,21 +555,33 @@ impl PiSettings {
         col.child(
             h_flex()
                 .gap_2()
-                .child(div().flex_1().child(Input::new(&self.package_input).small()))
-                .child(Button::new("install-pkg").small().primary().label("Install").disabled(busy).on_click(cx.listener(
-                    move |this, _, window, cx| {
-                        let src = input.read(cx).value().trim().to_string();
-                        if src.is_empty() {
-                            return;
-                        }
-                        let mut args = vec!["install".into(), src.clone()];
-                        args.extend(this.local_flag());
-                        this.run_pi(format!("Installing {src}"), args, cx);
-                        input.update(cx, |i, cx| i.set_value("", window, cx));
-                    },
-                ))),
+                .child(
+                    div()
+                        .flex_1()
+                        .child(Input::new(&self.package_input).small()),
+                )
+                .child(
+                    Button::new("install-pkg")
+                        .small()
+                        .primary()
+                        .label("Install")
+                        .disabled(busy)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            let src = input.read(cx).value().trim().to_string();
+                            if src.is_empty() {
+                                return;
+                            }
+                            let mut args = vec!["install".into(), src.clone()];
+                            args.extend(this.local_flag());
+                            this.run_pi(format!("Installing {src}"), args, cx);
+                            input.update(cx, |i, cx| i.set_value("", window, cx));
+                        })),
+                ),
         )
-        .child(muted("Only install packages you trust: they run code in pi.", cx))
+        .child(muted(
+            "Only install packages you trust: they run code in pi.",
+            cx,
+        ))
         .into_any_element()
     }
 
@@ -470,29 +593,60 @@ impl PiSettings {
         let mut tools = v_flex().gap_1();
         for (name, what) in config::BUILTIN_TOOLS {
             let enabled = on.iter().any(|t| t == name);
-            let set_here = here.iter().any(|e| e.trim_start_matches(['+', '-']) == *name);
+            let set_here = here
+                .iter()
+                .any(|e| e.trim_start_matches(['+', '-']) == *name);
             let name_s = name.to_string();
             let this = cx.entity().downgrade();
             tools = tools.child(
                 h_flex()
                     .gap_3()
                     .py_0p5()
-                    .child(Switch::new(SharedString::from(format!("tool-{name}"))).checked(enabled).on_click(move |checked, window, cx| {
-                        let (name, checked) = (name_s.clone(), *checked);
-                        let _ = this.update(cx, |this, cx| {
-                            let other = match this.scope {
-                                Scope::User => None,
-                                Scope::Project => this.snap.list(Scope::User, "defaultTools"),
-                            };
-                            let inherited = config::resolve_tools(other.as_deref(), None);
-                            let current = this.snap.list(this.scope, "defaultTools");
-                            let next = config::set_tool(current.as_deref(), &inherited, &name, checked);
-                            this.edit_settings(move |m| config::put_list(m, "defaultTools", next), window, cx);
-                        });
-                    }))
-                    .child(div().w(px(130.)).flex_none().font_family(theme.mono_font_family.clone()).text_sm().child(name.to_string()))
+                    .child(
+                        Switch::new(SharedString::from(format!("tool-{name}")))
+                            .checked(enabled)
+                            .on_click(move |checked, window, cx| {
+                                let (name, checked) = (name_s.clone(), *checked);
+                                let _ = this.update(cx, |this, cx| {
+                                    let other = match this.scope {
+                                        Scope::User => None,
+                                        Scope::Project => {
+                                            this.snap.list(Scope::User, "defaultTools")
+                                        }
+                                    };
+                                    let inherited = config::resolve_tools(other.as_deref(), None);
+                                    let current = this.snap.list(this.scope, "defaultTools");
+                                    let next = config::set_tool(
+                                        current.as_deref(),
+                                        &inherited,
+                                        &name,
+                                        checked,
+                                    );
+                                    this.edit_settings(
+                                        move |m| config::put_list(m, "defaultTools", next),
+                                        window,
+                                        cx,
+                                    );
+                                });
+                            }),
+                    )
+                    .child(
+                        div()
+                            .w(px(130.))
+                            .flex_none()
+                            .font_family(theme.mono_font_family.clone())
+                            .text_sm()
+                            .child(name.to_string()),
+                    )
                     .child(muted(what.to_string(), cx).flex_1())
-                    .when(set_here, |this| this.child(div().text_xs().text_color(theme.primary).child(format!("set for {}", scope.label().to_lowercase())))),
+                    .when(set_here, |this| {
+                        this.child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.primary)
+                                .child(format!("set for {}", scope.label().to_lowercase())),
+                        )
+                    }),
             );
         }
         let mut exts = v_flex().gap_1();
@@ -510,15 +664,35 @@ impl PiSettings {
                 h_flex()
                     .gap_3()
                     .py_0p5()
-                    .child(Switch::new(SharedString::from(format!("ext-{name}"))).checked(enabled).on_click(move |checked, window, cx| {
-                        let (name, checked) = (name_s.clone(), *checked);
-                        let _ = this.update(cx, |this, cx| {
-                            let current = this.snap.list(this.scope, "extensions");
-                            let next = config::set_builtin_extension(current.as_deref(), &name, checked, inherited_on);
-                            this.edit_settings(move |m| config::put_list(m, "extensions", next), window, cx);
-                        });
-                    }))
-                    .child(div().w(px(130.)).flex_none().font_family(theme.mono_font_family.clone()).text_sm().child(name.to_string()))
+                    .child(
+                        Switch::new(SharedString::from(format!("ext-{name}")))
+                            .checked(enabled)
+                            .on_click(move |checked, window, cx| {
+                                let (name, checked) = (name_s.clone(), *checked);
+                                let _ = this.update(cx, |this, cx| {
+                                    let current = this.snap.list(this.scope, "extensions");
+                                    let next = config::set_builtin_extension(
+                                        current.as_deref(),
+                                        &name,
+                                        checked,
+                                        inherited_on,
+                                    );
+                                    this.edit_settings(
+                                        move |m| config::put_list(m, "extensions", next),
+                                        window,
+                                        cx,
+                                    );
+                                });
+                            }),
+                    )
+                    .child(
+                        div()
+                            .w(px(130.))
+                            .flex_none()
+                            .font_family(theme.mono_font_family.clone())
+                            .text_sm()
+                            .child(name.to_string()),
+                    )
                     .child(muted(what.to_string(), cx).flex_1()),
             );
         }
@@ -529,11 +703,20 @@ impl PiSettings {
             local = local.child(
                 h_flex()
                     .gap_2()
-                    .child(mono(path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), cx))
+                    .child(mono(
+                        path.file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default(),
+                        cx,
+                    ))
                     .child(muted(s.label(), cx))
-                    .child(Button::new(SharedString::from(format!("open-{}", path.display()))).xsmall().ghost().label("Open").on_click(
-                        move |_, window, cx| Self::open(p.clone(), window, cx),
-                    )),
+                    .child(
+                        Button::new(SharedString::from(format!("open-{}", path.display())))
+                            .xsmall()
+                            .ghost()
+                            .label("Open")
+                            .on_click(move |_, window, cx| Self::open(p.clone(), window, cx)),
+                    ),
             );
         }
         let has_local = !self.snap.local_extensions.is_empty();
@@ -561,13 +744,29 @@ impl PiSettings {
                 .child(Button::new("refresh-cmds").small().label("Refresh").on_click(cx.listener(|this, _, _, cx| this.load_commands(true, cx)))),
         );
         let cmds = match &self.commands {
-            None => return col.child(muted("Asking pi… (it starts once to list them)", cx)).into_any_element(),
-            Some(Err(e)) => return col.child(muted(format!("Couldn't ask pi: {e}"), cx)).into_any_element(),
+            None => {
+                return col
+                    .child(muted("Asking pi… (it starts once to list them)", cx))
+                    .into_any_element();
+            }
+            Some(Err(e)) => {
+                return col
+                    .child(muted(format!("Couldn't ask pi: {e}"), cx))
+                    .into_any_element();
+            }
             Some(Ok(c)) => c.clone(),
         };
-        for (kind, title, key) in [("skill", "Skills", "skills"), ("prompt", "Prompt templates", "prompts"), ("extension", "Extension commands", "")] {
+        for (kind, title, key) in [
+            ("skill", "Skills", "skills"),
+            ("prompt", "Prompt templates", "prompts"),
+            ("extension", "Extension commands", ""),
+        ] {
             let items: Vec<&PiCommand> = cmds.iter().filter(|c| c.source == kind).collect();
-            let disabled = if key.is_empty() { vec![] } else { config::disabled_resources(self.snap.list(scope, key).as_deref()) };
+            let disabled = if key.is_empty() {
+                vec![]
+            } else {
+                config::disabled_resources(self.snap.list(scope, key).as_deref())
+            };
             let has_disabled = !disabled.is_empty();
             let mut rows = v_flex().gap_1();
             for c in &items {
@@ -581,24 +780,54 @@ impl PiSettings {
                 if !key.is_empty() {
                     let this = cx.entity().downgrade();
                     let (p, key) = (path.clone(), key.to_string());
-                    row = row.child(Switch::new(SharedString::from(format!("res-{}", path.display()))).checked(true).on_click(move |checked, window, cx| {
-                        let (p, key, on) = (p.clone(), key.clone(), *checked);
-                        let _ = this.update(cx, |this, cx| {
-                            let next = config::set_resource(this.snap.list(this.scope, &key).as_deref(), &p, on);
-                            this.edit_settings(move |m| config::put_list(m, &key, next), window, cx);
-                            this.commands = None;
-                            this.load_commands(true, cx);
-                        });
-                    }));
+                    row = row.child(
+                        Switch::new(SharedString::from(format!("res-{}", path.display())))
+                            .checked(true)
+                            .on_click(move |checked, window, cx| {
+                                let (p, key, on) = (p.clone(), key.clone(), *checked);
+                                let _ = this.update(cx, |this, cx| {
+                                    let next = config::set_resource(
+                                        this.snap.list(this.scope, &key).as_deref(),
+                                        &p,
+                                        on,
+                                    );
+                                    this.edit_settings(
+                                        move |m| config::put_list(m, &key, next),
+                                        window,
+                                        cx,
+                                    );
+                                    this.commands = None;
+                                    this.load_commands(true, cx);
+                                });
+                            }),
+                    );
                 }
                 let p2 = path.clone();
                 rows = rows.child(
-                    row.child(div().w(px(180.)).font_family(cx.theme().mono_font_family.clone()).text_sm().child(format!("/{}", c.name)))
-                        .child(muted(c.description.clone().unwrap_or_default(), cx).flex_1().line_clamp(1))
-                        .child(mono(from, cx))
-                        .child(Button::new(SharedString::from(format!("o-{}-{}", c.name, path.display()))).xsmall().ghost().label("Open").on_click(
-                            move |_, window, cx| Self::open(p2.clone(), window, cx),
-                        )),
+                    row.child(
+                        div()
+                            .w(px(180.))
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .text_sm()
+                            .child(format!("/{}", c.name)),
+                    )
+                    .child(
+                        muted(c.description.clone().unwrap_or_default(), cx)
+                            .flex_1()
+                            .line_clamp(1),
+                    )
+                    .child(mono(from, cx))
+                    .child(
+                        Button::new(SharedString::from(format!(
+                            "o-{}-{}",
+                            c.name,
+                            path.display()
+                        )))
+                        .xsmall()
+                        .ghost()
+                        .label("Open")
+                        .on_click(move |_, window, cx| Self::open(p2.clone(), window, cx)),
+                    ),
                 );
             }
             for path in disabled {
@@ -608,27 +837,66 @@ impl PiSettings {
                     h_flex()
                         .gap_3()
                         .py_0p5()
-                        .child(Switch::new(SharedString::from(format!("off-{}", path.display()))).checked(false).on_click(move |checked, window, cx| {
-                            let (p, key, on) = (p.clone(), key_s.clone(), *checked);
-                            let _ = this.update(cx, |this, cx| {
-                                let next = config::set_resource(this.snap.list(this.scope, &key).as_deref(), &p, on);
-                                this.edit_settings(move |m| config::put_list(m, &key, next), window, cx);
-                                this.load_commands(true, cx);
-                            });
-                        }))
-                        .child(div().w(px(180.)).flex_none().font_family(cx.theme().mono_font_family.clone()).text_sm().text_color(cx.theme().muted_foreground).child(format!("/{}", resource_name(kind, &path))))
-                        .child(muted(format!("off for {}", scope.label().to_lowercase()), cx).flex_1())
-                        .child(mono(tilde(&path), cx).min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap()),
+                        .child(
+                            Switch::new(SharedString::from(format!("off-{}", path.display())))
+                                .checked(false)
+                                .on_click(move |checked, window, cx| {
+                                    let (p, key, on) = (p.clone(), key_s.clone(), *checked);
+                                    let _ = this.update(cx, |this, cx| {
+                                        let next = config::set_resource(
+                                            this.snap.list(this.scope, &key).as_deref(),
+                                            &p,
+                                            on,
+                                        );
+                                        this.edit_settings(
+                                            move |m| config::put_list(m, &key, next),
+                                            window,
+                                            cx,
+                                        );
+                                        this.load_commands(true, cx);
+                                    });
+                                }),
+                        )
+                        .child(
+                            div()
+                                .w(px(180.))
+                                .flex_none()
+                                .font_family(cx.theme().mono_font_family.clone())
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(format!("/{}", resource_name(kind, &path))),
+                        )
+                        .child(
+                            muted(format!("off for {}", scope.label().to_lowercase()), cx).flex_1(),
+                        )
+                        .child(
+                            mono(tilde(&path), cx)
+                                .min_w_0()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .whitespace_nowrap(),
+                        ),
                 );
             }
             col = col.child(
                 section_box(cx)
-                    .child(h_flex().gap_2().child(div().font_weight(FontWeight::SEMIBOLD).child(title)).child(muted(items.len().to_string(), cx)))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+                            .child(muted(items.len().to_string(), cx)),
+                    )
                     .when(items.is_empty() && !has_disabled, |this| {
                         this.child(muted(
                             match kind {
-                                "skill" => format!("None. Put skills in {}/skills/ or install a package.", tilde(&self.cfg.dir(scope))),
-                                "prompt" => format!("None. Put Markdown files in {}/prompts/.", tilde(&self.cfg.dir(scope))),
+                                "skill" => format!(
+                                    "None. Put skills in {}/skills/ or install a package.",
+                                    tilde(&self.cfg.dir(scope))
+                                ),
+                                "prompt" => format!(
+                                    "None. Put Markdown files in {}/prompts/.",
+                                    tilde(&self.cfg.dir(scope))
+                                ),
                                 _ => "None.".into(),
                             },
                             cx,
@@ -652,7 +920,13 @@ impl PiSettings {
             cx,
         ));
         if mcp_off {
-            col = col.child(muted("The built-in MCP extension is off (Tools & extensions), so pi ignores these.", cx).text_color(cx.theme().warning));
+            col = col.child(
+                muted(
+                    "The built-in MCP extension is off (Tools & extensions), so pi ignores these.",
+                    cx,
+                )
+                .text_color(cx.theme().warning),
+            );
         }
         let mut rows = v_flex().gap_1();
         for s in &servers {
@@ -664,25 +938,29 @@ impl PiSettings {
                 h_flex()
                     .gap_3()
                     .py_1()
-                    .child(Switch::new(SharedString::from(format!("mcp-{:?}-{}", s.scope, s.name))).checked(s.enabled).on_click(move |checked, window, cx| {
-                        let (name, on) = (name.clone(), *checked);
-                        let _ = this.update(cx, |this, cx| {
-                            this.edit_mcp(
-                                scope,
-                                move |servers| {
-                                    if let Some(Value::Object(o)) = servers.get_mut(&name) {
-                                        if on {
-                                            o.remove("enabled");
-                                        } else {
-                                            o.insert("enabled".into(), Value::Bool(false));
-                                        }
-                                    }
-                                },
-                                window,
-                                cx,
-                            )
-                        });
-                    }))
+                    .child(
+                        Switch::new(SharedString::from(format!("mcp-{:?}-{}", s.scope, s.name)))
+                            .checked(s.enabled)
+                            .on_click(move |checked, window, cx| {
+                                let (name, on) = (name.clone(), *checked);
+                                let _ = this.update(cx, |this, cx| {
+                                    this.edit_mcp(
+                                        scope,
+                                        move |servers| {
+                                            if let Some(Value::Object(o)) = servers.get_mut(&name) {
+                                                if on {
+                                                    o.remove("enabled");
+                                                } else {
+                                                    o.insert("enabled".into(), Value::Bool(false));
+                                                }
+                                            }
+                                        },
+                                        window,
+                                        cx,
+                                    )
+                                });
+                            }),
+                    )
                     .child(
                         v_flex()
                             .flex_1()
@@ -690,33 +968,62 @@ impl PiSettings {
                             .child(
                                 h_flex()
                                     .gap_2()
-                                    .child(div().font_weight(FontWeight::SEMIBOLD).text_sm().child(s.name.clone()))
-                                    .child(muted(format!("{} · {}", if s.http { "http" } else { "stdio" }, s.scope.label()), cx)),
+                                    .child(
+                                        div()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .text_sm()
+                                            .child(s.name.clone()),
+                                    )
+                                    .child(muted(
+                                        format!(
+                                            "{} · {}",
+                                            if s.http { "http" } else { "stdio" },
+                                            s.scope.label()
+                                        ),
+                                        cx,
+                                    )),
                             )
                             .child(mono(s.target.clone(), cx))
                             .when_some(s.description.clone(), |t, d| t.child(muted(d, cx))),
                     )
-                    .child(Button::new(SharedString::from(format!("mcp-rm-{:?}-{}", s.scope, s.name))).xsmall().ghost().label("Remove").on_click(
-                        move |_, window, cx| {
+                    .child(
+                        Button::new(SharedString::from(format!(
+                            "mcp-rm-{:?}-{}",
+                            s.scope, s.name
+                        )))
+                        .xsmall()
+                        .ghost()
+                        .label("Remove")
+                        .on_click(move |_, window, cx| {
                             let name = name2.clone();
                             let this = this2.clone();
                             window.open_alert_dialog(cx, move |alert, _, _| {
                                 let (name, this) = (name.clone(), this.clone());
                                 alert
                                     .title(format!("Remove MCP server {name}?"))
-                                    .description(format!("It's deleted from {}'s mcp.json.", scope.label()))
+                                    .description(format!(
+                                        "It's deleted from {}'s mcp.json.",
+                                        scope.label()
+                                    ))
                                     .confirm()
                                     .ok_text("Remove")
                                     .on_ok(move |_, window, cx| {
                                         let name = name.clone();
-                                        let _ = this.update(cx, |this, cx| this.edit_mcp(scope, move |s| {
-                                            s.remove(&name);
-                                        }, window, cx));
+                                        let _ = this.update(cx, |this, cx| {
+                                            this.edit_mcp(
+                                                scope,
+                                                move |s| {
+                                                    s.remove(&name);
+                                                },
+                                                window,
+                                                cx,
+                                            )
+                                        });
                                         true
                                     })
                             });
-                        },
-                    )),
+                        }),
+                    ),
             );
         }
         if servers.is_empty() {
@@ -780,16 +1087,25 @@ impl PiSettings {
                     .when(*level == thinking, |b| b.primary())
                     .on_click(cx.listener(move |this, _, window, cx| {
                         let l = l.clone();
-                        this.edit_settings(move |m| {
-                            m.insert("defaultThinkingLevel".into(), Value::String(l));
-                        }, window, cx)
+                        this.edit_settings(
+                            move |m| {
+                                m.insert("defaultThinkingLevel".into(), Value::String(l));
+                            },
+                            window,
+                            cx,
+                        )
                     })),
             );
         }
         let filter = self.model_filter.read(cx).value().to_lowercase();
         let mut list = v_flex().gap_0p5();
         match &self.models {
-            None | Some(Ok(_)) if self.models.as_ref().is_none_or(|m| m.as_ref().is_ok_and(|v| v.is_empty())) => {
+            None | Some(Ok(_))
+                if self
+                    .models
+                    .as_ref()
+                    .is_none_or(|m| m.as_ref().is_ok_and(|v| v.is_empty())) =>
+            {
                 list = list.child(muted("Asking pi for its models…", cx));
             }
             Some(Err(e)) => list = list.child(muted(format!("Couldn't list models: {e}"), cx)),
@@ -805,7 +1121,8 @@ impl PiSettings {
                 let shown = matches.len().min(60);
                 for m in &matches[..shown] {
                     let (p, id) = (m.provider.clone(), m.id.clone());
-                    let is_current = provider.as_deref() == Some(m.provider.as_str()) && model.as_deref() == Some(m.id.as_str());
+                    let is_current = provider.as_deref() == Some(m.provider.as_str())
+                        && model.as_deref() == Some(m.id.as_str());
                     list = list.child(
                         h_flex()
                             .id(SharedString::from(format!("m-{}-{}", m.provider, m.id)))
@@ -816,7 +1133,14 @@ impl PiSettings {
                             .cursor_pointer()
                             .hover(|s| s.bg(theme.list_hover))
                             .when(is_current, |s| s.bg(theme.list_active))
-                            .child(div().w(px(120.)).flex_none().text_sm().text_color(theme.muted_foreground).child(m.provider.clone()))
+                            .child(
+                                div()
+                                    .w(px(120.))
+                                    .flex_none()
+                                    .text_sm()
+                                    .text_color(theme.muted_foreground)
+                                    .child(m.provider.clone()),
+                            )
                             .child(
                                 div()
                                     .flex_1()
@@ -828,19 +1152,44 @@ impl PiSettings {
                                     .font_family(theme.mono_font_family.clone())
                                     .child(m.id.clone()),
                             )
-                            .when_some(m.note.clone(), |t, n| t.child(div().flex_none().text_xs().text_color(theme.warning).child(n)))
-                            .child(mono(format!("{}{}", m.context, if m.thinking { " · thinking" } else { "" }), cx).flex_none())
+                            .when_some(m.note.clone(), |t, n| {
+                                t.child(
+                                    div()
+                                        .flex_none()
+                                        .text_xs()
+                                        .text_color(theme.warning)
+                                        .child(n),
+                                )
+                            })
+                            .child(
+                                mono(
+                                    format!(
+                                        "{}{}",
+                                        m.context,
+                                        if m.thinking { " · thinking" } else { "" }
+                                    ),
+                                    cx,
+                                )
+                                .flex_none(),
+                            )
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 let (p, id) = (p.clone(), id.clone());
-                                this.edit_settings(move |m| {
-                                    m.insert("defaultProvider".into(), Value::String(p));
-                                    m.insert("defaultModel".into(), Value::String(id));
-                                }, window, cx)
+                                this.edit_settings(
+                                    move |m| {
+                                        m.insert("defaultProvider".into(), Value::String(p));
+                                        m.insert("defaultModel".into(), Value::String(id));
+                                    },
+                                    window,
+                                    cx,
+                                )
                             })),
                     );
                 }
                 if matches.len() > shown {
-                    list = list.child(muted(format!("{} more; type to narrow.", matches.len() - shown), cx));
+                    list = list.child(muted(
+                        format!("{} more; type to narrow.", matches.len() - shown),
+                        cx,
+                    ));
                 }
             }
             _ => {}
@@ -849,9 +1198,25 @@ impl PiSettings {
             .gap_3()
             .child(
                 section_box(cx)
-                    .child(h_flex().gap_2().child(div().font_weight(FontWeight::SEMIBOLD).child("Default model")).child(muted(current, cx)))
-                    .when_some(p_scope, |this, s| this.child(muted(format!("Set for {}.", s.label().to_lowercase()), cx)))
-                    .child(div().font_weight(FontWeight::SEMIBOLD).pt_2().child("Thinking"))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("Default model"),
+                            )
+                            .child(muted(current, cx)),
+                    )
+                    .when_some(p_scope, |this, s| {
+                        this.child(muted(format!("Set for {}.", s.label().to_lowercase()), cx))
+                    })
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .pt_2()
+                            .child("Thinking"),
+                    )
                     .child(levels),
             )
             .child(Input::new(&self.model_filter).small())
@@ -861,7 +1226,13 @@ impl PiSettings {
 
     fn render_instructions(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let scope = self.scope;
-        let files: Vec<InstructionFile> = self.snap.instructions.iter().filter(|f| f.scope == scope).cloned().collect();
+        let files: Vec<InstructionFile> = self
+            .snap
+            .instructions
+            .iter()
+            .filter(|f| f.scope == scope)
+            .cloned()
+            .collect();
         let mut col = v_flex().gap_3().child(muted(
             "Instructions pi reads with every prompt. AGENTS.md files in parent folders of the project apply too.",
             cx,
@@ -878,38 +1249,58 @@ impl PiSettings {
                             v_flex()
                                 .flex_1()
                                 .min_w_0()
-                                .child(div().font_weight(FontWeight::SEMIBOLD).child(f.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()))
+                                .child(
+                                    div().font_weight(FontWeight::SEMIBOLD).child(
+                                        f.path
+                                            .file_name()
+                                            .map(|n| n.to_string_lossy().to_string())
+                                            .unwrap_or_default(),
+                                    ),
+                                )
                                 .child(muted(f.role, cx))
-                                .child(mono(tilde(&f.path), cx).overflow_hidden().text_ellipsis().whitespace_nowrap()),
+                                .child(
+                                    mono(tilde(&f.path), cx)
+                                        .overflow_hidden()
+                                        .text_ellipsis()
+                                        .whitespace_nowrap(),
+                                ),
                         )
-                        .child(Button::new(SharedString::from(format!("i-{}", f.path.display()))).small().label(if exists { "Open" } else { "Create" }).on_click(
-                            cx.listener(move |this, _, window, cx| {
-                                let path = path.clone();
-                                if exists {
-                                    Self::open(path, window, cx);
-                                    return;
-                                }
-                                let task = cx.background_executor().spawn({
+                        .child(
+                            Button::new(SharedString::from(format!("i-{}", f.path.display())))
+                                .small()
+                                .label(if exists { "Open" } else { "Create" })
+                                .on_click(cx.listener(move |this, _, window, cx| {
                                     let path = path.clone();
-                                    async move {
-                                        if let Some(d) = path.parent() {
-                                            std::fs::create_dir_all(d)?;
-                                        }
-                                        std::fs::write(&path, "")
+                                    if exists {
+                                        Self::open(path, window, cx);
+                                        return;
                                     }
-                                });
-                                this._tasks.push(cx.spawn_in(window, async move |this, cx| {
-                                    let r = task.await;
-                                    let _ = this.update_in(cx, |this, window, cx| {
-                                        match r {
-                                            Ok(()) => Self::open(path, window, cx),
-                                            Err(e) => window.push_notification(Notification::error(format!("Couldn't create it: {e}")), cx),
+                                    let task = cx.background_executor().spawn({
+                                        let path = path.clone();
+                                        async move {
+                                            if let Some(d) = path.parent() {
+                                                std::fs::create_dir_all(d)?;
+                                            }
+                                            std::fs::write(&path, "")
                                         }
-                                        this.reload(cx);
                                     });
-                                }));
-                            }),
-                        )),
+                                    this._tasks.push(cx.spawn_in(window, async move |this, cx| {
+                                        let r = task.await;
+                                        let _ = this.update_in(cx, |this, window, cx| {
+                                            match r {
+                                                Ok(()) => Self::open(path, window, cx),
+                                                Err(e) => window.push_notification(
+                                                    Notification::error(format!(
+                                                        "Couldn't create it: {e}"
+                                                    )),
+                                                    cx,
+                                                ),
+                                            }
+                                            this.reload(cx);
+                                        });
+                                    }));
+                                })),
+                        ),
                 ),
             );
         }
@@ -951,10 +1342,23 @@ impl Render for PiSettings {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let scope = self.scope;
-        let mut nav = v_flex().gap_0p5().w(px(190.)).h_full().flex_none().p_2().border_r_1().border_color(theme.border);
+        let mut nav = v_flex()
+            .gap_0p5()
+            .w(px(190.))
+            .h_full()
+            .flex_none()
+            .p_2()
+            .border_r_1()
+            .border_color(theme.border);
         for s in Section::ALL {
             let count = match s {
-                Section::Packages => Some(self.snap.packages.iter().filter(|p| p.scope == scope).count()),
+                Section::Packages => Some(
+                    self.snap
+                        .packages
+                        .iter()
+                        .filter(|p| p.scope == scope)
+                        .count(),
+                ),
                 Section::Mcp => Some(self.snap.mcp().len()),
                 _ => None,
             };
@@ -968,9 +1372,18 @@ impl Render for PiSettings {
                     .cursor_pointer()
                     .text_sm()
                     .hover(|st| st.bg(theme.list_hover))
-                    .when(self.section == s, |st| st.bg(theme.list_active).font_weight(FontWeight::SEMIBOLD))
+                    .when(self.section == s, |st| {
+                        st.bg(theme.list_active).font_weight(FontWeight::SEMIBOLD)
+                    })
                     .child(s.title())
-                    .when_some(count.filter(|c| *c > 0), |t, c| t.child(div().text_xs().text_color(theme.muted_foreground).child(c.to_string())))
+                    .when_some(count.filter(|c| *c > 0), |t, c| {
+                        t.child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(c.to_string()),
+                        )
+                    })
                     .on_click(cx.listener(move |this, _, _, cx| this.show(s, cx))),
             );
         }

@@ -17,7 +17,10 @@ struct Row {
 }
 
 fn rank(all: &[Row], query: &str) -> Vec<usize> {
-    let hays: Vec<String> = all.iter().map(|r| format!("{} {}", r.title, r.id)).collect();
+    let hays: Vec<String> = all
+        .iter()
+        .map(|r| format!("{} {}", r.title, r.id))
+        .collect();
     rank_strings(&hays, query)
 }
 
@@ -50,7 +53,11 @@ pub fn open(window: &mut Window, cx: &mut App) {
     let rows: Rc<Vec<Row>> = Rc::new(
         CommandRegistry::all(cx)
             .into_iter()
-            .map(|CommandSpec { id, title, .. }| Row { id, title, keys: keymap::keys_for(cx, id) })
+            .map(|CommandSpec { id, title, .. }| Row {
+                id,
+                title,
+                keys: keymap::keys_for(cx, id),
+            })
             .collect(),
     );
     let order = Rc::new(RefCell::new(rank(&rows, "")));
@@ -62,52 +69,60 @@ pub fn open(window: &mut Window, cx: &mut App) {
         let order = order.clone();
         let state = state.clone();
         let focus_once = focus_once.clone();
-        dialog.close_button(false).p_0().content(move |content, window, cx| {
-            if focus_once.replace(false) {
-                let state = state.clone();
-                window.defer(cx, move |window, cx| state.read(cx).focus_handle(cx).focus(window, cx));
-            }
-            let items: Vec<CommandItem> = order
-                .borrow()
-                .iter()
-                .map(|&i| {
-                    let row = &rows[i];
-                    let title = row.title.clone();
-                    let keys = row.keys.clone();
-                    CommandItem::new().label(title.clone()).child(move |_, cx| {
-                        h_flex()
-                            .w_full()
-                            .justify_between()
-                            .child(title.clone())
-                            .children(keys.clone().map(|k| {
-                                div().text_xs().text_color(cx.theme().muted_foreground).child(k)
-                            }))
+        dialog
+            .close_button(false)
+            .p_0()
+            .content(move |content, window, cx| {
+                if focus_once.replace(false) {
+                    let state = state.clone();
+                    window.defer(cx, move |window, cx| {
+                        state.read(cx).focus_handle(cx).focus(window, cx)
+                    });
+                }
+                let items: Vec<CommandItem> = order
+                    .borrow()
+                    .iter()
+                    .map(|&i| {
+                        let row = &rows[i];
+                        let title = row.title.clone();
+                        let keys = row.keys.clone();
+                        CommandItem::new().label(title.clone()).child(move |_, cx| {
+                            h_flex()
+                                .w_full()
+                                .justify_between()
+                                .child(title.clone())
+                                .children(keys.clone().map(|k| {
+                                    div()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(k)
+                                }))
+                        })
                     })
-                })
-                .collect();
-            let (rows_q, order_q) = (rows.clone(), order.clone());
-            let (rows_c, order_c) = (rows.clone(), order.clone());
-            content.child(
-                Command::new(&state)
-                    .bordered(false)
-                    .rounded(cx.theme().radius_lg)
-                    .placeholder("Find action…")
-                    .max_h(px(420.))
-                    .filterable(false)
-                    .items(items)
-                    .on_query(move |q, window, _| {
-                        *order_q.borrow_mut() = rank(&rows_q, q);
-                        window.refresh();
-                    })
-                    .on_confirm(move |ix, window, cx| {
-                        let id = order_c.borrow().get(ix.row).map(|&i| rows_c[i].id);
-                        window.close_dialog(cx);
-                        if let Some(id) = id {
-                            CommandRegistry::run(id, window, cx);
-                        }
-                    }),
-            )
-        })
+                    .collect();
+                let (rows_q, order_q) = (rows.clone(), order.clone());
+                let (rows_c, order_c) = (rows.clone(), order.clone());
+                content.child(
+                    Command::new(&state)
+                        .bordered(false)
+                        .rounded(cx.theme().radius_lg)
+                        .placeholder("Find action…")
+                        .max_h(px(420.))
+                        .filterable(false)
+                        .items(items)
+                        .on_query(move |q, window, _| {
+                            *order_q.borrow_mut() = rank(&rows_q, q);
+                            window.refresh();
+                        })
+                        .on_confirm(move |ix, window, cx| {
+                            let id = order_c.borrow().get(ix.row).map(|&i| rows_c[i].id);
+                            window.close_dialog(cx);
+                            if let Some(id) = id {
+                                CommandRegistry::run(id, window, cx);
+                            }
+                        }),
+                )
+            })
     });
 }
 
@@ -118,9 +133,21 @@ mod tests {
     #[::core::prelude::v1::test]
     fn fuzzy_ranks_best_match_first() {
         let rows = vec![
-            Row { id: "agent.abort", title: "Agent: Stop".into(), keys: None },
-            Row { id: "editor.save", title: "File: Save".into(), keys: None },
-            Row { id: "palette.open", title: "Find Action".into(), keys: None },
+            Row {
+                id: "agent.abort",
+                title: "Agent: Stop".into(),
+                keys: None,
+            },
+            Row {
+                id: "editor.save",
+                title: "File: Save".into(),
+                keys: None,
+            },
+            Row {
+                id: "palette.open",
+                title: "Find Action".into(),
+                keys: None,
+            },
         ];
         assert_eq!(rank(&rows, "").len(), 3);
         assert_eq!(rank(&rows, "fsave")[0], 1);

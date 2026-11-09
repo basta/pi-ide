@@ -122,7 +122,10 @@ fn menus() -> Vec<Menu> {
 pub fn init(cx: &mut App) {
     let menus = menus();
     // Ids are strings: report any that don't name a registered command.
-    let known: Vec<&'static str> = pide_core::CommandRegistry::all(cx).iter().map(|c| c.id).collect();
+    let known: Vec<&'static str> = pide_core::CommandRegistry::all(cx)
+        .iter()
+        .map(|c| c.id)
+        .collect();
     let mut ids = Vec::new();
     collect_ids(menus.iter().flat_map(|m| &m.items), &mut ids);
     for id in ids.into_iter().filter(|id| !known.contains(&id.as_str())) {

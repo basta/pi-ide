@@ -33,7 +33,10 @@ impl Global for Indexes {}
 /// Relative paths of the project's files, gitignore-aware, sorted shortest first.
 pub fn list_files(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
-    let walker = ignore::WalkBuilder::new(root).hidden(false).filter_entry(|e| e.file_name() != ".git").build();
+    let walker = ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .filter_entry(|e| e.file_name() != ".git")
+        .build();
     for entry in walker.flatten() {
         if out.len() >= MAX_FILES {
             break;
@@ -56,7 +59,11 @@ pub fn rank(files: &[String], query: &str, limit: usize) -> Vec<usize> {
     }
     let mut matcher = Matcher::new(Config::DEFAULT.match_paths());
     let pattern = Pattern::parse(query, CaseMatching::Smart, Normalization::Smart);
-    let name_pattern = Pattern::parse(query.rsplit('/').next().unwrap_or(query), CaseMatching::Smart, Normalization::Smart);
+    let name_pattern = Pattern::parse(
+        query.rsplit('/').next().unwrap_or(query),
+        CaseMatching::Smart,
+        Normalization::Smart,
+    );
     let mut buf = Vec::new();
     let mut scored: Vec<(usize, u32)> = files
         .iter()
@@ -64,7 +71,9 @@ pub fn rank(files: &[String], query: &str, limit: usize) -> Vec<usize> {
         .filter_map(|(i, f)| {
             let s = pattern.score(nucleo_matcher::Utf32Str::new(f, &mut buf), &mut matcher)?;
             let name = f.rsplit('/').next().unwrap_or(f);
-            let bonus = name_pattern.score(nucleo_matcher::Utf32Str::new(name, &mut buf), &mut matcher).unwrap_or(0);
+            let bonus = name_pattern
+                .score(nucleo_matcher::Utf32Str::new(name, &mut buf), &mut matcher)
+                .unwrap_or(0);
             Some((i, s + bonus))
         })
         .collect();
@@ -76,7 +85,9 @@ pub fn rank(files: &[String], query: &str, limit: usize) -> Vec<usize> {
 /// Start (or refresh) the window's file list in the background.
 fn refresh(window: &Window, cx: &mut App) {
     let id = window.window_handle().window_id();
-    let Some(services) = Services::for_window(id, cx) else { return };
+    let Some(services) = Services::for_window(id, cx) else {
+        return;
+    };
     let root = services.workspace.read(cx).root().to_path_buf();
     if !cx.default_global::<Indexes>().0.contains_key(&id) {
         let sub = cx.subscribe(&services.workspace, move |_, ev: &WorkspaceEvent, cx| {
@@ -86,14 +97,24 @@ fn refresh(window: &Window, cx: &mut App) {
                 }
             }
         });
-        cx.default_global::<Indexes>().0.insert(id, Index { files: Rc::new(vec![]), stale: true, loading: false, _sub: sub });
+        cx.default_global::<Indexes>().0.insert(
+            id,
+            Index {
+                files: Rc::new(vec![]),
+                stale: true,
+                loading: false,
+                _sub: sub,
+            },
+        );
     }
     let ix = cx.default_global::<Indexes>().0.get_mut(&id).unwrap();
     if ix.loading || !ix.stale {
         return;
     }
     ix.loading = true;
-    let task = cx.background_executor().spawn(async move { list_files(&root) });
+    let task = cx
+        .background_executor()
+        .spawn(async move { list_files(&root) });
     cx.spawn(async move |cx| {
         let files = task.await;
         let _ = cx.update(|cx| {
@@ -119,73 +140,107 @@ pub fn open(window: &mut Window, cx: &mut App) {
     }
     refresh(window, cx);
     let id = window.window_handle().window_id();
-    let Some(root) = Services::for_window(id, cx).map(|s| s.workspace.read(cx).root().to_path_buf()) else { return };
+    let Some(root) =
+        Services::for_window(id, cx).map(|s| s.workspace.read(cx).root().to_path_buf())
+    else {
+        return;
+    };
     let query = Rc::new(RefCell::new(String::new()));
     let state = cx.new(|cx| CommandState::new(window, cx));
     let focus_once = Rc::new(std::cell::Cell::new(true));
     // The rows for the current query, recomputed when it or the index changes.
-    let cache: Rc<RefCell<(String, usize, Vec<usize>)>> = Rc::new(RefCell::new((String::from("\u{0}"), usize::MAX, vec![])));
+    let cache: Rc<RefCell<(String, usize, Vec<usize>)>> =
+        Rc::new(RefCell::new((String::from("\u{0}"), usize::MAX, vec![])));
 
     window.open_dialog(cx, move |dialog, _, _| {
-        let (query, state, focus_once, cache, root) = (query.clone(), state.clone(), focus_once.clone(), cache.clone(), root.clone());
-        dialog.close_button(false).p_0().content(move |content, window, cx| {
-            if focus_once.replace(false) {
-                let state = state.clone();
-                window.defer(cx, move |window, cx| state.read(cx).focus_handle(cx).focus(window, cx));
-            }
-            let (files, loading) = cx
-                .try_global::<Indexes>()
-                .and_then(|ix| ix.0.get(&id))
-                .map(|ix| (ix.files.clone(), ix.loading && ix.files.is_empty()))
-                .unwrap_or_default();
-            let q = query.borrow().clone();
-            {
-                let mut c = cache.borrow_mut();
-                if c.0 != q || c.1 != files.len() {
-                    *c = (q.clone(), files.len(), rank(&files, &q, SHOWN));
+        let (query, state, focus_once, cache, root) = (
+            query.clone(),
+            state.clone(),
+            focus_once.clone(),
+            cache.clone(),
+            root.clone(),
+        );
+        dialog
+            .close_button(false)
+            .p_0()
+            .content(move |content, window, cx| {
+                if focus_once.replace(false) {
+                    let state = state.clone();
+                    window.defer(cx, move |window, cx| {
+                        state.read(cx).focus_handle(cx).focus(window, cx)
+                    });
                 }
-            }
-            let order = cache.borrow().2.clone();
-            let muted = cx.theme().muted_foreground;
-            let items: Vec<CommandItem> = order
-                .iter()
-                .map(|&i| {
-                    let rel = files[i].clone();
-                    let (dir, name) = match rel.rsplit_once('/') {
-                        Some((d, n)) => (d.to_string(), n.to_string()),
-                        None => (String::new(), rel.clone()),
-                    };
-                    CommandItem::new().label(rel.clone()).child(move |_, _| {
-                        h_flex()
-                            .w_full()
-                            .gap_2()
-                            .child(div().flex_none().child(name.clone()))
-                            .child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_xs().text_color(muted).child(dir.clone()))
+                let (files, loading) = cx
+                    .try_global::<Indexes>()
+                    .and_then(|ix| ix.0.get(&id))
+                    .map(|ix| (ix.files.clone(), ix.loading && ix.files.is_empty()))
+                    .unwrap_or_default();
+                let q = query.borrow().clone();
+                {
+                    let mut c = cache.borrow_mut();
+                    if c.0 != q || c.1 != files.len() {
+                        *c = (q.clone(), files.len(), rank(&files, &q, SHOWN));
+                    }
+                }
+                let order = cache.borrow().2.clone();
+                let muted = cx.theme().muted_foreground;
+                let items: Vec<CommandItem> = order
+                    .iter()
+                    .map(|&i| {
+                        let rel = files[i].clone();
+                        let (dir, name) = match rel.rsplit_once('/') {
+                            Some((d, n)) => (d.to_string(), n.to_string()),
+                            None => (String::new(), rel.clone()),
+                        };
+                        CommandItem::new().label(rel.clone()).child(move |_, _| {
+                            h_flex()
+                                .w_full()
+                                .gap_2()
+                                .child(div().flex_none().child(name.clone()))
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .overflow_hidden()
+                                        .text_ellipsis()
+                                        .whitespace_nowrap()
+                                        .text_xs()
+                                        .text_color(muted)
+                                        .child(dir.clone()),
+                                )
+                        })
                     })
-                })
-                .collect();
-            let (query_q, cache_c, files_c, root_c) = (query.clone(), cache.clone(), files.clone(), root.clone());
-            content.child(
-                Command::new(&state)
-                    .bordered(false)
-                    .rounded(cx.theme().radius_lg)
-                    .placeholder(if loading { "Listing files…".to_string() } else { format!("Go to file ({} files)", files.len()) })
-                    .max_h(px(460.))
-                    .filterable(false)
-                    .items(items)
-                    .on_query(move |q, window, _| {
-                        *query_q.borrow_mut() = q.to_string();
-                        window.refresh();
-                    })
-                    .on_confirm(move |ix, window, cx| {
-                        let path = cache_c.borrow().2.get(ix.row).map(|&i| root_c.join(&files_c[i]));
-                        window.close_dialog(cx);
-                        if let Some(path) = path {
-                            pide_core::opener::open_file(path, window, cx);
-                        }
-                    }),
-            )
-        })
+                    .collect();
+                let (query_q, cache_c, files_c, root_c) =
+                    (query.clone(), cache.clone(), files.clone(), root.clone());
+                content.child(
+                    Command::new(&state)
+                        .bordered(false)
+                        .rounded(cx.theme().radius_lg)
+                        .placeholder(if loading {
+                            "Listing files…".to_string()
+                        } else {
+                            format!("Go to file ({} files)", files.len())
+                        })
+                        .max_h(px(460.))
+                        .filterable(false)
+                        .items(items)
+                        .on_query(move |q, window, _| {
+                            *query_q.borrow_mut() = q.to_string();
+                            window.refresh();
+                        })
+                        .on_confirm(move |ix, window, cx| {
+                            let path = cache_c
+                                .borrow()
+                                .2
+                                .get(ix.row)
+                                .map(|&i| root_c.join(&files_c[i]));
+                            window.close_dialog(cx);
+                            if let Some(path) = path {
+                                pide_core::opener::open_file(path, window, cx);
+                            }
+                        }),
+                )
+            })
     });
 }
 
@@ -194,10 +249,16 @@ mod tests {
     use super::*;
 
     fn files() -> Vec<String> {
-        let mut v: Vec<String> = ["src/main.rs", "src/domain/mainline.rs", "crates/core/src/buffer.rs", "README.md", "docs/GAPS.md"]
-            .into_iter()
-            .map(String::from)
-            .collect();
+        let mut v: Vec<String> = [
+            "src/main.rs",
+            "src/domain/mainline.rs",
+            "crates/core/src/buffer.rs",
+            "README.md",
+            "docs/GAPS.md",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
         v.sort_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
         v
     }
@@ -224,7 +285,10 @@ mod tests {
         std::fs::write(dir.join(".git/HEAD"), "").unwrap();
         let mut files = list_files(&dir);
         files.sort();
-        assert_eq!(files, vec![".gitignore".to_string(), "src/a.rs".to_string()]);
+        assert_eq!(
+            files,
+            vec![".gitignore".to_string(), "src/a.rs".to_string()]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

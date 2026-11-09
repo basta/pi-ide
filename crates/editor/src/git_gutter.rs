@@ -23,7 +23,9 @@ impl EditorPanel {
     /// (Re)read the file's text at HEAD, then refresh the marks.
     pub(crate) fn load_git_base(&mut self, cx: &mut Context<Self>) {
         let path = self.path.clone();
-        let task = cx.background_executor().spawn(async move { git::head_text(&path) });
+        let task = cx
+            .background_executor()
+            .spawn(async move { git::head_text(&path) });
         self._git_task = Some(cx.spawn(async move |this, cx| {
             let base = task.await;
             let _ = this.update(cx, |this, cx| {
@@ -48,7 +50,10 @@ impl EditorPanel {
                 cx.background_executor().timer(delay).await;
             }
             let current = rope.to_string();
-            let changes = cx.background_executor().spawn(async move { git::line_changes(&base, &current) }).await;
+            let changes = cx
+                .background_executor()
+                .spawn(async move { git::line_changes(&base, &current) })
+                .await;
             let _ = this.update(cx, |this, cx| this.apply_git_marks(&rope, changes, cx));
         }));
     }
@@ -59,7 +64,8 @@ impl EditorPanel {
             return;
         }
         let status = &cx.theme().highlight_theme.style.status;
-        let (added, modified, deleted) = (status.created(cx), status.modified(cx), status.deleted(cx));
+        let (added, modified, deleted) =
+            (status.created(cx), status.modified(cx), status.deleted(cx));
         let marks: Vec<GutterDecoration> = changes
             .iter()
             .map(|c| {
@@ -75,7 +81,9 @@ impl EditorPanel {
         match &self.gutter {
             Some(g) => g.set(marks, cx),
             None => {
-                let g = self.editor.update(cx, |e, cx| e.create_gutter_decorations_collection(marks, cx));
+                let g = self.editor.update(cx, |e, cx| {
+                    e.create_gutter_decorations_collection(marks, cx)
+                });
                 self.gutter = Some(g);
             }
         }

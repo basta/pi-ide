@@ -14,7 +14,9 @@ use pide_lsp::LspStore;
 pub const PANEL_NAME: &str = "problems";
 
 pub fn init(cx: &mut App) {
-    register_panel(cx, PANEL_NAME, |_, window, cx| panel_handle(cx.new(|cx| Problems::new(window, cx))));
+    register_panel(cx, PANEL_NAME, |_, window, cx| {
+        panel_handle(cx.new(|cx| Problems::new(window, cx)))
+    });
 }
 
 /// Errors and warnings across the project (for the status bar too).
@@ -39,7 +41,10 @@ impl Global for Instances {}
 
 /// This window's open Problems panel, if any.
 pub fn existing(window: &Window, cx: &App) -> Option<Entity<Problems>> {
-    cx.try_global::<Instances>()?.0.get(&window.window_handle().window_id())?.upgrade()
+    cx.try_global::<Instances>()?
+        .0
+        .get(&window.window_handle().window_id())?
+        .upgrade()
 }
 
 pub struct Problems {
@@ -58,7 +63,9 @@ impl Problems {
         let root = workspace.read(cx).root().to_path_buf();
         let store = LspStore::for_workspace(&workspace, cx);
         let me = cx.weak_entity();
-        cx.default_global::<Instances>().0.insert(window.window_handle().window_id(), me);
+        cx.default_global::<Instances>()
+            .0
+            .insert(window.window_handle().window_id(), me);
         Self {
             _subs: vec![cx.observe(&store, |_, _, cx| cx.notify())],
             store,
@@ -69,7 +76,9 @@ impl Problems {
     }
 
     fn rel<'a>(&self, path: &'a Path) -> std::borrow::Cow<'a, str> {
-        path.strip_prefix(&self.root).unwrap_or(path).to_string_lossy()
+        path.strip_prefix(&self.root)
+            .unwrap_or(path)
+            .to_string_lossy()
     }
 }
 
@@ -101,7 +110,11 @@ impl gpui_kit::component::dock::BasePanel for Problems {
 impl gpui_kit::component::dock::Panel for Problems {
     fn title(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (e, w) = counts(self.store.read(cx));
-        if e + w == 0 { "Problems".to_string() } else { format!("Problems · {}", e + w) }
+        if e + w == 0 {
+            "Problems".to_string()
+        } else {
+            format!("Problems · {}", e + w)
+        }
     }
 }
 
@@ -126,8 +139,18 @@ impl Render for Problems {
             .diagnostics()
             .iter()
             .map(|(p, f)| {
-                let mut items: Vec<_> = f.items.iter().filter(|d| show_hints || rank(d.severity) <= 1).collect();
-                items.sort_by_key(|d| (rank(d.severity), d.range.start.line, d.range.start.character));
+                let mut items: Vec<_> = f
+                    .items
+                    .iter()
+                    .filter(|d| show_hints || rank(d.severity) <= 1)
+                    .collect();
+                items.sort_by_key(|d| {
+                    (
+                        rank(d.severity),
+                        d.range.start.line,
+                        d.range.start.character,
+                    )
+                });
                 (p, items)
             })
             .filter(|(_, items)| !items.is_empty())
@@ -147,8 +170,17 @@ impl Render for Problems {
                     .pt_2()
                     .pb_1()
                     .text_sm()
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child(self.rel(path).to_string()))
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(items.len().to_string()))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(self.rel(path).to_string()),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(items.len().to_string()),
+                    )
                     .into_any_element(),
             );
             for (i, d) in items.into_iter().enumerate() {
@@ -164,7 +196,10 @@ impl Render for Problems {
                 let target = path.clone();
                 rows.push(
                     h_flex()
-                        .id(SharedString::from(format!("p-{}-{i}-{line}-{character}", path.display())))
+                        .id(SharedString::from(format!(
+                            "p-{}-{i}-{line}-{character}",
+                            path.display()
+                        )))
                         .gap_2()
                         .px_3()
                         .pl_6()
@@ -173,10 +208,31 @@ impl Render for Problems {
                         .cursor_pointer()
                         .hover(|s| s.bg(theme.list_hover))
                         .on_click(move |_, window, cx| {
-                            pide_core::opener::open_file_at(target.clone(), line, character, window, cx)
+                            pide_core::opener::open_file_at(
+                                target.clone(),
+                                line,
+                                character,
+                                window,
+                                cx,
+                            )
                         })
-                        .child(div().w(px(56.)).flex_none().text_xs().text_color(color).child(label))
-                        .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(message))
+                        .child(
+                            div()
+                                .w(px(56.))
+                                .flex_none()
+                                .text_xs()
+                                .text_color(color)
+                                .child(label),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .whitespace_nowrap()
+                                .child(message),
+                        )
                         .child(
                             div()
                                 .flex_none()
@@ -191,7 +247,11 @@ impl Render for Problems {
 
         let summary = match (errors, warnings) {
             (0, 0) => "No errors or warnings".to_string(),
-            (e, w) => format!("{e} error{} · {w} warning{}", if e == 1 { "" } else { "s" }, if w == 1 { "" } else { "s" }),
+            (e, w) => format!(
+                "{e} error{} · {w} warning{}",
+                if e == 1 { "" } else { "s" },
+                if w == 1 { "" } else { "s" }
+            ),
         };
         let any_server = store.servers().next().is_some();
 

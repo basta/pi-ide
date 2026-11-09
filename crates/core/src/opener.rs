@@ -52,7 +52,12 @@ pub fn open_file_at(path: PathBuf, line: u32, character: u32, window: &mut Windo
     }
 }
 
-pub fn show_locations(title: SharedString, locations: Vec<Location>, window: &mut Window, cx: &mut App) {
+pub fn show_locations(
+    title: SharedString,
+    locations: Vec<Location>,
+    window: &mut Window,
+    cx: &mut App,
+) {
     if let Some(o) = cx.try_global::<Openers>().map(|o| o.locations.clone()) {
         o(title, locations, window, cx);
     }

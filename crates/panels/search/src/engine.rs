@@ -21,7 +21,11 @@ pub struct Query {
 
 impl Query {
     pub fn compile(&self) -> Result<Regex, String> {
-        let mut pattern = if self.regex { self.text.clone() } else { regex::escape(&self.text) };
+        let mut pattern = if self.regex {
+            self.text.clone()
+        } else {
+            regex::escape(&self.text)
+        };
         if self.whole_word {
             pattern = format!(r"\b(?:{pattern})\b");
         }
@@ -84,10 +88,17 @@ pub fn find_in_text(re: &Regex, text: &str, limit: usize) -> Vec<Match> {
 
 /// Search the project. `open` holds the current text of open buffers (their
 /// unsaved edits win over the disk).
-pub fn search(root: &Path, query: &Query, open: &HashMap<PathBuf, String>) -> Result<Results, String> {
+pub fn search(
+    root: &Path,
+    query: &Query,
+    open: &HashMap<PathBuf, String>,
+) -> Result<Results, String> {
     let re = query.compile()?;
     let mut results = Results::default();
-    let walker = ignore::WalkBuilder::new(root).hidden(false).filter_entry(|e| e.file_name() != ".git").build();
+    let walker = ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .filter_entry(|e| e.file_name() != ".git")
+        .build();
     for entry in walker.flatten() {
         if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
@@ -96,14 +107,22 @@ pub fn search(root: &Path, query: &Query, open: &HashMap<PathBuf, String>) -> Re
         let text = match open.get(&path) {
             Some(t) => t.clone(),
             None => {
-                if entry.metadata().map(|m| m.len() > MAX_FILE_BYTES).unwrap_or(true) {
+                if entry
+                    .metadata()
+                    .map(|m| m.len() > MAX_FILE_BYTES)
+                    .unwrap_or(true)
+                {
                     continue;
                 }
-                let Ok(bytes) = std::fs::read(&path) else { continue };
+                let Ok(bytes) = std::fs::read(&path) else {
+                    continue;
+                };
                 if bytes.iter().take(8000).any(|&b| b == 0) {
                     continue; // binary
                 }
-                let Ok(t) = String::from_utf8(bytes) else { continue };
+                let Ok(t) = String::from_utf8(bytes) else {
+                    continue;
+                };
                 t
             }
         };
@@ -123,13 +142,18 @@ pub fn search(root: &Path, query: &Query, open: &HashMap<PathBuf, String>) -> Re
 }
 
 /// Replace every match in `text`. `$1`-style groups work in regex mode.
-pub fn replace_all(query: &Query, text: &str, replacement: &str) -> Result<(String, usize), String> {
+pub fn replace_all(
+    query: &Query,
+    text: &str,
+    replacement: &str,
+) -> Result<(String, usize), String> {
     let re = query.compile()?;
     let n = re.find_iter(text).filter(|m| m.start() != m.end()).count();
     let out = if query.regex {
         re.replace_all(text, replacement).into_owned()
     } else {
-        re.replace_all(text, regex::NoExpand(replacement)).into_owned()
+        re.replace_all(text, regex::NoExpand(replacement))
+            .into_owned()
     };
     Ok((out, n))
 }
@@ -150,7 +174,10 @@ mod tests {
     use super::*;
 
     fn q(text: &str) -> Query {
-        Query { text: text.into(), ..Default::default() }
+        Query {
+            text: text.into(),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -163,13 +190,38 @@ mod tests {
 
     #[test]
     fn options_regex_case_whole_word() {
-        let mut query = Query { text: r"fo+".into(), regex: true, ..Default::default() };
-        assert_eq!(find_in_text(&query.compile().unwrap(), "foo FOOO f", 100).len(), 2);
+        let mut query = Query {
+            text: r"fo+".into(),
+            regex: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            find_in_text(&query.compile().unwrap(), "foo FOOO f", 100).len(),
+            2
+        );
         query.case_sensitive = true;
-        assert_eq!(find_in_text(&query.compile().unwrap(), "foo FOOO f", 100).len(), 1);
-        let ww = Query { text: "add".into(), whole_word: true, ..Default::default() };
-        assert_eq!(find_in_text(&ww.compile().unwrap(), "add adder add_x (add)", 100).len(), 2);
-        assert!(Query { text: "(".into(), regex: true, ..Default::default() }.compile().is_err());
+        assert_eq!(
+            find_in_text(&query.compile().unwrap(), "foo FOOO f", 100).len(),
+            1
+        );
+        let ww = Query {
+            text: "add".into(),
+            whole_word: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            find_in_text(&ww.compile().unwrap(), "add adder add_x (add)", 100).len(),
+            2
+        );
+        assert!(
+            Query {
+                text: "(".into(),
+                regex: true,
+                ..Default::default()
+            }
+            .compile()
+            .is_err()
+        );
     }
 
     #[test]
@@ -182,8 +234,16 @@ mod tests {
 
     #[test]
     fn replace_literal_and_regex_groups() {
-        assert_eq!(replace_all(&q("$x"), "a $x b $x", "y").unwrap(), ("a y b y".into(), 2));
-        let re = Query { text: r"(\w+)@(\w+)".into(), regex: true, case_sensitive: true, ..Default::default() };
+        assert_eq!(
+            replace_all(&q("$x"), "a $x b $x", "y").unwrap(),
+            ("a y b y".into(), 2)
+        );
+        let re = Query {
+            text: r"(\w+)@(\w+)".into(),
+            regex: true,
+            case_sensitive: true,
+            ..Default::default()
+        };
         assert_eq!(replace_all(&re, "me@host", "$2/$1").unwrap().0, "host/me");
         // Literal mode doesn't expand `$1`.
         assert_eq!(replace_all(&q("a"), "a", "$1").unwrap().0, "$1");
@@ -203,11 +263,21 @@ mod tests {
         let mut open = HashMap::new();
         open.insert(dir.join("src/b.rs"), "unsaved needle here".to_string());
         let r = search(&dir, &q("needle"), &open).unwrap();
-        let files: Vec<String> = r.files.iter().map(|f| f.path.strip_prefix(&dir).unwrap().display().to_string()).collect();
+        let files: Vec<String> = r
+            .files
+            .iter()
+            .map(|f| f.path.strip_prefix(&dir).unwrap().display().to_string())
+            .collect();
         assert_eq!(files, ["src/a.rs", "src/b.rs"]);
         assert_eq!(r.total, 2);
-        assert_eq!(replace_in_file(&dir.join("src/a.rs"), &q("needle"), "pin").unwrap(), 1);
-        assert_eq!(std::fs::read_to_string(dir.join("src/a.rs")).unwrap(), "fn pin() {}\n");
+        assert_eq!(
+            replace_in_file(&dir.join("src/a.rs"), &q("needle"), "pin").unwrap(),
+            1
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("src/a.rs")).unwrap(),
+            "fn pin() {}\n"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

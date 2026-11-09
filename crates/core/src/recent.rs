@@ -21,7 +21,10 @@ pub struct RecentProject {
 impl RecentProject {
     /// Folder name, for lists.
     pub fn name(&self) -> String {
-        self.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| self.path.display().to_string())
+        self.path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| self.path.display().to_string())
     }
 }
 
@@ -35,13 +38,19 @@ pub fn file() -> PathBuf {
 }
 
 pub fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 impl Recent {
     /// Missing or unreadable file = no recent projects.
     pub fn load_from(path: &Path) -> Self {
-        std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
     }
 
     pub fn save_to(&self, path: &Path) -> anyhow::Result<()> {
@@ -55,7 +64,13 @@ impl Recent {
     /// `path` was just opened: move it to the front.
     pub fn touch(&mut self, path: &Path, at: u64) {
         self.projects.retain(|p| p.path != path);
-        self.projects.insert(0, RecentProject { path: path.to_path_buf(), opened: at });
+        self.projects.insert(
+            0,
+            RecentProject {
+                path: path.to_path_buf(),
+                opened: at,
+            },
+        );
         self.projects.truncate(MAX);
     }
 
@@ -65,7 +80,10 @@ impl Recent {
 
     /// The most recent project whose folder still exists.
     pub fn last_existing(&self) -> Option<&Path> {
-        self.projects.iter().map(|p| p.path.as_path()).find(|p| p.is_dir())
+        self.projects
+            .iter()
+            .map(|p| p.path.as_path())
+            .find(|p| p.is_dir())
     }
 }
 
@@ -91,7 +109,13 @@ mod tests {
         r.touch(Path::new("/a"), 1);
         r.touch(Path::new("/b"), 2);
         r.touch(Path::new("/a"), 3);
-        assert_eq!(r.projects.iter().map(|p| p.path.to_str().unwrap()).collect::<Vec<_>>(), ["/a", "/b"]);
+        assert_eq!(
+            r.projects
+                .iter()
+                .map(|p| p.path.to_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["/a", "/b"]
+        );
         assert_eq!(r.projects[0].opened, 3);
         for i in 0..30 {
             r.touch(Path::new(&format!("/p{i}")), 10 + i);

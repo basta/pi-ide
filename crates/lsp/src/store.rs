@@ -28,8 +28,13 @@ pub enum ServerState {
     /// Checking it's installed, starting, or waiting for `initialize`.
     Starting,
     Running,
-    NotInstalled { reason: String },
-    Crashed { message: String, stderr_tail: Vec<String> },
+    NotInstalled {
+        reason: String,
+    },
+    Crashed {
+        message: String,
+        stderr_tail: Vec<String>,
+    },
     Stopped,
 }
 
@@ -97,11 +102,15 @@ pub struct ApplyEditRequest {
 #[derive(Clone, Debug)]
 pub enum LspEvent {
     ApplyEdit(std::rc::Rc<ApplyEditRequest>),
-    Diagnostics { path: PathBuf },
+    Diagnostics {
+        path: PathBuf,
+    },
     /// A server's state or progress changed.
     Status,
     /// A file opened whose server isn't installed (once per server and project).
-    MissingServer { server: &'static str },
+    MissingServer {
+        server: &'static str,
+    },
 }
 
 pub struct LspStore {
@@ -123,7 +132,10 @@ impl Global for Stores {}
 impl LspStore {
     /// The store for a project, created on first use. It goes away with the workspace.
     pub fn for_workspace(workspace: &Entity<Workspace>, cx: &mut App) -> Entity<LspStore> {
-        if let Some(s) = cx.try_global::<Stores>().and_then(|s| s.0.get(&workspace.entity_id())) {
+        if let Some(s) = cx
+            .try_global::<Stores>()
+            .and_then(|s| s.0.get(&workspace.entity_id()))
+        {
             return s.clone();
         }
         let store = cx.new(|cx| LspStore::new(workspace, cx));
@@ -140,7 +152,9 @@ impl LspStore {
     }
 
     fn new(workspace: &Entity<Workspace>, cx: &mut Context<Self>) -> Self {
-        let lsp_settings = cx.try_global::<pide_core::settings::Settings>().and_then(|s| s.lsp.clone());
+        let lsp_settings = cx
+            .try_global::<pide_core::settings::Settings>()
+            .and_then(|s| s.lsp.clone());
         let mut this = Self {
             root: workspace.read(cx).root().to_path_buf(),
             specs: registry::specs(lsp_settings.as_ref()),
@@ -189,10 +203,16 @@ impl LspStore {
         self.diagnostics.get(path)
     }
 
-    fn on_workspace_event(&mut self, _: Entity<Workspace>, ev: &WorkspaceEvent, cx: &mut Context<Self>) {
+    fn on_workspace_event(
+        &mut self,
+        _: Entity<Workspace>,
+        ev: &WorkspaceEvent,
+        cx: &mut Context<Self>,
+    ) {
         match ev {
             WorkspaceEvent::BufferOpened(b) => self.buffer_opened(b, cx),
-            WorkspaceEvent::BufferChanged(b) | WorkspaceEvent::FileChangedOnDisk { buffer: b, .. } => {
+            WorkspaceEvent::BufferChanged(b)
+            | WorkspaceEvent::FileChangedOnDisk { buffer: b, .. } => {
                 let (path, text) = {
                     let b = b.read(cx);
                     (b.path.clone(), b.text().clone())
@@ -203,15 +223,22 @@ impl LspStore {
                 let path = b.read(cx).path.clone();
                 if let Some(doc) = self.docs.get(&path).filter(|d| d.opened) {
                     if let Some(rpc) = self.servers.get(doc.server).and_then(|s| s.rpc.clone()) {
-                        rpc.notify("textDocument/didSave", json!({ "textDocument": { "uri": file_uri(&path) } }));
+                        rpc.notify(
+                            "textDocument/didSave",
+                            json!({ "textDocument": { "uri": file_uri(&path) } }),
+                        );
                     }
                 }
             }
             WorkspaceEvent::BufferClosed(path) => {
                 if let Some(doc) = self.docs.remove(path) {
                     if doc.opened {
-                        if let Some(rpc) = self.servers.get(doc.server).and_then(|s| s.rpc.clone()) {
-                            rpc.notify("textDocument/didClose", json!({ "textDocument": { "uri": file_uri(path) } }));
+                        if let Some(rpc) = self.servers.get(doc.server).and_then(|s| s.rpc.clone())
+                        {
+                            rpc.notify(
+                                "textDocument/didClose",
+                                json!({ "textDocument": { "uri": file_uri(path) } }),
+                            );
                         }
                     }
                 }
@@ -225,15 +252,27 @@ impl LspStore {
             let b = buffer.read(cx);
             (b.path.clone(), b.text().clone())
         };
-        let Some(spec) = registry::spec_for(&self.specs, &path).cloned() else { return };
-        self.docs.insert(path.clone(), Doc { server: spec.id, version: 1, text, opened: false });
+        let Some(spec) = registry::spec_for(&self.specs, &path).cloned() else {
+            return;
+        };
+        self.docs.insert(
+            path.clone(),
+            Doc {
+                server: spec.id,
+                version: 1,
+                text,
+                opened: false,
+            },
+        );
         self.ensure_server(spec.id, cx);
         self.open_docs(spec.id);
     }
 
     /// Bring the server's copy of `path` up to date with `text` (no-op if equal).
     pub fn sync_text(&mut self, path: &Path, text: &Rope) {
-        let Some(doc) = self.docs.get_mut(path) else { return };
+        let Some(doc) = self.docs.get_mut(path) else {
+            return;
+        };
         if &doc.text == text {
             return;
         }
@@ -255,10 +294,16 @@ impl LspStore {
 
     /// didOpen every tracked file of a running server that isn't open there yet.
     fn open_docs(&mut self, server: &'static str) {
-        let Some(s) = self.servers.get(server).filter(|s| s.is_running()) else { return };
+        let Some(s) = self.servers.get(server).filter(|s| s.is_running()) else {
+            return;
+        };
         let Some(rpc) = s.rpc.clone() else { return };
         let language_id = s.spec.language_id;
-        for (path, doc) in self.docs.iter_mut().filter(|(_, d)| d.server == server && !d.opened) {
+        for (path, doc) in self
+            .docs
+            .iter_mut()
+            .filter(|(_, d)| d.server == server && !d.opened)
+        {
             rpc.notify(
                 "textDocument/didOpen",
                 json!({ "textDocument": {
@@ -274,17 +319,23 @@ impl LspStore {
     fn ensure_server(&mut self, id: &'static str, cx: &mut Context<Self>) {
         if let Some(s) = self.servers.get(id) {
             match s.state {
-                ServerState::Starting | ServerState::Running | ServerState::Crashed { .. } => return,
+                ServerState::Starting | ServerState::Running | ServerState::Crashed { .. } => {
+                    return;
+                }
                 ServerState::NotInstalled { .. } | ServerState::Stopped => {}
             }
         }
-        let Some(spec) = self.specs.iter().find(|s| s.id == id).cloned() else { return };
+        let Some(spec) = self.specs.iter().find(|s| s.id == id).cloned() else {
+            return;
+        };
         self.start(spec, cx);
     }
 
     /// Stop (if running) and start again. Also the manual "Restart" after a crash.
     pub fn restart(&mut self, id: &str, cx: &mut Context<Self>) {
-        let Some(spec) = self.specs.iter().find(|s| s.id == id).cloned() else { return };
+        let Some(spec) = self.specs.iter().find(|s| s.id == id).cloned() else {
+            return;
+        };
         if let Some(s) = self.servers.get_mut(spec.id) {
             s.crashes.clear();
         }
@@ -307,7 +358,9 @@ impl LspStore {
     }
 
     fn stop(&mut self, id: &'static str, cx: &mut Context<Self>) {
-        let Some(s) = self.servers.get_mut(id) else { return };
+        let Some(s) = self.servers.get_mut(id) else {
+            return;
+        };
         s.generation += 1; // its exit is expected now
         if let Some(rpc) = s.rpc.take() {
             // Polite first; the kill follows if it lingers.
@@ -352,7 +405,9 @@ impl LspStore {
 
         // Detect off the UI thread, then start.
         let detect_spec = spec.clone();
-        let detect = cx.background_executor().spawn(async move { registry::detect(&detect_spec) });
+        let detect = cx
+            .background_executor()
+            .spawn(async move { registry::detect(&detect_spec) });
         let task = cx.spawn(async move |this, cx| {
             let installed = detect.await;
             let _ = this.update(cx, |this, cx| this.detected(id, generation, installed, cx));
@@ -360,9 +415,21 @@ impl LspStore {
         server._tasks = vec![task];
     }
 
-    fn detected(&mut self, id: &'static str, generation: u64, installed: Installed, cx: &mut Context<Self>) {
+    fn detected(
+        &mut self,
+        id: &'static str,
+        generation: u64,
+        installed: Installed,
+        cx: &mut Context<Self>,
+    ) {
         let root = self.root.clone();
-        let Some(s) = self.servers.get_mut(id).filter(|s| s.generation == generation) else { return };
+        let Some(s) = self
+            .servers
+            .get_mut(id)
+            .filter(|s| s.generation == generation)
+        else {
+            return;
+        };
         s.installed = Some(installed.clone());
         if let Installed::No { reason } = installed {
             log::info!("{id}: not installed ({reason})");
@@ -385,7 +452,10 @@ impl LspStore {
         let mut incoming = started.incoming;
         let incoming_task = cx.spawn(async move |this, cx| {
             while let Some(msg) = incoming.recv().await {
-                if this.update(cx, |this, cx| this.on_incoming(id, generation, msg, cx)).is_err() {
+                if this
+                    .update(cx, |this, cx| this.on_incoming(id, generation, msg, cx))
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -397,7 +467,9 @@ impl LspStore {
         });
         let init_task = cx.spawn(async move |this, cx| {
             let result = init.await;
-            let _ = this.update(cx, |this, cx| this.on_initialized(id, generation, result, cx));
+            let _ = this.update(cx, |this, cx| {
+                this.on_initialized(id, generation, result, cx)
+            });
         });
         s._tasks = vec![incoming_task, exit_task, init_task];
         cx.notify();
@@ -410,7 +482,13 @@ impl LspStore {
         result: Result<Result<Value, crate::rpc::RpcError>, oneshot::error::RecvError>,
         cx: &mut Context<Self>,
     ) {
-        let Some(s) = self.servers.get_mut(id).filter(|s| s.generation == generation) else { return };
+        let Some(s) = self
+            .servers
+            .get_mut(id)
+            .filter(|s| s.generation == generation)
+        else {
+            return;
+        };
         let value = match result {
             Ok(Ok(v)) => v,
             Ok(Err(e)) => {
@@ -419,7 +497,8 @@ impl LspStore {
             }
             Err(_) => return,
         };
-        let caps: ServerCapabilities = serde_json::from_value(value["capabilities"].clone()).unwrap_or_default();
+        let caps: ServerCapabilities =
+            serde_json::from_value(value["capabilities"].clone()).unwrap_or_default();
         s.encoding = Encoding::from_capability(caps.position_encoding.as_ref());
         s.capabilities = Some(caps);
         s.state = ServerState::Running;
@@ -432,9 +511,25 @@ impl LspStore {
         cx.notify();
     }
 
-    fn on_exit(&mut self, id: &'static str, generation: u64, exit: Option<process::Exit>, cx: &mut Context<Self>) {
-        let Some(s) = self.servers.get_mut(id).filter(|s| s.generation == generation) else { return };
-        let exit = exit.unwrap_or(process::Exit { code: None, stderr_tail: vec![], spawn_error: None });
+    fn on_exit(
+        &mut self,
+        id: &'static str,
+        generation: u64,
+        exit: Option<process::Exit>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(s) = self
+            .servers
+            .get_mut(id)
+            .filter(|s| s.generation == generation)
+        else {
+            return;
+        };
+        let exit = exit.unwrap_or(process::Exit {
+            code: None,
+            stderr_tail: vec![],
+            spawn_error: None,
+        });
         let message = match (&exit.spawn_error, exit.code) {
             (Some(e), _) => format!("couldn't start: {e}"),
             (None, Some(c)) => format!("exited with code {c}"),
@@ -444,12 +539,20 @@ impl LspStore {
         s.rpc = None;
         s.kill = None;
         s.progress.clear();
-        s.state = ServerState::Crashed { message, stderr_tail: exit.stderr_tail };
+        s.state = ServerState::Crashed {
+            message,
+            stderr_tail: exit.stderr_tail,
+        };
         for doc in self.docs.values_mut().filter(|d| d.server == id) {
             doc.opened = false;
         }
         // Its diagnostics are no longer maintained.
-        let stale: Vec<PathBuf> = self.diagnostics.keys().filter(|p| registry::spec_for(&self.specs, p).is_some_and(|sp| sp.id == id)).cloned().collect();
+        let stale: Vec<PathBuf> = self
+            .diagnostics
+            .keys()
+            .filter(|p| registry::spec_for(&self.specs, p).is_some_and(|sp| sp.id == id))
+            .cloned()
+            .collect();
         for p in stale {
             self.diagnostics.remove(&p);
             cx.emit(LspEvent::Diagnostics { path: p });
@@ -466,7 +569,11 @@ impl LspStore {
             s._tasks = vec![cx.spawn(async move |this, cx| {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
                 let _ = this.update(cx, |this, cx| {
-                    if this.servers.get(id).is_some_and(|s| s.generation == generation) {
+                    if this
+                        .servers
+                        .get(id)
+                        .is_some_and(|s| s.generation == generation)
+                    {
                         log::info!("{id}: restarting after a crash");
                         this.start(spec, cx);
                     }
@@ -475,17 +582,41 @@ impl LspStore {
         }
     }
 
-    fn on_incoming(&mut self, id: &'static str, generation: u64, msg: Incoming, cx: &mut Context<Self>) {
-        let Some(s) = self.servers.get_mut(id).filter(|s| s.generation == generation) else { return };
+    fn on_incoming(
+        &mut self,
+        id: &'static str,
+        generation: u64,
+        msg: Incoming,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(s) = self
+            .servers
+            .get_mut(id)
+            .filter(|s| s.generation == generation)
+        else {
+            return;
+        };
         match msg {
             Incoming::Notification { method, params } => match method.as_str() {
                 "textDocument/publishDiagnostics" => {
-                    let Ok(p) = serde_json::from_value::<lsp_types::PublishDiagnosticsParams>(params) else { return };
-                    let Some(path) = uri_path(p.uri.as_str()) else { return };
+                    let Ok(p) =
+                        serde_json::from_value::<lsp_types::PublishDiagnosticsParams>(params)
+                    else {
+                        return;
+                    };
+                    let Some(path) = uri_path(p.uri.as_str()) else {
+                        return;
+                    };
                     if p.diagnostics.is_empty() {
                         self.diagnostics.remove(&path);
                     } else {
-                        self.diagnostics.insert(path.clone(), FileDiagnostics { encoding: s.encoding, items: p.diagnostics });
+                        self.diagnostics.insert(
+                            path.clone(),
+                            FileDiagnostics {
+                                encoding: s.encoding,
+                                items: p.diagnostics,
+                            },
+                        );
                     }
                     cx.emit(LspEvent::Diagnostics { path });
                     cx.notify();
@@ -498,7 +629,11 @@ impl LspStore {
                     let v = &params["value"];
                     match v["kind"].as_str() {
                         Some("begin") | Some("report") => {
-                            let title = v["title"].as_str().map(str::to_string).or_else(|| s.progress.get(&token).cloned()).unwrap_or_default();
+                            let title = v["title"]
+                                .as_str()
+                                .map(str::to_string)
+                                .or_else(|| s.progress.get(&token).cloned())
+                                .unwrap_or_default();
                             let title = title.split(" · ").next().unwrap_or("").to_string();
                             let mut text = title;
                             if let Some(m) = v["message"].as_str() {
@@ -522,7 +657,11 @@ impl LspStore {
                 }
                 _ => {}
             },
-            Incoming::Request { id: req_id, method, params } => {
+            Incoming::Request {
+                id: req_id,
+                method,
+                params,
+            } => {
                 let Some(rpc) = s.rpc.clone() else { return };
                 let result = match method.as_str() {
                     // One `null` per requested item: "use your defaults".
@@ -531,9 +670,15 @@ impl LspStore {
                         Value::Array(vec![Value::Null; n])
                     }
                     "workspace/applyEdit" => {
-                        match serde_json::from_value::<lsp_types::ApplyWorkspaceEditParams>(params) {
+                        match serde_json::from_value::<lsp_types::ApplyWorkspaceEditParams>(params)
+                        {
                             Ok(p) => {
-                                let req = ApplyEditRequest { server: id, id: req_id, edit: p.edit, encoding: s.encoding };
+                                let req = ApplyEditRequest {
+                                    server: id,
+                                    id: req_id,
+                                    edit: p.edit,
+                                    encoding: s.encoding,
+                                };
                                 cx.emit(LspEvent::ApplyEdit(std::rc::Rc::new(req)));
                                 return; // answered by `respond` once applied
                             }
@@ -561,7 +706,10 @@ impl LspStore {
             self.sync_text(path, text);
         }
         let Some(rpc) = self.server_for(path).and_then(|s| s.rpc.clone()) else {
-            return Task::ready(Err(anyhow!("no language server running for {}", path.display())));
+            return Task::ready(Err(anyhow!(
+                "no language server running for {}",
+                path.display()
+            )));
         };
         let rx = rpc.request(method, params);
         let method = method.to_string();

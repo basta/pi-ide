@@ -23,7 +23,11 @@ fn init_logging() {
     let mut builder = env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or("info,naga=warn,wgpu_core=warn,wgpu_hal=warn"),
     );
-    if let Ok(file) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("pide.log")) {
+    if let Ok(file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("pide.log"))
+    {
         builder.target(env_logger::Target::Pipe(Box::new(file)));
     }
     builder.init();
@@ -32,7 +36,10 @@ fn init_logging() {
     // only reaches stderr. Put it (with a backtrace) in pide.log too.
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        log::error!("panic: {info}\n{}", std::backtrace::Backtrace::force_capture());
+        log::error!(
+            "panic: {info}\n{}",
+            std::backtrace::Backtrace::force_capture()
+        );
         log::logger().flush();
         default_hook(info);
     }));
@@ -47,7 +54,12 @@ fn main() {
     // `pide <dir>` opens that folder; plain `pide` reopens the last project
     // (or asks for a folder when there is none).
     let arg = std::env::args_os().nth(1).map(PathBuf::from);
-    log::info!("pide starting{}", arg.as_ref().map(|p| format!(" with {}", p.display())).unwrap_or_default());
+    log::info!(
+        "pide starting{}",
+        arg.as_ref()
+            .map(|p| format!(" with {}", p.display()))
+            .unwrap_or_default()
+    );
     pide_runtime::init();
 
     gpui_kit::application().with_assets(Assets).run(move |cx| {
@@ -95,7 +107,10 @@ fn main() {
 }
 
 /// Keeps the keymap watcher alive for the app's lifetime.
-struct KeymapWatch(#[allow(dead_code)] fswatch::Watcher, #[allow(dead_code)] Task<()>);
+struct KeymapWatch(
+    #[allow(dead_code)] fswatch::Watcher,
+    #[allow(dead_code)] Task<()>,
+);
 impl Global for KeymapWatch {}
 
 /// Hot-reload `keymap.json`; the result shows in the frontmost window.
@@ -107,7 +122,11 @@ fn watch_keymap(cx: &mut App) {
             let file = paths::keymap_file();
             let task = cx.spawn(async move |cx| {
                 while let Some(changes) = rx.recv().await {
-                    if !changes.paths.iter().any(|p| p.file_name() == file.file_name()) {
+                    if !changes
+                        .paths
+                        .iter()
+                        .any(|p| p.file_name() == file.file_name())
+                    {
                         continue;
                     }
                     let _ = cx.update(|cx| {
@@ -117,8 +136,12 @@ fn watch_keymap(cx: &mut App) {
                         } else {
                             Notification::error(errors.join("\n"))
                         };
-                        if let Some(window) = cx.active_window().or_else(|| cx.windows().into_iter().next()) {
-                            let _ = window.update(cx, |_, window, cx| window.push_notification(note, cx));
+                        if let Some(window) = cx
+                            .active_window()
+                            .or_else(|| cx.windows().into_iter().next())
+                        {
+                            let _ = window
+                                .update(cx, |_, window, cx| window.push_notification(note, cx));
                         }
                     });
                 }
@@ -130,53 +153,115 @@ fn watch_keymap(cx: &mut App) {
 }
 
 fn register_app_commands(cx: &mut App) {
-    CommandRegistry::register(cx, CommandSpec::new("palette.open", "Find Action…").key("cmd-shift-a"), palette::open);
-    CommandRegistry::register(cx, CommandSpec::new("find.in_files", "Edit: Find in Files…").key("cmd-shift-f"), shell::show_find_in_files);
-    CommandRegistry::register(cx, CommandSpec::new("view.markdown_preview", "View: Markdown Preview"), shell::show_markdown_preview);
-    CommandRegistry::register(cx, CommandSpec::new("file.open_in_browser", "File: Open in Browser"), |window, cx| {
-        let Some(path) = shell::active_path(window, cx) else { return };
-        if matches!(path.extension().and_then(|e| e.to_str()), Some("html" | "htm" | "svg")) {
-            cx.open_url(&format!("file://{}", path.display()));
-        } else {
-            window.push_notification(gpui_kit::component::notification::Notification::warning("Open an HTML file first."), cx);
-        }
-    });
-    CommandRegistry::register(cx, CommandSpec::new("file.goto", "Navigate: Go to File…").key("cmd-shift-o"), goto_file::open);
-    CommandRegistry::register(cx, CommandSpec::new("app.quit", "Quit pide").key("cmd-q"), unsaved::quit);
-    CommandRegistry::register(cx, CommandSpec::new("keymap.open", "Preferences: Open Keymap File"), |window, cx| {
-        let path = paths::keymap_file();
-        let create = cx.background_executor().spawn({
-            let path = path.clone();
-            async move {
-                if !path.exists() {
-                    std::fs::create_dir_all(path.parent().unwrap())?;
-                    std::fs::write(&path, "{\n}\n")?;
-                }
-                anyhow::Ok(())
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("palette.open", "Find Action…").key("cmd-shift-a"),
+        palette::open,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("find.in_files", "Edit: Find in Files…").key("cmd-shift-f"),
+        shell::show_find_in_files,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("view.markdown_preview", "View: Markdown Preview"),
+        shell::show_markdown_preview,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("file.open_in_browser", "File: Open in Browser"),
+        |window, cx| {
+            let Some(path) = shell::active_path(window, cx) else {
+                return;
+            };
+            if matches!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("html" | "htm" | "svg")
+            ) {
+                cx.open_url(&format!("file://{}", path.display()));
+            } else {
+                window.push_notification(
+                    gpui_kit::component::notification::Notification::warning(
+                        "Open an HTML file first.",
+                    ),
+                    cx,
+                );
             }
-        });
-        window
-            .spawn(cx, async move |cx| {
-                if let Err(e) = create.await {
-                    log::error!("create keymap file: {e:#}");
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("file.goto", "Navigate: Go to File…").key("cmd-shift-o"),
+        goto_file::open,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("app.quit", "Quit pide").key("cmd-q"),
+        unsaved::quit,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("keymap.open", "Preferences: Open Keymap File"),
+        |window, cx| {
+            let path = paths::keymap_file();
+            let create = cx.background_executor().spawn({
+                let path = path.clone();
+                async move {
+                    if !path.exists() {
+                        std::fs::create_dir_all(path.parent().unwrap())?;
+                        std::fs::write(&path, "{\n}\n")?;
+                    }
+                    anyhow::Ok(())
                 }
-                let _ = cx.update(|window, cx| pide_editor::open_path(path, window, cx));
-            })
-            .detach();
-    });
-    CommandRegistry::register(cx, CommandSpec::new("pi.settings", "Settings: pi…"), shell::show_pi_settings);
-    CommandRegistry::register(cx, CommandSpec::new("lsp.servers", "Settings: Language Servers…"), shell::show_language_servers);
-    CommandRegistry::register(cx, CommandSpec::new("settings.open", "Settings: Open settings.json"), |window, cx| {
-        pide_editor::open_path(pide_core::settings::settings_file(), window, cx)
-    });
-    CommandRegistry::register(cx, CommandSpec::new("keymap.reload", "Preferences: Reload Keymap"), |_, cx| {
-        keymap::apply(cx);
-    });
-    CommandRegistry::register(cx, CommandSpec::new("view.toggle_project", "View: Toggle Project Panel").key("cmd-1"), |window, cx| {
-        shell::toggle_dock(gpui_kit::component::dock::DockPlacement::Left, window, cx)
-    });
-    CommandRegistry::register(cx, CommandSpec::new("view.problems", "View: Problems").key("cmd-6"), shell::toggle_problems);
-    CommandRegistry::register(cx, CommandSpec::new("view.toggle_agent", "View: Toggle pi Panel"), |window, cx| {
-        shell::toggle_dock(gpui_kit::component::dock::DockPlacement::Right, window, cx)
-    });
+            });
+            window
+                .spawn(cx, async move |cx| {
+                    if let Err(e) = create.await {
+                        log::error!("create keymap file: {e:#}");
+                    }
+                    let _ = cx.update(|window, cx| pide_editor::open_path(path, window, cx));
+                })
+                .detach();
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("pi.settings", "Settings: pi…"),
+        shell::show_pi_settings,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("lsp.servers", "Settings: Language Servers…"),
+        shell::show_language_servers,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("settings.open", "Settings: Open settings.json"),
+        |window, cx| pide_editor::open_path(pide_core::settings::settings_file(), window, cx),
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("keymap.reload", "Preferences: Reload Keymap"),
+        |_, cx| {
+            keymap::apply(cx);
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("view.toggle_project", "View: Toggle Project Panel").key("cmd-1"),
+        |window, cx| shell::toggle_dock(gpui_kit::component::dock::DockPlacement::Left, window, cx),
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("view.problems", "View: Problems").key("cmd-6"),
+        shell::toggle_problems,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("view.toggle_agent", "View: Toggle pi Panel"),
+        |window, cx| {
+            shell::toggle_dock(gpui_kit::component::dock::DockPlacement::Right, window, cx)
+        },
+    );
 }

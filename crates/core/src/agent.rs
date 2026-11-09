@@ -14,7 +14,10 @@ pub enum AgentStatus {
     Busy,
     Aborting,
     /// The process exited unexpectedly. `message` is shown with a restart action.
-    Crashed { message: String, stderr_tail: Vec<String> },
+    Crashed {
+        message: String,
+        stderr_tail: Vec<String>,
+    },
 }
 
 /// What a backend must do. Methods are called on the UI thread, inside the
@@ -30,9 +33,35 @@ pub trait AgentBackend: 'static {
     /// true = follow-up (after the run ends).
     fn queue(&mut self, text: String, follow_up: bool, agent: &mut Agent, cx: &mut Context<Agent>);
     /// Answer a pending extension dialog.
-    fn answer_dialog(&mut self, id: String, answer: DialogAnswer, agent: &mut Agent, cx: &mut Context<Agent>);
+    fn answer_dialog(
+        &mut self,
+        id: String,
+        answer: DialogAnswer,
+        agent: &mut Agent,
+        cx: &mut Context<Agent>,
+    );
     /// Stop (if running) and forget the crash; the next prompt resumes the session.
     fn restart(&mut self, agent: &mut Agent, cx: &mut Context<Agent>);
+    /// Ask for the models this session can use; they arrive in `agent.models`.
+    fn request_models(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
+    /// Switch this session's model; `agent.model` updates when the backend confirms.
+    fn set_model(
+        &mut self,
+        _provider: String,
+        _id: String,
+        _agent: &mut Agent,
+        _cx: &mut Context<Agent>,
+    ) {
+    }
+}
+
+/// A model as the agent reports it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModelInfo {
+    pub provider: String,
+    pub id: String,
+    pub name: String,
+    pub reasoning: bool,
 }
 
 pub struct Agent {
@@ -48,6 +77,11 @@ pub struct Agent {
     pub waiting: bool,
     /// Restart pi when the current run settles, to pick up changed pi settings.
     reload_pending: bool,
+    /// The session's model and thinking level, once the backend reports them.
+    pub model: Option<ModelInfo>,
+    pub thinking: Option<String>,
+    /// Models to pick from (filled by `request_models`).
+    pub models: Vec<ModelInfo>,
     /// pi's session file, once known; used to resume after the process stops.
     pub session_file: Option<std::path::PathBuf>,
     /// Messages waiting to be delivered: (steering, follow-ups).
@@ -75,6 +109,9 @@ impl Agent {
             unread: false,
             waiting: false,
             reload_pending: false,
+            model: None,
+            thinking: None,
+            models: Vec::new(),
             session_file: None,
             queue: (Vec::new(), Vec::new()),
             dialogs: Vec::new(),
@@ -89,7 +126,10 @@ impl Agent {
     }
 
     pub fn is_busy(&self) -> bool {
-        matches!(self.status, AgentStatus::Busy | AgentStatus::Starting | AgentStatus::Aborting)
+        matches!(
+            self.status,
+            AgentStatus::Busy | AgentStatus::Starting | AgentStatus::Aborting
+        )
     }
 
     pub fn set_status(&mut self, status: AgentStatus, cx: &mut Context<Self>) {
@@ -100,7 +140,11 @@ impl Agent {
         }
     }
 
-    fn with_backend(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut dyn AgentBackend, &mut Self, &mut Context<Self>)) {
+    fn with_backend(
+        &mut self,
+        cx: &mut Context<Self>,
+        f: impl FnOnce(&mut dyn AgentBackend, &mut Self, &mut Context<Self>),
+    ) {
         if let Some(mut b) = self.backend.take() {
             f(b.as_mut(), self, cx);
             self.backend = Some(b);
@@ -115,7 +159,10 @@ impl Agent {
         self.with_backend(cx, |b, a, cx| b.prompt(text, a, cx));
     }
     pub fn unreviewed(&self) -> usize {
-        self.changes.iter().filter(|c| !c.reviewed && !c.reverted).count()
+        self.changes
+            .iter()
+            .filter(|c| !c.reviewed && !c.reverted)
+            .count()
     }
 
     pub fn set_reviewed(&mut self, path: &std::path::Path, reviewed: bool, cx: &mut Context<Self>) {
@@ -126,7 +173,11 @@ impl Agent {
     }
 
     /// Write the before-snapshot back (or delete a file pi created).
-    pub fn revert(&mut self, path: &std::path::Path, cx: &mut Context<Self>) -> Task<anyhow::Result<()>> {
+    pub fn revert(
+        &mut self,
+        path: &std::path::Path,
+        cx: &mut Context<Self>,
+    ) -> Task<anyhow::Result<()>> {
         let Some(change) = self.changes.iter().find(|c| c.path == path) else {
             return Task::ready(Ok(()));
         };
@@ -149,13 +200,18 @@ impl Agent {
 
     /// Recompute +/− for a changed file against the disk (off the UI thread).
     fn refresh_stats(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
-        let Some(change) = self.changes.iter().find(|c| c.path == path) else { return };
+        let Some(change) = self.changes.iter().find(|c| c.path == path) else {
+            return;
+        };
         let before = change.before.clone();
         let work = cx.background_executor().spawn({
             let path = path.clone();
             async move {
                 let now = crate::changes::snapshot(&path);
-                let stats = crate::changes::line_stats(before.as_deref().unwrap_or(""), now.as_deref().unwrap_or(""));
+                let stats = crate::changes::line_stats(
+                    before.as_deref().unwrap_or(""),
+                    now.as_deref().unwrap_or(""),
+                );
                 (stats, now.is_none())
             }
         });
@@ -199,6 +255,14 @@ impl Agent {
         self.with_backend(cx, |b, a, cx| b.restart(a, cx));
     }
 
+    pub fn request_models(&mut self, cx: &mut Context<Self>) {
+        self.with_backend(cx, |b, a, cx| b.request_models(a, cx));
+    }
+
+    pub fn set_model(&mut self, provider: String, id: String, cx: &mut Context<Self>) {
+        self.with_backend(cx, |b, a, cx| b.set_model(provider, id, a, cx));
+    }
+
     /// pi's settings changed: restart its process so it reads them (pi has no
     /// reload over RPC). Idle sessions restart now and resume on the next
     /// message; a session that's working restarts when its run finishes.
@@ -227,8 +291,16 @@ impl Agent {
                     self.set_status(AgentStatus::Busy, cx)
                 }
             }
-            AgentEvent::FileTouched { tool_call_id, tool, path, before } => {
-                let touch = Touch { tool_call_id: tool_call_id.clone(), tool: tool.clone() };
+            AgentEvent::FileTouched {
+                tool_call_id,
+                tool,
+                path,
+                before,
+            } => {
+                let touch = Touch {
+                    tool_call_id: tool_call_id.clone(),
+                    tool: tool.clone(),
+                };
                 match self.changes.iter_mut().find(|c| &c.path == path) {
                     Some(c) => {
                         c.touches.push(touch);
@@ -249,7 +321,8 @@ impl Agent {
                         reverted: false,
                     }),
                 }
-                self.pending_touches.push((tool_call_id.clone(), path.clone()));
+                self.pending_touches
+                    .push((tool_call_id.clone(), path.clone()));
                 cx.notify();
             }
             AgentEvent::ToolEnd { id, .. } => {
@@ -264,21 +337,32 @@ impl Agent {
                 if let Some(ms) = req.timeout_ms {
                     // pi resolves it itself after the timeout; drop our card then.
                     let id = req.id.clone();
-                    self._dialog_timers.push(cx.spawn(async move |this: WeakEntity<Self>, cx| {
-                        cx.background_executor().timer(std::time::Duration::from_millis(ms)).await;
-                        let _ = this.update(cx, |this, cx| {
-                            if this.dialogs.iter().any(|d| d.id == id) {
-                                this.dialogs.retain(|d| d.id != id);
-                                this.waiting = !this.dialogs.is_empty();
-                                cx.emit(AgentEvent::Notify { message: "A pi question timed out; pi used its default answer.".into(), error: false });
-                                cx.notify();
-                            }
-                        });
-                    }));
+                    self._dialog_timers
+                        .push(cx.spawn(async move |this: WeakEntity<Self>, cx| {
+                            cx.background_executor()
+                                .timer(std::time::Duration::from_millis(ms))
+                                .await;
+                            let _ = this.update(cx, |this, cx| {
+                                if this.dialogs.iter().any(|d| d.id == id) {
+                                    this.dialogs.retain(|d| d.id != id);
+                                    this.waiting = !this.dialogs.is_empty();
+                                    cx.emit(AgentEvent::Notify {
+                                        message:
+                                            "A pi question timed out; pi used its default answer."
+                                                .into(),
+                                        error: false,
+                                    });
+                                    cx.notify();
+                                }
+                            });
+                        }));
                 }
                 cx.notify();
             }
-            AgentEvent::Queue { steering, follow_up } => {
+            AgentEvent::Queue {
+                steering,
+                follow_up,
+            } => {
                 self.queue = (steering.clone(), follow_up.clone());
                 cx.notify();
             }
@@ -303,5 +387,9 @@ pub fn name_from_prompt(text: &str) -> String {
     if name.chars().count() > 32 {
         name = name.chars().take(31).collect::<String>() + "…";
     }
-    if name.is_empty() { UNNAMED.to_string() } else { name }
+    if name.is_empty() {
+        UNNAMED.to_string()
+    } else {
+        name
+    }
 }

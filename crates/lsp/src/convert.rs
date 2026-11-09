@@ -44,7 +44,11 @@ pub struct TextLines<'a>(Vec<&'a str>);
 
 impl<'a> TextLines<'a> {
     pub fn new(text: &'a str) -> Self {
-        Self(text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect())
+        Self(
+            text.split('\n')
+                .map(|l| l.strip_suffix('\r').unwrap_or(l))
+                .collect(),
+        )
     }
 }
 
@@ -68,8 +72,15 @@ pub fn to_server(lines: &impl Lines, pos: Position, enc: Encoding) -> Position {
         return pos;
     }
     let line = lines.line(pos.line);
-    let character = line.chars().take(pos.character as usize).map(|c| unit_len(c, enc)).sum();
-    Position { line: pos.line, character }
+    let character = line
+        .chars()
+        .take(pos.character as usize)
+        .map(|c| unit_len(c, enc))
+        .sum();
+    Position {
+        line: pos.line,
+        character,
+    }
 }
 
 /// Server column -> character column (clamped to the line; a column inside a
@@ -87,15 +98,24 @@ pub fn from_server(lines: &impl Lines, pos: Position, enc: Encoding) -> Position
         units += unit_len(c, enc);
         chars += 1;
     }
-    Position { line: pos.line, character: chars }
+    Position {
+        line: pos.line,
+        character: chars,
+    }
 }
 
 pub fn range_to_server(lines: &impl Lines, r: Range, enc: Encoding) -> Range {
-    Range { start: to_server(lines, r.start, enc), end: to_server(lines, r.end, enc) }
+    Range {
+        start: to_server(lines, r.start, enc),
+        end: to_server(lines, r.end, enc),
+    }
 }
 
 pub fn range_from_server(lines: &impl Lines, r: Range, enc: Encoding) -> Range {
-    Range { start: from_server(lines, r.start, enc), end: from_server(lines, r.end, enc) }
+    Range {
+        start: from_server(lines, r.start, enc),
+        end: from_server(lines, r.end, enc),
+    }
 }
 
 /// Byte offset in a rope -> server position.
@@ -127,8 +147,14 @@ mod tests {
     fn rope_and_text_lines_agree_and_columns_clamp() {
         let rope = Rope::from(TEXT);
         let p = Position::new(1, 17);
-        assert_eq!(to_server(&rope, p, Encoding::Utf16), to_server(&TextLines::new(TEXT), p, Encoding::Utf16));
+        assert_eq!(
+            to_server(&rope, p, Encoding::Utf16),
+            to_server(&TextLines::new(TEXT), p, Encoding::Utf16)
+        );
         // Past the end of the line: clamps to the line length in characters.
-        assert_eq!(from_server(&rope, Position::new(0, 99), Encoding::Utf16), Position::new(0, 11));
+        assert_eq!(
+            from_server(&rope, Position::new(0, 99), Encoding::Utf16),
+            Position::new(0, 11)
+        );
     }
 }

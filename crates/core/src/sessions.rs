@@ -31,7 +31,12 @@ impl EventEmitter<SessionsEvent> for Sessions {}
 impl Sessions {
     /// Starts with one empty session (no process until its first prompt).
     pub fn new(factory: BackendFactory, cx: &mut Context<Self>) -> Self {
-        let mut this = Self { list: Vec::new(), active: 0, factory, _subs: Vec::new() };
+        let mut this = Self {
+            list: Vec::new(),
+            active: 0,
+            factory,
+            _subs: Vec::new(),
+        };
         this.add(None, None, cx);
         this
     }
@@ -56,9 +61,18 @@ impl Sessions {
     }
 
     /// Open a session: a fresh one, or `resume` a saved pi session file.
-    pub fn add(&mut self, resume: Option<PathBuf>, name: Option<String>, cx: &mut Context<Self>) -> Entity<Agent> {
+    pub fn add(
+        &mut self,
+        resume: Option<PathBuf>,
+        name: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Entity<Agent> {
         if let Some(path) = &resume {
-            if let Some(i) = self.list.iter().position(|a| a.read(cx).session_file.as_ref() == Some(path)) {
+            if let Some(i) = self
+                .list
+                .iter()
+                .position(|a| a.read(cx).session_file.as_ref() == Some(path))
+            {
                 self.set_active(i, cx);
                 return self.list[i].clone();
             }
@@ -73,14 +87,15 @@ impl Sessions {
             a
         });
         // A session that finishes while you look elsewhere is marked unread.
-        self._subs.push(cx.subscribe(&agent, |this, agent, ev: &AgentEvent, cx| {
-            if matches!(ev, AgentEvent::Settled { .. }) && this.active() != agent {
-                agent.update(cx, |a, cx| {
-                    a.unread = true;
-                    cx.notify();
-                });
-            }
-        }));
+        self._subs
+            .push(cx.subscribe(&agent, |this, agent, ev: &AgentEvent, cx| {
+                if matches!(ev, AgentEvent::Settled { .. }) && this.active() != agent {
+                    agent.update(cx, |a, cx| {
+                        a.unread = true;
+                        cx.notify();
+                    });
+                }
+            }));
         self._subs.push(cx.observe(&agent, |_, _, cx| cx.notify()));
         self.list.push(agent.clone());
         self.active = self.list.len() - 1;
@@ -111,7 +126,9 @@ impl Sessions {
     /// Close a session: stops its process; the pi session file stays on disk.
     /// The last session is replaced by a fresh one rather than leaving none.
     pub fn close(&mut self, agent: &Entity<Agent>, cx: &mut Context<Self>) {
-        let Some(i) = self.list.iter().position(|a| a == agent) else { return };
+        let Some(i) = self.list.iter().position(|a| a == agent) else {
+            return;
+        };
         agent.update(cx, |a, cx| a.restart(cx));
         self.list.remove(i);
         if self.list.is_empty() {
@@ -131,7 +148,12 @@ impl Sessions {
     }
 
     /// Reopen sessions saved in a layout. Replaces the untouched startup session.
-    pub fn restore(&mut self, files: Vec<(PathBuf, Option<String>)>, active: usize, cx: &mut Context<Self>) {
+    pub fn restore(
+        &mut self,
+        files: Vec<(PathBuf, Option<String>)>,
+        active: usize,
+        cx: &mut Context<Self>,
+    ) {
         if files.is_empty() {
             return;
         }
@@ -154,7 +176,10 @@ impl Sessions {
 
     /// Session files of open sessions (for saving the layout).
     pub fn open_files(&self, cx: &App) -> Vec<PathBuf> {
-        self.list.iter().filter_map(|a| a.read(cx).session_file.clone()).collect()
+        self.list
+            .iter()
+            .filter_map(|a| a.read(cx).session_file.clone())
+            .collect()
     }
 }
 
@@ -171,22 +196,44 @@ pub struct SavedSession {
 /// (format: pi `docs/session-format.md`).
 pub fn pi_session_dir(cwd: &Path) -> PathBuf {
     let s = cwd.to_string_lossy();
-    let enc: String = s.trim_start_matches(['/', '\\']).chars().map(|c| if matches!(c, '/' | '\\' | ':') { '-' } else { c }).collect();
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    let enc: String = s
+        .trim_start_matches(['/', '\\'])
+        .chars()
+        .map(|c| {
+            if matches!(c, '/' | '\\' | ':') {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
     home.join(".pi/agent/sessions").join(format!("--{enc}--"))
 }
 
 /// Saved sessions for `cwd`, newest first. Blocking: call on a background thread.
 pub fn list_saved(cwd: &Path) -> Vec<SavedSession> {
-    let Ok(dir) = std::fs::read_dir(pi_session_dir(cwd)) else { return Vec::new() };
+    let Ok(dir) = std::fs::read_dir(pi_session_dir(cwd)) else {
+        return Vec::new();
+    };
     let mut out: Vec<SavedSession> = dir
         .flatten()
         .filter(|e| e.path().extension().is_some_and(|x| x == "jsonl"))
         .filter_map(|e| {
             let path = e.path();
-            let modified = e.metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
+            let modified = e
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(SystemTime::UNIX_EPOCH);
             let (name, preview) = summarize(&path)?;
-            Some(SavedSession { path, name, preview, modified })
+            Some(SavedSession {
+                path,
+                name,
+                preview,
+                modified,
+            })
         })
         .collect();
     out.sort_by(|a, b| b.modified.cmp(&a.modified));
@@ -245,9 +292,15 @@ mod tests {
 
     #[::core::prelude::v1::test]
     fn names_from_prompts() {
-        assert_eq!(crate::agent::name_from_prompt("fix the flaky replay test please now"), "fix the flaky replay test");
+        assert_eq!(
+            crate::agent::name_from_prompt("fix the flaky replay test please now"),
+            "fix the flaky replay test"
+        );
         assert_eq!(crate::agent::name_from_prompt("   "), crate::agent::UNNAMED);
         let with_context = "<editor-context>\nfile: src/main.rs\ncursor: 5:1\n</editor-context>\n\nrename add to sum";
-        assert_eq!(crate::agent::name_from_prompt(with_context), "rename add to sum");
+        assert_eq!(
+            crate::agent::name_from_prompt(with_context),
+            "rename add to sum"
+        );
     }
 }

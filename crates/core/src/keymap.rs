@@ -35,7 +35,10 @@ pub fn apply(cx: &mut App) -> Vec<String> {
     // Defaults from the registry.
     let mut map: BTreeMap<String, Option<String>> = CommandRegistry::all(cx)
         .into_iter()
-        .filter_map(|s| s.default_key.map(|k| (k.to_string(), Some(s.id.to_string()))))
+        .filter_map(|s| {
+            s.default_key
+                .map(|k| (k.to_string(), Some(s.id.to_string())))
+        })
         .collect();
 
     // User overrides.
@@ -59,8 +62,10 @@ pub fn apply(cx: &mut App) -> Vec<String> {
         Err(e) => errors.push(format!("keymap: can't read {}: {e}", path.display())),
     }
 
-    let contexts: BTreeMap<&'static str, &'static str> =
-        CommandRegistry::all(cx).into_iter().filter_map(|s| s.key_context.map(|c| (s.id, c))).collect();
+    let contexts: BTreeMap<&'static str, &'static str> = CommandRegistry::all(cx)
+        .into_iter()
+        .filter_map(|s| s.key_context.map(|c| (s.id, c)))
+        .collect();
     let mut ours = Vec::new();
     for (key, cmd) in &map {
         let Some(cmd) = cmd else { continue };
@@ -68,13 +73,23 @@ pub fn apply(cx: &mut App) -> Vec<String> {
             .get(cmd.as_str())
             .and_then(|c| gpui_kit::KeyBindingContextPredicate::parse(c).ok())
             .map(std::rc::Rc::new);
-        match KeyBinding::load(key, Box::new(RunCommand::new(cmd.clone())), predicate, false, None, cx) {
+        match KeyBinding::load(
+            key,
+            Box::new(RunCommand::new(cmd.clone())),
+            predicate,
+            false,
+            None,
+            cx,
+        ) {
             Ok(b) => ours.push(b),
             Err(e) => errors.push(format!("keymap: bad keystroke \"{key}\": {e:?}")),
         }
     }
 
-    let base = cx.try_global::<BaseBindings>().map(|b| b.0.clone()).unwrap_or_default();
+    let base = cx
+        .try_global::<BaseBindings>()
+        .map(|b| b.0.clone())
+        .unwrap_or_default();
     cx.clear_key_bindings();
     cx.bind_keys(base);
     cx.bind_keys(ours);
@@ -82,7 +97,10 @@ pub fn apply(cx: &mut App) -> Vec<String> {
     for e in &errors {
         log::error!("{e}");
     }
-    log::info!("keymap applied ({} bindings of ours)", map.values().flatten().count());
+    log::info!(
+        "keymap applied ({} bindings of ours)",
+        map.values().flatten().count()
+    );
     errors
 }
 

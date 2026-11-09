@@ -32,9 +32,13 @@ impl EditorPanel {
         let prev = {
             let e = self.editor.read(cx);
             let pos = e.text().offset_to_position(e.cursor());
-            pos.character
-                .checked_sub(1)
-                .and_then(|i| e.text().slice_line(pos.line as usize).to_string().chars().nth(i as usize))
+            pos.character.checked_sub(1).and_then(|i| {
+                e.text()
+                    .slice_line(pos.line as usize)
+                    .to_string()
+                    .chars()
+                    .nth(i as usize)
+            })
         };
         let triggers = self.signature_triggers(cx);
         match prev {
@@ -45,7 +49,9 @@ impl EditorPanel {
     }
 
     fn signature_triggers(&self, cx: &App) -> Vec<char> {
-        let Some(store) = self.lsp.as_ref() else { return vec![] };
+        let Some(store) = self.lsp.as_ref() else {
+            return vec![];
+        };
         let Some(opts) = store
             .read(cx)
             .server_for(&self.path)
@@ -63,15 +69,21 @@ impl EditorPanel {
     }
 
     pub(crate) fn request_signature(&mut self, trigger: Trigger, cx: &mut Context<Self>) {
-        let Some(store) = self.lsp.clone() else { return };
-        let Some(enc) = store.read(cx).server_for(&self.path).map(|s| s.encoding) else { return };
+        let Some(store) = self.lsp.clone() else {
+            return;
+        };
+        let Some(enc) = store.read(cx).server_for(&self.path).map(|s| s.encoding) else {
+            return;
+        };
         let (rope, cursor) = {
             let e = self.editor.read(cx);
             (e.text().clone(), e.cursor())
         };
         let line = rope.offset_to_position(cursor).line;
         let context = match trigger {
-            Trigger::Invoked => json!({ "triggerKind": 1, "isRetrigger": self.signature.is_some() }),
+            Trigger::Invoked => {
+                json!({ "triggerKind": 1, "isRetrigger": self.signature.is_some() })
+            }
             Trigger::Character(c) => {
                 json!({ "triggerKind": 2, "triggerCharacter": c.to_string(), "isRetrigger": self.signature.is_some() })
             }
@@ -83,10 +95,14 @@ impl EditorPanel {
             "context": context,
         });
         let path = self.path.clone();
-        let task = store.update(cx, |s, cx| s.request(&path, Some(&rope), "textDocument/signatureHelp", params, cx));
+        let task = store.update(cx, |s, cx| {
+            s.request(&path, Some(&rope), "textDocument/signatureHelp", params, cx)
+        });
         self._signature_task = Some(cx.spawn(async move |this, cx| {
             let help = match task.await {
-                Ok(v) if !v.is_null() => serde_json::from_value::<SignatureHelp>(v).ok().filter(|h| !h.signatures.is_empty()),
+                Ok(v) if !v.is_null() => serde_json::from_value::<SignatureHelp>(v)
+                    .ok()
+                    .filter(|h| !h.signatures.is_empty()),
                 _ => None,
             };
             let _ = this.update(cx, |this, cx| {
@@ -112,11 +128,22 @@ impl EditorPanel {
             return None;
         }
         let active = help.active_signature.unwrap_or(0) as usize;
-        let sig = help.signatures.get(active).or_else(|| help.signatures.first())?;
+        let sig = help
+            .signatures
+            .get(active)
+            .or_else(|| help.signatures.first())?;
         let param_ix = sig.active_parameter.or(help.active_parameter).unwrap_or(0) as usize;
-        let range = sig.parameters.as_ref().and_then(|ps| ps.get(param_ix)).and_then(|p| param_range(&sig.label, &p.label));
+        let range = sig
+            .parameters
+            .as_ref()
+            .and_then(|ps| ps.get(param_ix))
+            .and_then(|p| param_range(&sig.label, &p.label));
         let (before, param, after) = match range {
-            Some(r) => (&sig.label[..r.start], &sig.label[r.clone()], &sig.label[r.end..]),
+            Some(r) => (
+                &sig.label[..r.start],
+                &sig.label[r.clone()],
+                &sig.label[r.end..],
+            ),
             None => (sig.label.as_str(), "", ""),
         };
         let doc = sig
@@ -138,39 +165,54 @@ impl EditorPanel {
         let theme = cx.theme().clone();
         Some(
             deferred(
-                anchored().position(anchor).anchor(Anchor::BottomLeft).snap_to_window_with_margin(px(8.)).child(
-                    v_flex()
-                        .max_w(px(640.))
-                        .px_2()
-                        .py_1()
-                        .gap_0p5()
-                        .rounded(theme.radius)
-                        .border_1()
-                        .border_color(theme.border)
-                        .bg(theme.popover)
-                        .text_color(theme.popover_foreground)
-                        .shadow_md()
-                        .font_family(theme.mono_font_family.clone())
-                        .text_size(theme.mono_font_size)
-                        .child(
-                            h_flex()
-                                .flex_wrap()
-                                .child(before.to_string())
-                                .child(div().font_weight(FontWeight::BOLD).text_color(theme.primary).child(param.to_string()))
-                                .child(after.to_string())
-                                .when(count > 1, |this| {
-                                    this.child(
+                anchored()
+                    .position(anchor)
+                    .anchor(Anchor::BottomLeft)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(
+                        v_flex()
+                            .max_w(px(640.))
+                            .px_2()
+                            .py_1()
+                            .gap_0p5()
+                            .rounded(theme.radius)
+                            .border_1()
+                            .border_color(theme.border)
+                            .bg(theme.popover)
+                            .text_color(theme.popover_foreground)
+                            .shadow_md()
+                            .font_family(theme.mono_font_family.clone())
+                            .text_size(theme.mono_font_size)
+                            .child(
+                                h_flex()
+                                    .flex_wrap()
+                                    .child(before.to_string())
+                                    .child(
                                         div()
-                                            .pl_2()
-                                            .text_color(theme.muted_foreground)
-                                            .child(format!("{}/{count}", active + 1)),
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(theme.primary)
+                                            .child(param.to_string()),
                                     )
-                                }),
-                        )
-                        .when_some(doc, |this, d| {
-                            this.child(div().font_family(theme.font_family.clone()).text_sm().text_color(theme.muted_foreground).child(d))
-                        }),
-                ),
+                                    .child(after.to_string())
+                                    .when(count > 1, |this| {
+                                        this.child(
+                                            div()
+                                                .pl_2()
+                                                .text_color(theme.muted_foreground)
+                                                .child(format!("{}/{count}", active + 1)),
+                                        )
+                                    }),
+                            )
+                            .when_some(doc, |this, d| {
+                                this.child(
+                                    div()
+                                        .font_family(theme.font_family.clone())
+                                        .text_sm()
+                                        .text_color(theme.muted_foreground)
+                                        .child(d),
+                                )
+                            }),
+                    ),
             )
             .with_priority(1)
             .into_any_element(),
@@ -184,7 +226,9 @@ use gpui_kit::prelude::FluentBuilder as _;
 /// code units (we advertise `labelOffsetSupport`); a plain string is searched for.
 fn param_range(label: &str, param: &ParameterLabel) -> Option<std::ops::Range<usize>> {
     match param {
-        ParameterLabel::Simple(s) if !s.is_empty() => label.find(s.as_str()).map(|i| i..i + s.len()),
+        ParameterLabel::Simple(s) if !s.is_empty() => {
+            label.find(s.as_str()).map(|i| i..i + s.len())
+        }
         ParameterLabel::Simple(_) => None,
         ParameterLabel::LabelOffsets([a, b]) => {
             let byte = |units: u32| {

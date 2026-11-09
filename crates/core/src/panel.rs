@@ -47,7 +47,8 @@ impl Services {
     }
 
     pub fn for_window(id: WindowId, cx: &App) -> Option<Self> {
-        cx.try_global::<ProjectWindows>().and_then(|w| w.0.get(&id).cloned())
+        cx.try_global::<ProjectWindows>()
+            .and_then(|w| w.0.get(&id).cloned())
     }
 
     /// The session the pi panel in `window` is showing.
@@ -68,7 +69,11 @@ impl Services {
     /// Open projects: (window, project root).
     pub fn open_projects(cx: &App) -> Vec<(WindowId, std::path::PathBuf)> {
         cx.try_global::<ProjectWindows>()
-            .map(|w| w.0.iter().map(|(id, s)| (*id, s.workspace.read(cx).root().to_path_buf())).collect())
+            .map(|w| {
+                w.0.iter()
+                    .map(|(id, s)| (*id, s.workspace.read(cx).root().to_path_buf()))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 }

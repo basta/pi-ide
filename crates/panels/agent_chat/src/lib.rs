@@ -17,10 +17,12 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use pide_core::sessions::{SavedSession, list_saved, user_text};
 use pide_core::{
-    Agent, AgentEvent, AgentStatus, CommandRegistry, CommandSpec, DialogAnswer, DialogKind, DialogRequest, DockPosition,
-    Panel, Services, Sessions, SessionsEvent,
+    Agent, AgentEvent, AgentStatus, CommandRegistry, CommandSpec, DialogAnswer, DialogKind,
+    DialogRequest, DockPosition, Panel, Services, Sessions, SessionsEvent,
 };
 use serde_json::{Value, json};
+
+mod model_picker;
 
 pub const PANEL_NAME: &str = "agent_chat";
 
@@ -30,7 +32,11 @@ const SIDEBAR_MIN_WIDTH: f32 = 640.;
 
 pub fn init(cx: &mut App) {
     // Option+Enter in the pi input queues a follow-up (Enter steers while pi works).
-    cx.bind_keys([KeyBinding::new("alt-enter", QueueFollowUp, Some("AgentInput"))]);
+    cx.bind_keys([KeyBinding::new(
+        "alt-enter",
+        QueueFollowUp,
+        Some("AgentInput"),
+    )]);
     register_panel(cx, PANEL_NAME, |ctx, window, cx| {
         // Reopen the sessions that were open when the layout was saved.
         if let PanelInfo::Panel(v) = ctx.info() {
@@ -56,24 +62,38 @@ pub fn init(cx: &mut App) {
 
     let active = |window: &Window, cx: &App| Services::active_agent(window, cx);
     let sessions = |window: &Window, cx: &App| Services::of(window, cx).sessions;
-    CommandRegistry::register(cx, CommandSpec::new("agent.abort", "Agent: Stop").key("cmd-f2"), move |window, cx| {
-        active(window, cx).update(cx, |a, cx| a.abort(cx))
-    });
-    CommandRegistry::register(cx, CommandSpec::new("agent.restart", "Agent: Restart pi"), move |window, cx| {
-        active(window, cx).update(cx, |a, cx| a.restart(cx))
-    });
-    CommandRegistry::register(cx, CommandSpec::new("agent.new_session", "Agent: New Session"), move |window, cx| {
-        sessions(window, cx).update(cx, |s, cx| {
-            s.add(None, None, cx);
-        })
-    });
-    CommandRegistry::register(cx, CommandSpec::new("agent.close_session", "Agent: Close Session"), move |window, cx| {
-        let a = active(window, cx);
-        sessions(window, cx).update(cx, |s, cx| s.close(&a, cx))
-    });
-    CommandRegistry::register(cx, CommandSpec::new("agent.next_session", "Agent: Next Session").key("ctrl-tab"), move |window, cx| {
-        sessions(window, cx).update(cx, |s, cx| s.cycle(1, cx))
-    });
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.abort", "Agent: Stop").key("cmd-f2"),
+        move |window, cx| active(window, cx).update(cx, |a, cx| a.abort(cx)),
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.restart", "Agent: Restart pi"),
+        move |window, cx| active(window, cx).update(cx, |a, cx| a.restart(cx)),
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.new_session", "Agent: New Session"),
+        move |window, cx| {
+            sessions(window, cx).update(cx, |s, cx| {
+                s.add(None, None, cx);
+            })
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.close_session", "Agent: Close Session"),
+        move |window, cx| {
+            let a = active(window, cx);
+            sessions(window, cx).update(cx, |s, cx| s.close(&a, cx))
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.next_session", "Agent: Next Session").key("ctrl-tab"),
+        move |window, cx| sessions(window, cx).update(cx, |s, cx| s.cycle(1, cx)),
+    );
     CommandRegistry::register(
         cx,
         CommandSpec::new("agent.prev_session", "Agent: Previous Session").key("ctrl-shift-tab"),
@@ -125,7 +145,13 @@ struct SessionView {
 enum HistItem {
     User(String),
     Text(String),
-    Tool { id: String, name: String, summary: String, output: String, failed: bool },
+    Tool {
+        id: String,
+        name: String,
+        summary: String,
+        output: String,
+        failed: bool,
+    },
 }
 
 pub struct AgentChat {
@@ -166,7 +192,11 @@ fn summarize_args(name: &str, args: &Value) -> String {
     }
     .unwrap_or_else(|| args.to_string());
     let s = s.replace('\n', " ⏎ ");
-    if s.chars().count() > 160 { format!("{}…", s.chars().take(160).collect::<String>()) } else { s }
+    if s.chars().count() > 160 {
+        format!("{}…", s.chars().take(160).collect::<String>())
+    } else {
+        s
+    }
 }
 
 /// The text of a tool result (`content` blocks), clipped for display.
@@ -184,7 +214,11 @@ fn result_text(result: &Value) -> String {
         .unwrap_or_else(|| result.to_string());
     let lines: Vec<&str> = text.lines().collect();
     if lines.len() > 8 {
-        format!("{}\n… {} more lines", lines[..8].join("\n"), lines.len() - 8)
+        format!(
+            "{}\n… {} more lines",
+            lines[..8].join("\n"),
+            lines.len() - 8
+        )
     } else {
         text.trim_end().to_string()
     }
@@ -194,10 +228,14 @@ fn result_text(result: &Value) -> String {
 /// Branches are flattened in file order — good enough to read back.
 fn parse_history(path: &std::path::Path) -> Vec<HistItem> {
     use std::io::BufRead;
-    let Ok(file) = std::fs::File::open(path) else { return Vec::new() };
+    let Ok(file) = std::fs::File::open(path) else {
+        return Vec::new();
+    };
     let mut out: Vec<HistItem> = Vec::new();
     for line in std::io::BufReader::new(file).lines().map_while(Result::ok) {
-        let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+        let Ok(v) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
         if v.get("type").and_then(Value::as_str) != Some("message") {
             continue;
         }
@@ -209,18 +247,34 @@ fn parse_history(path: &std::path::Path) -> Vec<HistItem> {
                 }
             }
             Some("assistant") => {
-                for block in m.get("content").and_then(Value::as_array).into_iter().flatten() {
+                for block in m
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                {
                     match block.get("type").and_then(Value::as_str) {
                         Some("text") => {
-                            let t = block.get("text").and_then(Value::as_str).unwrap_or_default();
+                            let t = block
+                                .get("text")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default();
                             if !t.trim().is_empty() {
                                 out.push(HistItem::Text(t.to_string()));
                             }
                         }
                         Some("toolCall") => {
-                            let name = block.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
+                            let name = block
+                                .get("name")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_string();
                             out.push(HistItem::Tool {
-                                id: block.get("id").and_then(Value::as_str).unwrap_or_default().to_string(),
+                                id: block
+                                    .get("id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default()
+                                    .to_string(),
                                 summary: summarize_args(&name, &block["arguments"]),
                                 name,
                                 output: String::new(),
@@ -232,11 +286,18 @@ fn parse_history(path: &std::path::Path) -> Vec<HistItem> {
                 }
             }
             Some("toolResult") => {
-                let id = m.get("toolCallId").and_then(Value::as_str).unwrap_or_default();
+                let id = m
+                    .get("toolCallId")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
                 let failed = m.get("isError").and_then(Value::as_bool).unwrap_or(false);
                 let text = result_text(m);
-                if let Some(HistItem::Tool { output, failed: f, .. }) =
-                    out.iter_mut().rev().find(|h| matches!(h, HistItem::Tool { id: tid, .. } if tid == id))
+                if let Some(HistItem::Tool {
+                    output, failed: f, ..
+                }) = out
+                    .iter_mut()
+                    .rev()
+                    .find(|h| matches!(h, HistItem::Tool { id: tid, .. } if tid == id))
                 {
                     *output = text;
                     *f = failed;
@@ -250,7 +311,10 @@ fn parse_history(path: &std::path::Path) -> Vec<HistItem> {
 
 impl AgentChat {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let Services { sessions, workspace } = Services::of(window, cx);
+        let Services {
+            sessions,
+            workspace,
+        } = Services::of(window, cx);
         let input = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(2, 10)
@@ -263,12 +327,16 @@ impl AgentChat {
                     this.send(false, window, cx);
                 }
             }),
-            cx.subscribe_in(&sessions, window, |this, _, ev: &SessionsEvent, window, cx| {
-                let SessionsEvent::Changed = ev;
-                this.sync_sessions(window, cx);
-                this.show_list = false;
-                cx.emit(PanelEvent::LayoutChanged); // open sessions are part of the saved layout
-            }),
+            cx.subscribe_in(
+                &sessions,
+                window,
+                |this, _, ev: &SessionsEvent, window, cx| {
+                    let SessionsEvent::Changed = ev;
+                    this.sync_sessions(window, cx);
+                    this.show_list = false;
+                    cx.emit(PanelEvent::LayoutChanged); // open sessions are part of the saved layout
+                },
+            ),
             cx.observe(&sessions, |_, _, cx| cx.notify()),
             cx.subscribe(&workspace, |_, _, ev: &pide_core::WorkspaceEvent, cx| {
                 if matches!(ev, pide_core::WorkspaceEvent::ActiveBufferChanged) {
@@ -280,17 +348,21 @@ impl AgentChat {
             sessions,
             workspace,
             context_now: None,
-            _context_poll: cx.spawn_in(window, async move |this, cx| loop {
-                cx.background_executor().timer(std::time::Duration::from_millis(500)).await;
-                let changed = this.update_in(cx, |this, window, cx| {
-                    let now = pide_core::context::current(window, cx);
-                    let changed = now != this.context_now;
-                    if changed {
-                        cx.notify();
+            _context_poll: cx.spawn_in(window, async move |this, cx| {
+                loop {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(500))
+                        .await;
+                    let changed = this.update_in(cx, |this, window, cx| {
+                        let now = pide_core::context::current(window, cx);
+                        let changed = now != this.context_now;
+                        if changed {
+                            cx.notify();
+                        }
+                    });
+                    if changed.is_err() {
+                        break;
                     }
-                });
-                if changed.is_err() {
-                    break;
                 }
             }),
             views: HashMap::new(),
@@ -319,9 +391,13 @@ impl AgentChat {
         for agent in agents {
             let id = agent.entity_id();
             if !self.agent_subs.contains_key(&id) {
-                let sub = cx.subscribe_in(&agent, window, |this, agent, ev: &AgentEvent, window, cx| {
-                    this.on_agent_event(agent.clone(), ev, window, cx)
-                });
+                let sub = cx.subscribe_in(
+                    &agent,
+                    window,
+                    |this, agent, ev: &AgentEvent, window, cx| {
+                        this.on_agent_event(agent.clone(), ev, window, cx)
+                    },
+                );
                 self.agent_subs.insert(id, sub);
             }
             let view = self.views.entry(id).or_default();
@@ -336,7 +412,9 @@ impl AgentChat {
     }
 
     fn load_history(&mut self, id: EntityId, file: PathBuf, cx: &mut Context<Self>) {
-        let parse = cx.background_executor().spawn(async move { parse_history(&file) });
+        let parse = cx
+            .background_executor()
+            .spawn(async move { parse_history(&file) });
         cx.spawn(async move |this, cx| {
             let hist = parse.await;
             let _ = this.update(cx, |this, cx| {
@@ -355,11 +433,21 @@ impl AgentChat {
                             thinking_open: false,
                             error: None,
                         },
-                        HistItem::Tool { id, name, summary, output, failed } => Item::Tool {
+                        HistItem::Tool {
                             id,
                             name,
                             summary,
-                            state: if failed { ToolState::Failed } else { ToolState::Done },
+                            output,
+                            failed,
+                        } => Item::Tool {
+                            id,
+                            name,
+                            summary,
+                            state: if failed {
+                                ToolState::Failed
+                            } else {
+                                ToolState::Done
+                            },
                             output,
                             duration_ms: None,
                         },
@@ -367,7 +455,12 @@ impl AgentChat {
                     .collect();
                 if let Some(view) = this.views.get_mut(&id) {
                     if !items.is_empty() {
-                        items.push(Item::Notice { text: "Resumed from disk. pi continues this session on your next message.".into(), error: false });
+                        items.push(Item::Notice {
+                            text:
+                                "Resumed from disk. pi continues this session on your next message."
+                                    .into(),
+                            error: false,
+                        });
                     }
                     // History goes before anything that arrived since.
                     items.append(&mut view.items);
@@ -382,7 +475,9 @@ impl AgentChat {
 
     fn refresh_saved(&mut self, cx: &mut Context<Self>) {
         let root = self.workspace.read(cx).root().to_path_buf();
-        let list = cx.background_executor().spawn(async move { list_saved(&root) });
+        let list = cx
+            .background_executor()
+            .spawn(async move { list_saved(&root) });
         self._load_saved = Some(cx.spawn(async move |this, cx| {
             let saved = list.await;
             let _ = this.update(cx, |this, cx| {
@@ -408,7 +503,11 @@ impl AgentChat {
             agent.update(cx, |a, cx| a.queue(text, follow_up, cx));
         } else {
             // New prompts carry the editor context (when the toggle is on).
-            let text = match self.send_context(cx).then(|| pide_core::context::current(window, cx)).flatten() {
+            let text = match self
+                .send_context(cx)
+                .then(|| pide_core::context::current(window, cx))
+                .flatten()
+            {
                 Some(ctx) => format!("{}{text}", ctx.block()),
                 None => text,
             };
@@ -417,17 +516,21 @@ impl AgentChat {
     }
 
     fn send_context(&self, cx: &App) -> bool {
-        cx.try_global::<pide_core::settings::Settings>().is_none_or(|s| s.send_context)
+        cx.try_global::<pide_core::settings::Settings>()
+            .is_none_or(|s| s.send_context)
     }
 
     fn toggle_context(&mut self, cx: &mut Context<Self>) {
         let on = !self.send_context(cx);
         if cx.has_global::<pide_core::settings::Settings>() {
-            cx.global_mut::<pide_core::settings::Settings>().send_context = on;
+            cx.global_mut::<pide_core::settings::Settings>()
+                .send_context = on;
         }
         cx.background_executor()
             .spawn(async move {
-                if let Err(e) = pide_core::settings::save_key("agent.send_context", serde_json::json!(on)) {
+                if let Err(e) =
+                    pide_core::settings::save_key("agent.send_context", serde_json::json!(on))
+                {
                     log::error!("save settings: {e}");
                 }
             })
@@ -435,13 +538,21 @@ impl AgentChat {
         cx.notify();
     }
 
-    fn on_agent_event(&mut self, agent: Entity<Agent>, ev: &AgentEvent, window: &mut Window, cx: &mut Context<Self>) {
+    fn on_agent_event(
+        &mut self,
+        agent: Entity<Agent>,
+        ev: &AgentEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let is_active = agent == self.active(cx);
         let name = agent.read(cx).name.clone();
         if let AgentEvent::Dialog(req) = ev {
             if !is_active {
                 window.push_notification(
-                    Notification::warning(format!("pi in \u{201c}{name}\u{201d} is waiting for your answer.")),
+                    Notification::warning(format!(
+                        "pi in \u{201c}{name}\u{201d} is waiting for your answer."
+                    )),
                     cx,
                 );
             }
@@ -451,7 +562,9 @@ impl AgentChat {
             cx.notify();
             return;
         }
-        let Some(view) = self.views.get_mut(&agent.entity_id()) else { return };
+        let Some(view) = self.views.get_mut(&agent.entity_id()) else {
+            return;
+        };
         let items = &mut view.items;
         match ev {
             AgentEvent::UserPrompt { text } => {
@@ -470,7 +583,13 @@ impl AgentChat {
                 });
             }
             AgentEvent::TextDelta { index, delta } => {
-                if let Some(Item::Assistant { markdown, text, last_index, .. }) = items.last_mut() {
+                if let Some(Item::Assistant {
+                    markdown,
+                    text,
+                    last_index,
+                    ..
+                }) = items.last_mut()
+                {
                     let mut chunk = String::new();
                     if last_index.is_some_and(|i| i != *index) && !text.is_empty() {
                         chunk.push_str("\n\n");
@@ -482,8 +601,17 @@ impl AgentChat {
                 }
             }
             AgentEvent::TextEnd { content, .. } => {
-                if let Some(Item::Assistant { markdown, text, last_index, .. }) = items.last_mut() {
-                    if last_index.is_some() && !text.ends_with(content.as_str()) && !content.is_empty() {
+                if let Some(Item::Assistant {
+                    markdown,
+                    text,
+                    last_index,
+                    ..
+                }) = items.last_mut()
+                {
+                    if last_index.is_some()
+                        && !text.ends_with(content.as_str())
+                        && !content.is_empty()
+                    {
                         *text = content.clone();
                         markdown.update(cx, |m, cx| m.set_text(content, cx));
                     }
@@ -512,24 +640,53 @@ impl AgentChat {
                     *output = result_text(partial);
                 }
             }
-            AgentEvent::ToolEnd { id, result, is_error, duration_ms, .. } => {
-                if let Some(Item::Tool { state, output, duration_ms: d, .. }) = tool_mut(items, id) {
-                    *state = if *is_error { ToolState::Failed } else { ToolState::Done };
+            AgentEvent::ToolEnd {
+                id,
+                result,
+                is_error,
+                duration_ms,
+                ..
+            } => {
+                if let Some(Item::Tool {
+                    state,
+                    output,
+                    duration_ms: d,
+                    ..
+                }) = tool_mut(items, id)
+                {
+                    *state = if *is_error {
+                        ToolState::Failed
+                    } else {
+                        ToolState::Done
+                    };
                     *output = result_text(result);
                     *d = *duration_ms;
                 }
             }
             AgentEvent::Settled { aborted } => {
                 if *aborted {
-                    items.push(Item::Notice { text: "Stopped.".into(), error: false });
+                    items.push(Item::Notice {
+                        text: "Stopped.".into(),
+                        error: false,
+                    });
                 }
                 if !is_active {
-                    window.push_notification(Notification::info(format!("pi finished in \u{201c}{name}\u{201d}.")), cx);
+                    window.push_notification(
+                        Notification::info(format!("pi finished in \u{201c}{name}\u{201d}.")),
+                        cx,
+                    );
                 }
             }
-            AgentEvent::Error(e) => items.push(Item::Notice { text: e.clone(), error: true }),
+            AgentEvent::Error(e) => items.push(Item::Notice {
+                text: e.clone(),
+                error: true,
+            }),
             AgentEvent::Notify { message, error } => {
-                let n = if *error { Notification::error(message.clone()) } else { Notification::info(message.clone()) };
+                let n = if *error {
+                    Notification::error(message.clone())
+                } else {
+                    Notification::info(message.clone())
+                };
                 window.push_notification(n, cx);
             }
             AgentEvent::Unknown(v) => log::debug!("unknown agent record: {v}"),
@@ -540,11 +697,21 @@ impl AgentChat {
     }
 
     /// A text field for an `input` (Enter submits) or `editor` (Cmd+Enter submits) dialog.
-    fn make_dialog_input(&mut self, agent: Entity<Agent>, req: DialogRequest, window: &mut Window, cx: &mut Context<Self>) {
+    fn make_dialog_input(
+        &mut self,
+        agent: Entity<Agent>,
+        req: DialogRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let editor = req.kind == DialogKind::Editor;
         let input = cx.new(|cx| {
             let mut state = TextareaState::new(window, cx);
-            state = if editor { state.auto_grow(4, 14) } else { state.auto_grow(1, 3).submit_on_enter(true) };
+            state = if editor {
+                state.auto_grow(4, 14)
+            } else {
+                state.auto_grow(1, 3).submit_on_enter(true)
+            };
             if let Some(p) = &req.placeholder {
                 state = state.placeholder(p.clone());
             }
@@ -554,34 +721,60 @@ impl AgentChat {
             state
         });
         let id = req.id.clone();
-        let sub = cx.subscribe_in(&input, window, move |this, input, ev: &InputEvent, _, cx| {
-            let submit = match ev {
-                InputEvent::PressEnter { secondary, shift: false } => !editor || *secondary,
-                _ => false,
-            };
-            if submit {
-                let value = input.read(cx).value().to_string();
-                this.answer(&agent, &id, DialogAnswer::Value(value), cx);
-            }
-        });
+        let sub = cx.subscribe_in(
+            &input,
+            window,
+            move |this, input, ev: &InputEvent, _, cx| {
+                let submit = match ev {
+                    InputEvent::PressEnter {
+                        secondary,
+                        shift: false,
+                    } => !editor || *secondary,
+                    _ => false,
+                };
+                if submit {
+                    let value = input.read(cx).value().to_string();
+                    this.answer(&agent, &id, DialogAnswer::Value(value), cx);
+                }
+            },
+        );
         let focus = input.focus_handle(cx);
         self.dialog_inputs.insert(req.id, (input, sub));
         window.defer(cx, move |window, cx| focus.focus(window, cx));
     }
 
-    fn answer(&mut self, agent: &Entity<Agent>, id: &str, answer: DialogAnswer, cx: &mut Context<Self>) {
+    fn answer(
+        &mut self,
+        agent: &Entity<Agent>,
+        id: &str,
+        answer: DialogAnswer,
+        cx: &mut Context<Self>,
+    ) {
         agent.update(cx, |a, cx| a.answer_dialog(id, answer, cx));
         self.dialog_inputs.remove(id);
         cx.notify();
     }
 
-    fn render_dialog(&self, agent: &Entity<Agent>, d: &DialogRequest, cx: &mut Context<Self>) -> AnyElement {
+    fn render_dialog(
+        &self,
+        agent: &Entity<Agent>,
+        d: &DialogRequest,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = cx.theme().clone();
-        let btn = |label: &'static str, id: &str, answer: DialogAnswer, primary: bool, cx: &mut Context<Self>| {
+        let btn = |label: &'static str,
+                   id: &str,
+                   answer: DialogAnswer,
+                   primary: bool,
+                   cx: &mut Context<Self>| {
             let (agent, id) = (agent.clone(), id.to_string());
-            let b = Button::new(SharedString::from(format!("dlg-{id}-{label}"))).small().label(label);
+            let b = Button::new(SharedString::from(format!("dlg-{id}-{label}")))
+                .small()
+                .label(label);
             let b = if primary { b.primary() } else { b };
-            b.on_click(cx.listener(move |this, _, _, cx| this.answer(&agent, &id, answer.clone(), cx)))
+            b.on_click(
+                cx.listener(move |this, _, _, cx| this.answer(&agent, &id, answer.clone(), cx)),
+            )
         };
         let mut card = v_flex()
             .gap_2()
@@ -592,9 +785,21 @@ impl AgentChat {
             .border_color(theme.warning)
             .bg(theme.secondary)
             .text_sm()
-            .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(theme.warning).child("PI IS WAITING FOR YOU"))
-            .child(div().font_weight(FontWeight::SEMIBOLD).child(d.title.clone()))
-            .when_some(d.message.clone(), |this, m| this.child(div().text_color(theme.muted_foreground).child(m)));
+            .child(
+                div()
+                    .text_xs()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme.warning)
+                    .child("PI IS WAITING FOR YOU"),
+            )
+            .child(
+                div()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(d.title.clone()),
+            )
+            .when_some(d.message.clone(), |this, m| {
+                this.child(div().text_color(theme.muted_foreground).child(m))
+            });
         match d.kind {
             DialogKind::Confirm => {
                 card = card.child(
@@ -602,7 +807,13 @@ impl AgentChat {
                         .justify_end()
                         .gap_2()
                         .child(btn("Cancel", &d.id, DialogAnswer::Cancelled, false, cx))
-                        .child(btn("Deny", &d.id, DialogAnswer::Confirmed(false), false, cx))
+                        .child(btn(
+                            "Deny",
+                            &d.id,
+                            DialogAnswer::Confirmed(false),
+                            false,
+                            cx,
+                        ))
                         .child(btn("Allow", &d.id, DialogAnswer::Confirmed(true), true, cx)),
                 );
             }
@@ -623,12 +834,22 @@ impl AgentChat {
                             .into_any_element()
                     })
                     .collect();
-                card = card
-                    .child(v_flex().gap_1().children(options))
-                    .child(h_flex().justify_end().child(btn("Cancel", &d.id, DialogAnswer::Cancelled, false, cx)));
+                card = card.child(v_flex().gap_1().children(options)).child(
+                    h_flex().justify_end().child(btn(
+                        "Cancel",
+                        &d.id,
+                        DialogAnswer::Cancelled,
+                        false,
+                        cx,
+                    )),
+                );
             }
             DialogKind::Input | DialogKind::Editor => {
-                let hint = if d.kind == DialogKind::Editor { "⌘Enter to submit" } else { "Enter to submit" };
+                let hint = if d.kind == DialogKind::Editor {
+                    "⌘Enter to submit"
+                } else {
+                    "Enter to submit"
+                };
                 if let Some((input, _)) = self.dialog_inputs.get(&d.id) {
                     card = card.child(Textarea::new(input));
                 }
@@ -637,7 +858,12 @@ impl AgentChat {
                     h_flex()
                         .justify_between()
                         .items_center()
-                        .child(div().text_xs().text_color(theme.muted_foreground).child(hint))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(hint),
+                        )
                         .child(
                             h_flex()
                                 .gap_2()
@@ -653,7 +879,12 @@ impl AgentChat {
                                                 .get(&id2)
                                                 .map(|(i, _)| i.read(cx).value().to_string())
                                                 .unwrap_or_default();
-                                            this.answer(&agent2, &id2, DialogAnswer::Value(value), cx)
+                                            this.answer(
+                                                &agent2,
+                                                &id2,
+                                                DialogAnswer::Value(value),
+                                                cx,
+                                            )
                                         })),
                                 ),
                         ),
@@ -665,23 +896,44 @@ impl AgentChat {
 
     /// Revert one file after asking: it overwrites the file, so it also drops later edits
     /// (yours, or another session's — named in the question).
-    fn confirm_revert(&mut self, agent: Entity<Agent>, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    fn confirm_revert(
+        &mut self,
+        agent: Entity<Agent>,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let root = self.workspace.read(cx).root().to_path_buf();
-        let rel = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
+        let rel = path
+            .strip_prefix(&root)
+            .unwrap_or(&path)
+            .display()
+            .to_string();
         let others: Vec<String> = self
             .sessions
             .read(cx)
             .all()
             .iter()
             .filter(|a| **a != agent)
-            .filter(|a| a.read(cx).changes.iter().any(|c| c.path == path && !c.reverted))
+            .filter(|a| {
+                a.read(cx)
+                    .changes
+                    .iter()
+                    .any(|c| c.path == path && !c.reverted)
+            })
             .map(|a| a.read(cx).name.to_string())
             .collect();
-        let created = agent.read(cx).changes.iter().any(|c| c.path == path && c.before.is_none());
+        let created = agent
+            .read(cx)
+            .changes
+            .iter()
+            .any(|c| c.path == path && c.before.is_none());
         let mut text = if created {
             format!("pi created {rel} in this session. Reverting deletes it.")
         } else {
-            format!("This puts {rel} back to how it was before pi first touched it in this session. Any later edits to it are lost, including yours.")
+            format!(
+                "This puts {rel} back to how it was before pi first touched it in this session. Any later edits to it are lost, including yours."
+            )
         };
         if !others.is_empty() {
             text.push_str(&format!(
@@ -692,7 +944,12 @@ impl AgentChat {
         window.open_alert_dialog(cx, move |alert, _, _| {
             let (agent, path) = (agent.clone(), path.clone());
             alert
-                .title(format!("Revert {}?", path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()))
+                .title(format!(
+                    "Revert {}?",
+                    path.file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default()
+                ))
                 .description(text.clone())
                 .confirm()
                 .ok_text("Revert")
@@ -703,7 +960,10 @@ impl AgentChat {
                         .spawn(cx, async move |cx| {
                             if let Err(e) = task.await {
                                 let _ = cx.update(|window, cx| {
-                                    window.push_notification(Notification::error(format!("Revert failed: {e:#}")), cx)
+                                    window.push_notification(
+                                        Notification::error(format!("Revert failed: {e:#}")),
+                                        cx,
+                                    )
                                 });
                             }
                         })
@@ -733,13 +993,25 @@ impl AgentChat {
             .all()
             .iter()
             .filter(|a| *a != agent)
-            .flat_map(|a| a.read(cx).changes.iter().filter(|c| !c.reverted).map(|c| c.path.clone()).collect::<Vec<_>>())
+            .flat_map(|a| {
+                a.read(cx)
+                    .changes
+                    .iter()
+                    .filter(|c| !c.reverted)
+                    .map(|c| c.path.clone())
+                    .collect::<Vec<_>>()
+            })
             .collect();
         let rows: Vec<AnyElement> = changes
             .iter()
             .enumerate()
             .map(|(i, c)| {
-                let rel = c.path.strip_prefix(&root).unwrap_or(&c.path).display().to_string();
+                let rel = c
+                    .path
+                    .strip_prefix(&root)
+                    .unwrap_or(&c.path)
+                    .display()
+                    .to_string();
                 let badge = c.badge();
                 let badge_color = match badge {
                     "A" => theme.success,
@@ -747,7 +1019,8 @@ impl AgentChat {
                     _ => theme.warning,
                 };
                 let flagged = shared.contains(&c.path);
-                let (diff_path, diff_before, diff_label) = (c.path.clone(), c.before.clone(), label.clone());
+                let (diff_path, diff_before, diff_label) =
+                    (c.path.clone(), c.before.clone(), label.clone());
                 let (agent_r, path_r) = (agent.clone(), c.path.clone());
                 let (agent_v, path_v, reviewed) = (agent.clone(), c.path.clone(), c.reviewed);
                 v_flex()
@@ -775,7 +1048,13 @@ impl AgentChat {
                         h_flex()
                             .gap_2()
                             .items_center()
-                            .child(div().w(px(12.)).font_weight(FontWeight::BOLD).text_color(badge_color).child(badge))
+                            .child(
+                                div()
+                                    .w(px(12.))
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(badge_color)
+                                    .child(badge),
+                            )
                             .child(
                                 div()
                                     .flex_1()
@@ -783,13 +1062,27 @@ impl AgentChat {
                                     .overflow_hidden()
                                     .text_ellipsis()
                                     .whitespace_nowrap()
-                                    .when(c.reverted, |this| this.line_through().text_color(theme.muted_foreground))
-                                    .when(!c.reviewed && !c.reverted, |this| this.font_weight(FontWeight::SEMIBOLD))
+                                    .when(c.reverted, |this| {
+                                        this.line_through().text_color(theme.muted_foreground)
+                                    })
+                                    .when(!c.reviewed && !c.reverted, |this| {
+                                        this.font_weight(FontWeight::SEMIBOLD)
+                                    })
                                     .child(rel),
                             )
                             .when_some(c.stats, |this, (a, d)| {
-                                this.child(div().text_xs().text_color(theme.success).child(format!("+{a}")))
-                                    .child(div().text_xs().text_color(theme.danger).child(format!("−{d}")))
+                                this.child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(theme.success)
+                                        .child(format!("+{a}")),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(theme.danger)
+                                        .child(format!("−{d}")),
+                                )
                             }),
                     )
                     .child(
@@ -799,33 +1092,62 @@ impl AgentChat {
                             .pl(px(20.))
                             .text_xs()
                             .text_color(theme.muted_foreground)
-                            .child(div().flex_1().child(if c.reverted { "reverted".into() } else { c.tools_label() }))
-                            .when(flagged, |this| this.child(div().text_color(theme.warning).child("also changed by another session")))
+                            .child(div().flex_1().child(if c.reverted {
+                                "reverted".into()
+                            } else {
+                                c.tools_label()
+                            }))
+                            .when(flagged, |this| {
+                                this.child(
+                                    div()
+                                        .text_color(theme.warning)
+                                        .child("also changed by another session"),
+                                )
+                            })
                             .when(!c.reverted, |this| {
                                 this.child(
                                     Button::new(("reviewed", i))
                                         .xsmall()
                                         .ghost()
-                                        .label(if reviewed { "Reviewed ✓" } else { "Mark reviewed" })
+                                        .label(if reviewed {
+                                            "Reviewed ✓"
+                                        } else {
+                                            "Mark reviewed"
+                                        })
                                         .on_click(cx.listener(move |_, _, _, cx| {
                                             cx.stop_propagation();
-                                            agent_v.update(cx, |a, cx| a.set_reviewed(&path_v, !reviewed, cx));
+                                            agent_v.update(cx, |a, cx| {
+                                                a.set_reviewed(&path_v, !reviewed, cx)
+                                            });
                                         })),
                                 )
                                 .child(
-                                    Button::new(("revert", i)).xsmall().danger().label("Revert").on_click(cx.listener(
-                                        move |this, _, window, cx| {
+                                    Button::new(("revert", i))
+                                        .xsmall()
+                                        .danger()
+                                        .label("Revert")
+                                        .on_click(cx.listener(move |this, _, window, cx| {
                                             cx.stop_propagation();
-                                            this.confirm_revert(agent_r.clone(), path_r.clone(), window, cx);
-                                        },
-                                    )),
+                                            this.confirm_revert(
+                                                agent_r.clone(),
+                                                path_r.clone(),
+                                                window,
+                                                cx,
+                                            );
+                                        })),
                                 )
                             }),
                     )
                     .into_any_element()
             })
             .collect();
-        v_flex().id("changes-list").size_full().overflow_y_scroll().text_sm().children(rows).into_any_element()
+        v_flex()
+            .id("changes-list")
+            .size_full()
+            .overflow_y_scroll()
+            .text_sm()
+            .children(rows)
+            .into_any_element()
     }
 
     // ---------- rendering ----------
@@ -846,7 +1168,10 @@ impl AgentChat {
                 .text_color(theme.success)
                 .child("✓")
                 .into_any_element(),
-            _ => base.border_1().border_color(theme.muted_foreground).into_any_element(),
+            _ => base
+                .border_1()
+                .border_color(theme.muted_foreground)
+                .into_any_element(),
         }
     }
 
@@ -884,7 +1209,11 @@ impl AgentChat {
                     .border_r_1()
                     .border_color(theme.border)
                     .cursor_pointer()
-                    .when(selected, |this| this.bg(theme.background).border_t_2().border_color(theme.primary))
+                    .when(selected, |this| {
+                        this.bg(theme.background)
+                            .border_t_2()
+                            .border_color(theme.primary)
+                    })
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.sessions.update(cx, |s, cx| s.set_active(i, cx));
                     }))
@@ -894,7 +1223,9 @@ impl AgentChat {
                             .overflow_hidden()
                             .text_ellipsis()
                             .whitespace_nowrap()
-                            .when(selected || a.unread, |this| this.font_weight(FontWeight::SEMIBOLD))
+                            .when(selected || a.unread, |this| {
+                                this.font_weight(FontWeight::SEMIBOLD)
+                            })
                             .child(a.name.clone()),
                     )
                     .child(
@@ -918,15 +1249,25 @@ impl AgentChat {
             .bg(theme.secondary)
             .border_b_1()
             .border_color(theme.border)
-            .child(h_flex().id("session-tabs").flex_1().min_w_0().overflow_x_scroll().children(tabs))
             .child(
-                Button::new("new-session").ghost().small().label("+").tooltip("New session").on_click(cx.listener(
-                    |this, _, _, cx| {
+                h_flex()
+                    .id("session-tabs")
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_x_scroll()
+                    .children(tabs),
+            )
+            .child(
+                Button::new("new-session")
+                    .ghost()
+                    .small()
+                    .label("+")
+                    .tooltip("New session")
+                    .on_click(cx.listener(|this, _, _, cx| {
                         this.sessions.update(cx, |s, cx| {
                             s.add(None, None, cx);
                         })
-                    },
-                )),
+                    })),
             )
             .child(
                 Button::new("session-list")
@@ -982,10 +1323,17 @@ impl AgentChat {
                             .overflow_hidden()
                             .text_ellipsis()
                             .whitespace_nowrap()
-                            .when(i == active || a.unread, |this| this.font_weight(FontWeight::SEMIBOLD))
+                            .when(i == active || a.unread, |this| {
+                                this.font_weight(FontWeight::SEMIBOLD)
+                            })
                             .child(a.name.clone()),
                     )
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(label))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(label),
+                    )
                     .into_any_element()
             })
             .collect();
@@ -998,7 +1346,10 @@ impl AgentChat {
             .map(|(i, s)| {
                 let path = s.path.clone();
                 let name = s.name.clone();
-                let title = s.name.clone().unwrap_or_else(|| s.preview.chars().take(60).collect());
+                let title = s
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| s.preview.chars().take(60).collect());
                 let ago = s.modified.elapsed().map(fmt_ago).unwrap_or_default();
                 v_flex()
                     .id(("saved-session", i))
@@ -1017,8 +1368,20 @@ impl AgentChat {
                         h_flex()
                             .justify_between()
                             .gap_2()
-                            .child(div().overflow_hidden().text_ellipsis().whitespace_nowrap().child(title))
-                            .child(div().flex_none().text_xs().text_color(theme.muted_foreground).child(ago)),
+                            .child(
+                                div()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .whitespace_nowrap()
+                                    .child(title),
+                            )
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .child(ago),
+                            ),
                     )
                     .when(s.name.is_some(), |this| {
                         this.child(
@@ -1035,7 +1398,14 @@ impl AgentChat {
             })
             .collect();
         let heading = |t: &'static str| {
-            div().px_3().pt_3().pb_1().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(t)
+            div()
+                .px_3()
+                .pt_3()
+                .pb_1()
+                .text_xs()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.muted_foreground)
+                .child(t)
         };
         v_flex()
             .id("session-list")
@@ -1046,7 +1416,14 @@ impl AgentChat {
             .children(open)
             .child(heading("SAVED IN THIS PROJECT"))
             .when(saved.is_empty(), |this| {
-                this.child(div().px_3().py_1().text_xs().text_color(theme.muted_foreground).child("None yet."))
+                this.child(
+                    div()
+                        .px_3()
+                        .py_1()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child("None yet."),
+                )
             })
             .children(saved)
     }
@@ -1071,7 +1448,13 @@ impl AgentChat {
                 })
                 .child(text.clone())
                 .into_any_element(),
-            Item::Assistant { markdown, thinking, thinking_open, error, .. } => v_flex()
+            Item::Assistant {
+                markdown,
+                thinking,
+                thinking_open,
+                error,
+                ..
+            } => v_flex()
                 .gap_1()
                 .when(!thinking.is_empty(), |this| {
                     let open = *thinking_open;
@@ -1083,8 +1466,10 @@ impl AgentChat {
                             .text_color(theme.muted_foreground)
                             .cursor_pointer()
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                if let Some(Item::Assistant { thinking_open, .. }) =
-                                    this.views.get_mut(&agent_id).and_then(|v| v.items.get_mut(ix))
+                                if let Some(Item::Assistant { thinking_open, .. }) = this
+                                    .views
+                                    .get_mut(&agent_id)
+                                    .and_then(|v| v.items.get_mut(ix))
                                 {
                                     *thinking_open = !*thinking_open;
                                     cx.notify();
@@ -1093,16 +1478,31 @@ impl AgentChat {
                             .child(if open {
                                 format!("▾ Thinking\n{}", thinking.trim())
                             } else {
-                                format!("▸ Thinking ({} words)", thinking.split_whitespace().count())
+                                format!(
+                                    "▸ Thinking ({} words)",
+                                    thinking.split_whitespace().count()
+                                )
                             }),
                     )
                 })
                 .child(TextView::new(markdown).selectable(true))
                 .when_some(error.clone(), |this, e| {
-                    this.child(div().text_sm().text_color(theme.danger).child(format!("Ended: {e}")))
+                    this.child(
+                        div()
+                            .text_sm()
+                            .text_color(theme.danger)
+                            .child(format!("Ended: {e}")),
+                    )
                 })
                 .into_any_element(),
-            Item::Tool { name, summary, state, output, duration_ms, .. } => {
+            Item::Tool {
+                name,
+                summary,
+                state,
+                output,
+                duration_ms,
+                ..
+            } => {
                 let (mark, color) = match state {
                     ToolState::Running => ("…", theme.muted_foreground),
                     ToolState::Done => ("✓", theme.success),
@@ -1122,19 +1522,37 @@ impl AgentChat {
                             .gap_2()
                             .child(div().text_color(color).child(mark))
                             .child(div().font_weight(FontWeight::BOLD).child(name.clone()))
-                            .child(div().flex_1().overflow_hidden().text_ellipsis().child(summary.clone()))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .child(summary.clone()),
+                            )
                             .when_some(*duration_ms, |this, d| {
-                                this.child(div().text_color(theme.muted_foreground).child(format!("{d} ms")))
+                                this.child(
+                                    div()
+                                        .text_color(theme.muted_foreground)
+                                        .child(format!("{d} ms")),
+                                )
                             }),
                     )
                     .when(!output.is_empty(), |this| {
-                        this.child(div().text_color(theme.muted_foreground).child(output.clone()))
+                        this.child(
+                            div()
+                                .text_color(theme.muted_foreground)
+                                .child(output.clone()),
+                        )
                     })
                     .into_any_element()
             }
             Item::Notice { text, error } => div()
                 .text_sm()
-                .text_color(if *error { theme.danger } else { theme.muted_foreground })
+                .text_color(if *error {
+                    theme.danger
+                } else {
+                    theme.muted_foreground
+                })
                 .child(text.clone())
                 .into_any_element(),
         }
@@ -1152,10 +1570,21 @@ impl AgentChat {
         let n_changes = a.changes.len();
         let unreviewed = a.unreviewed();
         let show_changes = self.show_changes;
+        let model_label = match (&a.model, &a.thinking) {
+            (Some(m), Some(t)) if m.reasoning && t != "off" => {
+                format!("{} · {t}", model_picker::short_label(m))
+            }
+            (Some(m), _) => model_picker::short_label(m),
+            (None, _) => "Model".to_string(),
+        };
+        let model_tip = a.model.as_ref().map(|m| format!("{}/{}", m.provider, m.id));
+        let agent_model = agent.clone();
         let id = agent.entity_id();
         let (items, scroll, empty) = match self.views.get(&id) {
             Some(view) => {
-                let els: Vec<AnyElement> = (0..view.items.len()).map(|ix| self.render_item(view, ix, cx)).collect();
+                let els: Vec<AnyElement> = (0..view.items.len())
+                    .map(|ix| self.render_item(view, ix, cx))
+                    .collect();
                 (els, view.scroll.clone(), view.items.is_empty())
             }
             None => (Vec::new(), ScrollHandle::new(), true),
@@ -1214,6 +1643,19 @@ impl AgentChat {
                                 this.show_changes = true;
                                 cx.notify();
                             })),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("pick-model")
+                            .xsmall()
+                            .ghost()
+                            .label(model_label)
+                            .when_some(model_tip, |b, t| b.tooltip(t))
+                            .on_click(move |_, window, cx| {
+                                let agent = agent_model.clone();
+                                agent.update(cx, |a, cx| a.request_models(cx));
+                                model_picker::open(agent, window, cx);
+                            }),
                     ),
             )
             .when(show_changes, |this| this.child(div().flex_1().min_h_0().child(self.render_changes(&agent, cx))))
@@ -1310,7 +1752,11 @@ impl AgentChat {
     }
 }
 
-fn queued_row(kind: &'static str, text: String, theme: &gpui_kit::component::theme::Theme) -> AnyElement {
+fn queued_row(
+    kind: &'static str,
+    text: String,
+    theme: &gpui_kit::component::theme::Theme,
+) -> AnyElement {
     h_flex()
         .gap_2()
         .px_2()
@@ -1320,13 +1766,29 @@ fn queued_row(kind: &'static str, text: String, theme: &gpui_kit::component::the
         .border_dashed()
         .border_color(theme.border)
         .text_xs()
-        .child(div().flex_none().font_weight(FontWeight::SEMIBOLD).text_color(theme.warning).child(kind))
-        .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().child(text))
+        .child(
+            div()
+                .flex_none()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.warning)
+                .child(kind),
+        )
+        .child(
+            div()
+                .flex_1()
+                .overflow_hidden()
+                .text_ellipsis()
+                .whitespace_nowrap()
+                .child(text),
+        )
         .into_any_element()
 }
 
 fn tool_mut<'a>(items: &'a mut [Item], id: &str) -> Option<&'a mut Item> {
-    items.iter_mut().rev().find(|i| matches!(i, Item::Tool { id: tid, .. } if tid == id))
+    items
+        .iter_mut()
+        .rev()
+        .find(|i| matches!(i, Item::Tool { id: tid, .. } if tid == id))
 }
 
 fn fmt_ago(d: std::time::Duration) -> String {
@@ -1359,11 +1821,14 @@ impl gpui_kit::component::dock::BasePanel for AgentChat {
             .iter()
             .filter_map(|a| {
                 let a = a.read(cx);
-                a.session_file.as_ref().map(|f| json!({ "file": f, "name": a.name.to_string() }))
+                a.session_file
+                    .as_ref()
+                    .map(|f| json!({ "file": f, "name": a.name.to_string() }))
             })
             .collect();
         let mut state = PanelState::new(PANEL_NAME);
-        state.info = PanelInfo::panel(json!({ "sessions": open, "active": sessions.active_index() }));
+        state.info =
+            PanelInfo::panel(json!({ "sessions": open, "active": sessions.active_index() }));
         state
     }
 }
@@ -1410,13 +1875,17 @@ impl Render for AgentChat {
                                 .border_b_1()
                                 .border_color(theme.border)
                                 .child(div().font_weight(FontWeight::SEMIBOLD).child("Sessions"))
-                                .child(Button::new("new-session-wide").small().primary().label("New").on_click(
-                                    cx.listener(|this, _, _, cx| {
-                                        this.sessions.update(cx, |s, cx| {
-                                            s.add(None, None, cx);
-                                        })
-                                    }),
-                                )),
+                                .child(
+                                    Button::new("new-session-wide")
+                                        .small()
+                                        .primary()
+                                        .label("New")
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.sessions.update(cx, |s, cx| {
+                                                s.add(None, None, cx);
+                                            })
+                                        })),
+                                ),
                         )
                         .child(self.render_list(cx)),
                 )
@@ -1445,7 +1914,8 @@ impl Render for AgentChat {
                     move |bounds, window, _| {
                         let w = f32::from(bounds.size.width);
                         if (w - width.get()).abs() > 1. {
-                            let crossed = (w >= SIDEBAR_MIN_WIDTH) != (width.get() >= SIDEBAR_MIN_WIDTH);
+                            let crossed =
+                                (w >= SIDEBAR_MIN_WIDTH) != (width.get() >= SIDEBAR_MIN_WIDTH);
                             width.set(w);
                             if crossed {
                                 window.refresh();

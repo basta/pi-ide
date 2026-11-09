@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use gpui_kit::component::dock::{PanelEvent, PanelState, register_panel, panel_handle};
+use gpui_kit::component::dock::{PanelEvent, PanelState, panel_handle, register_panel};
 use gpui_kit::component::list::ListItem;
 use gpui_kit::component::tree::{TreeEvent, TreeItem, TreeState, tree};
 use gpui_kit::component::{ActiveTheme, IconName, h_flex};
@@ -18,7 +18,9 @@ use pide_core::{DockPosition, Panel, Services, Workspace, WorkspaceEvent};
 pub const PANEL_NAME: &str = "file_tree";
 
 pub fn init(cx: &mut App) {
-    register_panel(cx, PANEL_NAME, |_, window, cx| panel_handle(cx.new(|cx| FileTree::new(window, cx))));
+    register_panel(cx, PANEL_NAME, |_, window, cx| {
+        panel_handle(cx.new(|cx| FileTree::new(window, cx)))
+    });
 }
 
 /// A plain, `Send` description of the tree, built on a background thread.
@@ -29,7 +31,11 @@ struct Node {
 }
 
 fn walk(root: &Path) -> Node {
-    let mut top = Node { path: root.to_path_buf(), name: String::new(), children: Some(BTreeMap::new()) };
+    let mut top = Node {
+        path: root.to_path_buf(),
+        name: String::new(),
+        children: Some(BTreeMap::new()),
+    };
     let walker = ignore::WalkBuilder::new(root)
         .hidden(false)
         .filter_entry(|e| e.file_name() != ".git")
@@ -37,7 +43,9 @@ fn walk(root: &Path) -> Node {
         .build();
     for entry in walker.flatten() {
         let path = entry.path();
-        let Ok(rel) = path.strip_prefix(root) else { continue };
+        let Ok(rel) = path.strip_prefix(root) else {
+            continue;
+        };
         if rel.as_os_str().is_empty() {
             continue;
         }
@@ -60,7 +68,11 @@ fn walk(root: &Path) -> Node {
     top
 }
 
-fn to_items(node: Node, expanded: &HashSet<SharedString>, dirs: &mut HashSet<SharedString>) -> Vec<TreeItem> {
+fn to_items(
+    node: Node,
+    expanded: &HashSet<SharedString>,
+    dirs: &mut HashSet<SharedString>,
+) -> Vec<TreeItem> {
     node.children
         .unwrap_or_default()
         .into_values()
@@ -70,7 +82,9 @@ fn to_items(node: Node, expanded: &HashSet<SharedString>, dirs: &mut HashSet<Sha
             if n.children.is_some() {
                 dirs.insert(id.clone());
                 let open = expanded.contains(&id);
-                TreeItem::new(id, label).children(to_items(n, expanded, dirs)).expanded(open)
+                TreeItem::new(id, label)
+                    .children(to_items(n, expanded, dirs))
+                    .expanded(open)
             } else {
                 TreeItem::new(id, label)
             }
@@ -92,7 +106,10 @@ impl EventEmitter<PanelEvent> for FileTree {}
 
 impl FileTree {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let Services { workspace, sessions } = Services::of(window, cx);
+        let Services {
+            workspace,
+            sessions,
+        } = Services::of(window, cx);
         let tree = cx.new(|cx| TreeState::new(cx));
         let subs = vec![
             cx.subscribe(&tree, |this, _, ev: &TreeEvent, _| match ev {
@@ -132,7 +149,10 @@ impl FileTree {
             if !delay.is_zero() {
                 cx.background_executor().timer(delay).await;
             }
-            let node = cx.background_executor().spawn(async move { walk(&root) }).await;
+            let node = cx
+                .background_executor()
+                .spawn(async move { walk(&root) })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 let mut dirs = HashSet::new();
                 let items = to_items(node, &this.expanded, &mut dirs);
@@ -142,7 +162,6 @@ impl FileTree {
             });
         }));
     }
-
 }
 
 impl Focusable for FileTree {
@@ -188,7 +207,8 @@ impl Render for FileTree {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let view = cx.entity();
         // path -> badge, for files pi changed (and that weren't reverted) in any open session.
-        let mut badges: std::collections::HashMap<String, &'static str> = std::collections::HashMap::new();
+        let mut badges: std::collections::HashMap<String, &'static str> =
+            std::collections::HashMap::new();
         for agent in Services::of(window, cx).sessions.read(cx).all() {
             for c in &agent.read(cx).changes {
                 if !c.reverted {
@@ -223,8 +243,20 @@ impl Render for FileTree {
                             .child(icon)
                             .child(div().flex_1().child(item.label.clone()))
                             .when_some(badge, |this, b| {
-                                let color = if b == "A" { cx.theme().success } else if b == "D" { cx.theme().danger } else { cx.theme().warning };
-                                this.child(div().text_xs().font_weight(FontWeight::BOLD).text_color(color).child(b))
+                                let color = if b == "A" {
+                                    cx.theme().success
+                                } else if b == "D" {
+                                    cx.theme().danger
+                                } else {
+                                    cx.theme().warning
+                                };
+                                this.child(
+                                    div()
+                                        .text_xs()
+                                        .font_weight(FontWeight::BOLD)
+                                        .text_color(color)
+                                        .child(b),
+                                )
                             }),
                     )
                     .on_click(move |_, window, cx| {

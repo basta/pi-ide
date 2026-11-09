@@ -29,7 +29,11 @@ fn isolate() {
 
 fn block<F: std::future::Future>(f: F) -> F::Output {
     pide_runtime::init();
-    pide_runtime::handle().block_on(async move { tokio::time::timeout(Duration::from_secs(10), f).await.expect("timed out") })
+    pide_runtime::handle().block_on(async move {
+        tokio::time::timeout(Duration::from_secs(10), f)
+            .await
+            .expect("timed out")
+    })
 }
 
 #[test]
@@ -44,7 +48,9 @@ fn initialize_notifications_requests_and_crash() {
     let rpc = started.rpc.clone();
 
     // initialize: the server picks UTF-16.
-    let init = block(rpc.request("initialize", process::initialize_params(&root))).unwrap().unwrap();
+    let init = block(rpc.request("initialize", process::initialize_params(&root)))
+        .unwrap()
+        .unwrap();
     assert_eq!(init["capabilities"]["positionEncoding"], "utf-16");
     rpc.notify("initialized", json!({}));
 
@@ -58,14 +64,19 @@ fn initialize_notifications_requests_and_crash() {
     match note {
         Incoming::Notification { method, params } => {
             assert_eq!(method, "textDocument/publishDiagnostics");
-            assert_eq!(process::uri_path(params["uri"].as_str().unwrap()).as_deref(), Some(file.as_path()));
+            assert_eq!(
+                process::uri_path(params["uri"].as_str().unwrap()).as_deref(),
+                Some(file.as_path())
+            );
             assert_eq!(params["diagnostics"][0]["message"], "fake error");
         }
         other => panic!("{other:?}"),
     }
 
     // A request and its response.
-    let hover = block(rpc.request("textDocument/hover", json!({}))).unwrap().unwrap();
+    let hover = block(rpc.request("textDocument/hover", json!({})))
+        .unwrap()
+        .unwrap();
     assert_eq!(hover["contents"], Value::String("fake".into()));
 
     // Crash: the exit carries the code and the stderr tail; a request the
@@ -74,8 +85,17 @@ fn initialize_notifications_requests_and_crash() {
     let pending = rpc.request("textDocument/hover", json!({}));
     let exit = block(started.exit).expect("an exit");
     assert_eq!(exit.code, Some(3));
-    assert!(exit.stderr_tail.iter().any(|l| l.contains("crashing on purpose")), "{:?}", exit.stderr_tail);
-    assert!(block(pending).map(|r| r.is_err()).unwrap_or(true), "unanswered request must fail");
+    assert!(
+        exit.stderr_tail
+            .iter()
+            .any(|l| l.contains("crashing on purpose")),
+        "{:?}",
+        exit.stderr_tail
+    );
+    assert!(
+        block(pending).map(|r| r.is_err()).unwrap_or(true),
+        "unanswered request must fail"
+    );
 }
 
 #[test]

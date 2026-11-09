@@ -19,7 +19,10 @@ pub fn apply(setting: ThemeSetting, window: Option<&mut Window>, cx: &mut App) {
 
 /// The window's appearance changed (macOS light/dark switch).
 pub fn on_system_appearance_changed(window: &mut Window, cx: &mut App) {
-    if cx.try_global::<CurrentTheme>().is_some_and(|t| t.0 == ThemeSetting::System) {
+    if cx
+        .try_global::<CurrentTheme>()
+        .is_some_and(|t| t.0 == ThemeSetting::System)
+    {
         Theme::sync_system_appearance(Some(window), cx);
     }
 }
@@ -27,8 +30,16 @@ pub fn on_system_appearance_changed(window: &mut Window, cx: &mut App) {
 pub fn register_commands(cx: &mut App) {
     for (id, title, setting) in [
         ("view.theme_dark", "View: Theme: Dark", ThemeSetting::Dark),
-        ("view.theme_light", "View: Theme: Light", ThemeSetting::Light),
-        ("view.theme_system", "View: Theme: Follow macOS", ThemeSetting::System),
+        (
+            "view.theme_light",
+            "View: Theme: Light",
+            ThemeSetting::Light,
+        ),
+        (
+            "view.theme_system",
+            "View: Theme: Follow macOS",
+            ThemeSetting::System,
+        ),
     ] {
         CommandRegistry::register(cx, CommandSpec::new(id, title), move |window, cx| {
             apply(setting, Some(window), cx);

@@ -14,7 +14,9 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dock::{PanelEvent, PanelState, panel_handle, register_panel};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
-use gpui_kit::component::{ActiveTheme, Disableable as _, Sizable as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{
+    ActiveTheme, Disableable as _, Sizable as _, WindowExt as _, h_flex, v_flex,
+};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use pide_core::{DockPosition, Panel, Services, Workspace};
@@ -24,7 +26,9 @@ use engine::{Query, Results};
 pub const PANEL_NAME: &str = "find_in_files";
 
 pub fn init(cx: &mut App) {
-    register_panel(cx, PANEL_NAME, |_, window, cx| panel_handle(cx.new(|cx| FindInFiles::new(window, cx))));
+    register_panel(cx, PANEL_NAME, |_, window, cx| {
+        panel_handle(cx.new(|cx| FindInFiles::new(window, cx)))
+    });
 }
 
 #[derive(Default)]
@@ -32,7 +36,10 @@ struct Instances(HashMap<WindowId, WeakEntity<FindInFiles>>);
 impl Global for Instances {}
 
 pub fn existing(window: &Window, cx: &App) -> Option<Entity<FindInFiles>> {
-    cx.try_global::<Instances>()?.0.get(&window.window_handle().window_id())?.upgrade()
+    cx.try_global::<Instances>()?
+        .0
+        .get(&window.window_handle().window_id())?
+        .upgrade()
 }
 
 pub struct FindInFiles {
@@ -59,14 +66,19 @@ impl FindInFiles {
         let workspace = Services::of(window, cx).workspace;
         let root = workspace.read(cx).root().to_path_buf();
         let me = cx.weak_entity();
-        cx.default_global::<Instances>().0.insert(window.window_handle().window_id(), me);
+        cx.default_global::<Instances>()
+            .0
+            .insert(window.window_handle().window_id(), me);
         let find = cx.new(|cx| InputState::new(window, cx).placeholder("Find in files (Enter)"));
         let replace = cx.new(|cx| InputState::new(window, cx).placeholder("Replace with"));
-        let subs = vec![cx.subscribe_in(&find, window, |this, _, ev: &InputEvent, _, cx| match ev {
-            InputEvent::PressEnter { .. } => this.run(Duration::ZERO, cx),
-            InputEvent::Change => this.run(Duration::from_millis(350), cx),
-            _ => {}
-        })];
+        let subs =
+            vec![
+                cx.subscribe_in(&find, window, |this, _, ev: &InputEvent, _, cx| match ev {
+                    InputEvent::PressEnter { .. } => this.run(Duration::ZERO, cx),
+                    InputEvent::Change => this.run(Duration::from_millis(350), cx),
+                    _ => {}
+                }),
+            ];
         Self {
             workspace,
             root,
@@ -85,7 +97,12 @@ impl FindInFiles {
     }
 
     /// Put `text` in the search box and focus it (Cmd+Shift+F with a selection).
-    pub fn focus_query(&mut self, text: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn focus_query(
+        &mut self,
+        text: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.find.update(cx, |i, cx| {
             if let Some(t) = text.filter(|t| !t.is_empty() && !t.contains('\n')) {
                 i.set_value(t, window, cx);
@@ -133,7 +150,10 @@ impl FindInFiles {
                 cx.background_executor().timer(delay).await;
             }
             let q = query.clone();
-            let results = cx.background_executor().spawn(async move { engine::search(&root, &q, &open) }).await;
+            let results = cx
+                .background_executor()
+                .spawn(async move { engine::search(&root, &q, &open) })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.results = Some(results);
                 this.searched = Some(query);
@@ -153,7 +173,10 @@ impl FindInFiles {
     }
 
     fn confirm_replace_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(query), Some(Ok(results))) = (self.searched.clone(), self.results.as_ref()) else { return };
+        let (Some(query), Some(Ok(results))) = (self.searched.clone(), self.results.as_ref())
+        else {
+            return;
+        };
         if results.total == 0 {
             return;
         }
@@ -161,7 +184,11 @@ impl FindInFiles {
         let files: Vec<PathBuf> = results.files.iter().map(|f| f.path.clone()).collect();
         let (n, m) = (results.total, files.len());
         let me = cx.entity().downgrade();
-        let shown = if replacement.is_empty() { "nothing (delete them)".to_string() } else { format!("“{replacement}”") };
+        let shown = if replacement.is_empty() {
+            "nothing (delete them)".to_string()
+        } else {
+            format!("“{replacement}”")
+        };
         window.open_alert_dialog(cx, move |alert, _, _| {
             let (me, query, files, replacement) = (me.clone(), query.clone(), files.clone(), replacement.clone());
             alert
@@ -180,7 +207,14 @@ impl FindInFiles {
         });
     }
 
-    fn replace_all(&mut self, query: Query, files: Vec<PathBuf>, replacement: String, window: &mut Window, cx: &mut Context<Self>) {
+    fn replace_all(
+        &mut self,
+        query: Query,
+        files: Vec<PathBuf>,
+        replacement: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let mut on_disk = Vec::new();
         let mut replaced = 0;
         let mut errors = Vec::new();
@@ -193,7 +227,11 @@ impl FindInFiles {
                         Ok((new, n)) if n > 0 => {
                             replaced += n;
                             self.workspace.update(cx, |w, cx| {
-                                w.replace_text(&buffer, gpui_kit::component::input::Rope::from(new.as_str()), cx);
+                                w.replace_text(
+                                    &buffer,
+                                    gpui_kit::component::input::Rope::from(new.as_str()),
+                                    cx,
+                                );
                                 w.save(&buffer, cx).detach_and_log_err(cx);
                             });
                         }
@@ -221,7 +259,10 @@ impl FindInFiles {
                 errors.extend(errs);
                 let total = replaced + n;
                 let note = if errors.is_empty() {
-                    Notification::info(format!("Replaced {total} match{}.", if total == 1 { "" } else { "es" }))
+                    Notification::info(format!(
+                        "Replaced {total} match{}.",
+                        if total == 1 { "" } else { "es" }
+                    ))
                 } else {
                     Notification::error(format!("Replaced {total}; failed: {}", errors.join("; ")))
                 };
@@ -265,7 +306,12 @@ impl Panel for FindInFiles {
 impl Render for FindInFiles {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
-        let toggle = |id: &'static str, label: &'static str, on: bool, tip: &'static str, which: u8, cx: &mut Context<Self>| {
+        let toggle = |id: &'static str,
+                      label: &'static str,
+                      on: bool,
+                      tip: &'static str,
+                      which: u8,
+                      cx: &mut Context<Self>| {
             Button::new(id)
                 .xsmall()
                 .label(label)
@@ -284,7 +330,11 @@ impl Render for FindInFiles {
                 if r.total == 1 { "" } else { "es" },
                 r.files.len(),
                 if r.files.len() == 1 { "" } else { "s" },
-                if r.truncated { " (refine the search)" } else { "" }
+                if r.truncated {
+                    " (refine the search)"
+                } else {
+                    ""
+                }
             ),
         };
         let can_replace = matches!(&self.results, Some(Ok(r)) if r.total > 0) && !self.searching;
@@ -292,7 +342,12 @@ impl Render for FindInFiles {
         let mut rows: Vec<AnyElement> = Vec::new();
         if let Some(Ok(results)) = &self.results {
             for f in &results.files {
-                let rel = f.path.strip_prefix(&self.root).unwrap_or(&f.path).display().to_string();
+                let rel = f
+                    .path
+                    .strip_prefix(&self.root)
+                    .unwrap_or(&f.path)
+                    .display()
+                    .to_string();
                 rows.push(
                     h_flex()
                         .gap_2()
@@ -300,12 +355,22 @@ impl Render for FindInFiles {
                         .pt_1p5()
                         .text_sm()
                         .child(div().font_weight(FontWeight::SEMIBOLD).child(rel))
-                        .child(div().text_xs().text_color(theme.muted_foreground).child(f.matches.len().to_string()))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(f.matches.len().to_string()),
+                        )
                         .into_any_element(),
                 );
                 for (i, m) in f.matches.iter().enumerate().take(200) {
                     // The line around the match, trimmed so the match stays visible.
-                    let start = m.text[..m.range.start].char_indices().rev().nth(40).map(|(b, _)| b).unwrap_or(0);
+                    let start = m.text[..m.range.start]
+                        .char_indices()
+                        .rev()
+                        .nth(40)
+                        .map(|(b, _)| b)
+                        .unwrap_or(0);
                     let before = m.text[start..m.range.start].trim_start().to_string();
                     let hit = m.text[m.range.clone()].to_string();
                     let after = m.text[m.range.end..].chars().take(160).collect::<String>();
@@ -320,8 +385,17 @@ impl Render for FindInFiles {
                             .text_sm()
                             .cursor_pointer()
                             .hover(|s| s.bg(theme.list_hover))
-                            .on_click(move |_, window, cx| pide_core::opener::open_file_at(path.clone(), line, ch, window, cx))
-                            .child(div().w(px(44.)).flex_none().text_xs().text_color(theme.muted_foreground).child((line + 1).to_string()))
+                            .on_click(move |_, window, cx| {
+                                pide_core::opener::open_file_at(path.clone(), line, ch, window, cx)
+                            })
+                            .child(
+                                div()
+                                    .w(px(44.))
+                                    .flex_none()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .child((line + 1).to_string()),
+                            )
                             .child(
                                 h_flex()
                                     .flex_1()
@@ -331,14 +405,26 @@ impl Render for FindInFiles {
                                     .font_family(theme.mono_font_family.clone())
                                     .text_xs()
                                     .child(before)
-                                    .child(div().bg(theme.warning.opacity(0.35)).text_color(theme.foreground).child(hit))
+                                    .child(
+                                        div()
+                                            .bg(theme.warning.opacity(0.35))
+                                            .text_color(theme.foreground)
+                                            .child(hit),
+                                    )
                                     .child(after),
                             )
                             .into_any_element(),
                     );
                 }
                 if f.matches.len() > 200 {
-                    rows.push(div().pl_6().text_xs().text_color(theme.muted_foreground).child(format!("… {} more in this file", f.matches.len() - 200)).into_any_element());
+                    rows.push(
+                        div()
+                            .pl_6()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(format!("… {} more in this file", f.matches.len() - 200))
+                            .into_any_element(),
+                    );
                 }
             }
         }
@@ -357,20 +443,53 @@ impl Render for FindInFiles {
                         h_flex()
                             .gap_1()
                             .child(div().flex_1().child(Input::new(&self.find).small()))
-                            .child(toggle("case", "Aa", self.case_sensitive, "Match case", 0, cx))
+                            .child(toggle(
+                                "case",
+                                "Aa",
+                                self.case_sensitive,
+                                "Match case",
+                                0,
+                                cx,
+                            ))
                             .child(toggle("word", "W", self.whole_word, "Whole words", 1, cx))
-                            .child(toggle("regex", ".*", self.regex, "Regular expression", 2, cx)),
+                            .child(toggle(
+                                "regex",
+                                ".*",
+                                self.regex,
+                                "Regular expression",
+                                2,
+                                cx,
+                            )),
                     )
                     .child(
                         h_flex()
                             .gap_1()
                             .child(div().flex_1().child(Input::new(&self.replace).small()))
-                            .child(Button::new("replace-all").xsmall().label("Replace All").disabled(!can_replace).on_click(cx.listener(
-                                |this, _, window, cx| this.confirm_replace_all(window, cx),
-                            ))),
+                            .child(
+                                Button::new("replace-all")
+                                    .xsmall()
+                                    .label("Replace All")
+                                    .disabled(!can_replace)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.confirm_replace_all(window, cx)
+                                    })),
+                            ),
                     )
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(summary)),
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(summary),
+                    ),
             )
-            .child(div().id("find-results").flex_1().min_h_0().overflow_y_scroll().pb_2().children(rows))
+            .child(
+                div()
+                    .id("find-results")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .pb_2()
+                    .children(rows),
+            )
     }
 }

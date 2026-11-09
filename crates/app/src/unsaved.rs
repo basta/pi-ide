@@ -27,19 +27,32 @@ fn dirty(workspace: &Entity<Workspace>, cx: &App) -> Vec<Entity<Buffer>> {
 
 /// Every project window's workspace.
 fn all_workspaces(cx: &App) -> Vec<Entity<Workspace>> {
-    Services::open_projects(cx).into_iter().filter_map(|(id, _)| Services::for_window(id, cx).map(|s| s.workspace)).collect()
+    Services::open_projects(cx)
+        .into_iter()
+        .filter_map(|(id, _)| Services::for_window(id, cx).map(|s| s.workspace))
+        .collect()
 }
 
 /// Ask about `workspaces`' unsaved files (in `window`), then run `proceed`
 /// unless the user cancels. Runs `proceed` at once when nothing is unsaved.
-pub fn confirm(workspaces: Vec<Entity<Workspace>>, window: &mut Window, cx: &mut App, proceed: Rc<dyn Fn(&mut Window, &mut App)>) {
-    let files: Vec<(Entity<Workspace>, Entity<Buffer>)> =
-        workspaces.iter().flat_map(|w| dirty(w, cx).into_iter().map(move |b| (w.clone(), b))).collect();
+pub fn confirm(
+    workspaces: Vec<Entity<Workspace>>,
+    window: &mut Window,
+    cx: &mut App,
+    proceed: Rc<dyn Fn(&mut Window, &mut App)>,
+) {
+    let files: Vec<(Entity<Workspace>, Entity<Buffer>)> = workspaces
+        .iter()
+        .flat_map(|w| dirty(w, cx).into_iter().map(move |b| (w.clone(), b)))
+        .collect();
     if files.is_empty() {
         proceed(window, cx);
         return;
     }
-    let names: Vec<String> = files.iter().map(|(_, b)| b.read(cx).file_name().to_string()).collect();
+    let names: Vec<String> = files
+        .iter()
+        .map(|(_, b)| b.read(cx).file_name().to_string())
+        .collect();
     let n = names.len();
     let files = Rc::new(files);
     window.open_dialog(cx, move |dialog, _, cx| {
@@ -47,7 +60,11 @@ pub fn confirm(workspaces: Vec<Entity<Workspace>>, window: &mut Window, cx: &mut
         let (files2, proceed2) = (files.clone(), proceed.clone());
         let muted = cx.theme().muted_foreground;
         dialog
-            .title(if n == 1 { format!("Save changes to {}?", names[0]) } else { format!("Save changes to {n} files?") })
+            .title(if n == 1 {
+                format!("Save changes to {}?", names[0])
+            } else {
+                format!("Save changes to {n} files?")
+            })
             .w(px(440.))
             .child(
                 v_flex()
@@ -59,23 +76,44 @@ pub fn confirm(workspaces: Vec<Entity<Workspace>>, window: &mut Window, cx: &mut
             )
             .footer(
                 DialogFooter::new()
-                    .child(DialogClose::new().child(Button::new("unsaved-cancel").label("Cancel").outline()))
-                    .child(Button::new("unsaved-discard").label("Don't Save").outline().on_click(move |_, window, cx| {
-                        window.close_dialog(cx);
-                        proceed2(window, cx);
-                    }))
-                    .child(Button::new("unsaved-save").label(if n == 1 { "Save" } else { "Save All" }).primary().on_click(move |_, window, cx| {
-                        window.close_dialog(cx);
-                        save_all(&files2, window, cx, proceed.clone());
-                    })),
+                    .child(
+                        DialogClose::new()
+                            .child(Button::new("unsaved-cancel").label("Cancel").outline()),
+                    )
+                    .child(
+                        Button::new("unsaved-discard")
+                            .label("Don't Save")
+                            .outline()
+                            .on_click(move |_, window, cx| {
+                                window.close_dialog(cx);
+                                proceed2(window, cx);
+                            }),
+                    )
+                    .child(
+                        Button::new("unsaved-save")
+                            .label(if n == 1 { "Save" } else { "Save All" })
+                            .primary()
+                            .on_click(move |_, window, cx| {
+                                window.close_dialog(cx);
+                                save_all(&files2, window, cx, proceed.clone());
+                            }),
+                    ),
             )
     });
 }
 
 use gpui_kit::prelude::FluentBuilder as _;
 
-fn save_all(files: &[(Entity<Workspace>, Entity<Buffer>)], window: &mut Window, cx: &mut App, proceed: Rc<dyn Fn(&mut Window, &mut App)>) {
-    let tasks: Vec<Task<anyhow::Result<()>>> = files.iter().map(|(w, b)| w.update(cx, |w, cx| w.save(b, cx))).collect();
+fn save_all(
+    files: &[(Entity<Workspace>, Entity<Buffer>)],
+    window: &mut Window,
+    cx: &mut App,
+    proceed: Rc<dyn Fn(&mut Window, &mut App)>,
+) {
+    let tasks: Vec<Task<anyhow::Result<()>>> = files
+        .iter()
+        .map(|(w, b)| w.update(cx, |w, cx| w.save(b, cx)))
+        .collect();
     window
         .spawn(cx, async move |cx| {
             let mut errors = Vec::new();
@@ -89,7 +127,10 @@ fn save_all(files: &[(Entity<Workspace>, Entity<Buffer>)], window: &mut Window, 
                     proceed(window, cx);
                 } else {
                     // Don't close or quit over a failed save.
-                    window.push_notification(Notification::error(format!("Not saved: {}", errors.join("; "))), cx);
+                    window.push_notification(
+                        Notification::error(format!("Not saved: {}", errors.join("; "))),
+                        cx,
+                    );
                 }
             });
         })
@@ -107,7 +148,12 @@ pub fn close_window(window: &mut Window, cx: &mut App) {
         window.remove_window();
         return;
     };
-    confirm(vec![s.workspace], window, cx, Rc::new(|window, _| window.remove_window()));
+    confirm(
+        vec![s.workspace],
+        window,
+        cx,
+        Rc::new(|window, _| window.remove_window()),
+    );
 }
 
 /// The window's own close button goes through the same question.
@@ -118,7 +164,9 @@ pub fn guard_window(window: &mut Window, cx: &mut App) {
         if answered.get() {
             return true;
         }
-        let Some(s) = Services::for_window(window.window_handle().window_id(), cx) else { return true };
+        let Some(s) = Services::for_window(window.window_handle().window_id(), cx) else {
+            return true;
+        };
         if dirty(&s.workspace, cx).is_empty() {
             return true;
         }

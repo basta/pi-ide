@@ -41,10 +41,26 @@ pub struct Bitmap {
 }
 
 enum Request {
-    Open { id: u64, path: PathBuf, reply: oneshot::Sender<Result<Vec<PageSize>, String>> },
-    Render { id: u64, page: usize, width_px: u32, reply: oneshot::Sender<Result<Bitmap, String>> },
-    Search { id: u64, text: String, match_case: bool, reply: oneshot::Sender<Result<Vec<Hit>, String>> },
-    Close { id: u64 },
+    Open {
+        id: u64,
+        path: PathBuf,
+        reply: oneshot::Sender<Result<Vec<PageSize>, String>>,
+    },
+    Render {
+        id: u64,
+        page: usize,
+        width_px: u32,
+        reply: oneshot::Sender<Result<Bitmap, String>>,
+    },
+    Search {
+        id: u64,
+        text: String,
+        match_case: bool,
+        reply: oneshot::Sender<Result<Vec<Hit>, String>>,
+    },
+    Close {
+        id: u64,
+    },
 }
 
 /// Where the library lives once installed through pide.
@@ -71,7 +87,9 @@ pub fn download_url() -> Option<String> {
         ("linux", "aarch64") => "pdfium-linux-arm64.tgz",
         _ => return None,
     };
-    Some(format!("https://github.com/bblanchon/pdfium-binaries/releases/download/{PDFIUM_RELEASE}/{asset}"))
+    Some(format!(
+        "https://github.com/bblanchon/pdfium-binaries/releases/download/{PDFIUM_RELEASE}/{asset}"
+    ))
 }
 
 #[derive(Clone)]
@@ -111,21 +129,37 @@ fn start() -> Result<Worker, String> {
             while let Ok(req) = rx.recv() {
                 match req {
                     Request::Open { id, path, reply } => {
-                        let r = pdfium.load_pdf_from_file(&path, None).map_err(|e| e.to_string()).map(|doc| {
-                            let sizes = doc
-                                .pages()
-                                .iter()
-                                .map(|p| PageSize { width: p.width().value, height: p.height().value })
-                                .collect();
-                            docs.insert(id, doc);
-                            sizes
-                        });
+                        let r = pdfium
+                            .load_pdf_from_file(&path, None)
+                            .map_err(|e| e.to_string())
+                            .map(|doc| {
+                                let sizes = doc
+                                    .pages()
+                                    .iter()
+                                    .map(|p| PageSize {
+                                        width: p.width().value,
+                                        height: p.height().value,
+                                    })
+                                    .collect();
+                                docs.insert(id, doc);
+                                sizes
+                            });
                         let _ = reply.send(r);
                     }
-                    Request::Render { id, page, width_px, reply } => {
+                    Request::Render {
+                        id,
+                        page,
+                        width_px,
+                        reply,
+                    } => {
                         let _ = reply.send(render(&docs, id, page, width_px));
                     }
-                    Request::Search { id, text, match_case, reply } => {
+                    Request::Search {
+                        id,
+                        text,
+                        match_case,
+                        reply,
+                    } => {
                         let _ = reply.send(search(&docs, id, &text, match_case));
                     }
                     Request::Close { id } => {
@@ -139,10 +173,20 @@ fn start() -> Result<Worker, String> {
     Ok(Worker { tx })
 }
 
-fn render(docs: &HashMap<u64, PdfDocument<'_>>, id: u64, page: usize, width_px: u32) -> Result<Bitmap, String> {
+fn render(
+    docs: &HashMap<u64, PdfDocument<'_>>,
+    id: u64,
+    page: usize,
+    width_px: u32,
+) -> Result<Bitmap, String> {
     let doc = docs.get(&id).ok_or("document closed")?;
-    let p = doc.pages().get(page as PdfPageIndex).map_err(|e| e.to_string())?;
-    let config = PdfRenderConfig::new().set_target_width(width_px.max(1) as Pixels).render_form_data(true);
+    let p = doc
+        .pages()
+        .get(page as PdfPageIndex)
+        .map_err(|e| e.to_string())?;
+    let config = PdfRenderConfig::new()
+        .set_target_width(width_px.max(1) as Pixels)
+        .render_form_data(true);
     let bitmap = p.render_with_config(&config).map_err(|e| e.to_string())?;
     let rgba = bitmap.as_image().map_err(|e| e.to_string())?.into_rgba8();
     let (width, height) = rgba.dimensions();
@@ -150,17 +194,28 @@ fn render(docs: &HashMap<u64, PdfDocument<'_>>, id: u64, page: usize, width_px: 
     for px in bgra.chunks_exact_mut(4) {
         px.swap(0, 2);
     }
-    Ok(Bitmap { width, height, bgra })
+    Ok(Bitmap {
+        width,
+        height,
+        bgra,
+    })
 }
 
-fn search(docs: &HashMap<u64, PdfDocument<'_>>, id: u64, text: &str, match_case: bool) -> Result<Vec<Hit>, String> {
+fn search(
+    docs: &HashMap<u64, PdfDocument<'_>>,
+    id: u64,
+    text: &str,
+    match_case: bool,
+) -> Result<Vec<Hit>, String> {
     let doc = docs.get(&id).ok_or("document closed")?;
     let options = PdfSearchOptions::new().match_case(match_case);
     let mut hits = Vec::new();
     for (i, page) in doc.pages().iter().enumerate() {
         let height = page.height().value;
         let Ok(page_text) = page.text() else { continue };
-        let Ok(search) = page_text.search(text, &options) else { continue };
+        let Ok(search) = page_text.search(text, &options) else {
+            continue;
+        };
         for segments in search.iter(PdfSearchDirection::SearchForward) {
             let rects = segments
                 .iter()
@@ -186,17 +241,41 @@ fn search(docs: &HashMap<u64, PdfDocument<'_>>, id: u64, text: &str, match_case:
 impl Worker {
     pub fn open(&self, id: u64, path: &Path) -> oneshot::Receiver<Result<Vec<PageSize>, String>> {
         let (reply, rx) = oneshot::channel();
-        let _ = self.tx.send(Request::Open { id, path: path.to_path_buf(), reply });
+        let _ = self.tx.send(Request::Open {
+            id,
+            path: path.to_path_buf(),
+            reply,
+        });
         rx
     }
-    pub fn render(&self, id: u64, page: usize, width_px: u32) -> oneshot::Receiver<Result<Bitmap, String>> {
+    pub fn render(
+        &self,
+        id: u64,
+        page: usize,
+        width_px: u32,
+    ) -> oneshot::Receiver<Result<Bitmap, String>> {
         let (reply, rx) = oneshot::channel();
-        let _ = self.tx.send(Request::Render { id, page, width_px, reply });
+        let _ = self.tx.send(Request::Render {
+            id,
+            page,
+            width_px,
+            reply,
+        });
         rx
     }
-    pub fn search(&self, id: u64, text: &str, match_case: bool) -> oneshot::Receiver<Result<Vec<Hit>, String>> {
+    pub fn search(
+        &self,
+        id: u64,
+        text: &str,
+        match_case: bool,
+    ) -> oneshot::Receiver<Result<Vec<Hit>, String>> {
         let (reply, rx) = oneshot::channel();
-        let _ = self.tx.send(Request::Search { id, text: text.to_string(), match_case, reply });
+        let _ = self.tx.send(Request::Search {
+            id,
+            text: text.to_string(),
+            match_case,
+            reply,
+        });
         rx
     }
     pub fn close(&self, id: u64) {
@@ -216,7 +295,9 @@ mod tests {
     fn open_render_search_real_pdf() {
         let path = PathBuf::from(std::env::var("PIDE_TEST_PDF").expect("PIDE_TEST_PDF"));
         let w = worker().expect("pdfium");
-        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
         let sizes = rt.block_on(w.open(1, &path)).unwrap().unwrap();
         assert!(!sizes.is_empty());
         let bmp = rt.block_on(w.render(1, 0, 600)).unwrap().unwrap();

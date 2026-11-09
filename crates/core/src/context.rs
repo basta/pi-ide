@@ -25,7 +25,11 @@ pub struct EditorContext {
 impl EditorContext {
     /// The chip shown for it: `buffer.rs 41–44`, `buffer.rs:12`.
     pub fn label(&self) -> String {
-        let name = self.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let name = self
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         if self.start == self.end {
             format!("{name}:{}", self.start.0)
         } else if self.start.0 == self.end.0 {
@@ -41,10 +45,20 @@ impl EditorContext {
         if self.start == self.end {
             b.push_str(&format!("cursor: {}:{}\n", self.start.0, self.start.1));
         } else {
-            b.push_str(&format!("selection: {}:{}-{}:{}\n", self.start.0, self.start.1, self.end.0, self.end.1));
+            b.push_str(&format!(
+                "selection: {}:{}-{}:{}\n",
+                self.start.0, self.start.1, self.end.0, self.end.1
+            ));
             match &self.selected {
-                Some(text) => b.push_str(&format!("```{}\n{}\n```\n", self.language, text.trim_end_matches('\n'))),
-                None => b.push_str(&format!("(selected text not included: {} bytes, over 4 KB)\n", self.selected_bytes)),
+                Some(text) => b.push_str(&format!(
+                    "```{}\n{}\n```\n",
+                    self.language,
+                    text.trim_end_matches('\n')
+                )),
+                None => b.push_str(&format!(
+                    "(selected text not included: {} bytes, over 4 KB)\n",
+                    self.selected_bytes
+                )),
             }
         }
         b.push_str("</editor-context>\n\n");
@@ -54,16 +68,30 @@ impl EditorContext {
 
 /// Split a sent prompt back into (context chip label, the user's own text) for display.
 pub fn split_prompt(text: &str) -> (Option<String>, &str) {
-    let Some(rest) = text.strip_prefix("<editor-context>\n") else { return (None, text) };
-    let Some(end) = rest.find("</editor-context>") else { return (None, text) };
+    let Some(rest) = text.strip_prefix("<editor-context>\n") else {
+        return (None, text);
+    };
+    let Some(end) = rest.find("</editor-context>") else {
+        return (None, text);
+    };
     let block = &rest[..end];
     let user = rest[end + "</editor-context>".len()..].trim_start_matches('\n');
-    let file = block.lines().find_map(|l| l.strip_prefix("file: ")).unwrap_or("?");
-    let name = std::path::Path::new(file).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let file = block
+        .lines()
+        .find_map(|l| l.strip_prefix("file: "))
+        .unwrap_or("?");
+    let name = std::path::Path::new(file)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
     let label = if let Some(sel) = block.lines().find_map(|l| l.strip_prefix("selection: ")) {
         let (a, b) = sel.split_once('-').unwrap_or((sel, sel));
         let line = |p: &str| p.split(':').next().unwrap_or("").to_string();
-        if line(a) == line(b) { format!("{name}:{}", line(a)) } else { format!("{name} {}–{}", line(a), line(b)) }
+        if line(a) == line(b) {
+            format!("{name}:{}", line(a))
+        } else {
+            format!("{name} {}–{}", line(a), line(b))
+        }
     } else if let Some(cur) = block.lines().find_map(|l| l.strip_prefix("cursor: ")) {
         format!("{name}:{}", cur.split(':').next().unwrap_or(""))
     } else {
@@ -78,7 +106,8 @@ pub struct EditorContextSource(pub Rc<dyn Fn(&Window, &App) -> Option<EditorCont
 impl Global for EditorContextSource {}
 
 pub fn current(window: &Window, cx: &App) -> Option<EditorContext> {
-    cx.try_global::<EditorContextSource>().and_then(|s| (s.0)(window, cx))
+    cx.try_global::<EditorContextSource>()
+        .and_then(|s| (s.0)(window, cx))
 }
 
 #[cfg(test)]
@@ -98,7 +127,10 @@ mod tests {
 
     #[::core::prelude::v1::test]
     fn block_round_trips_to_a_chip() {
-        let sent = format!("{}Why strip the BOM first?", ctx(Some("pub fn decode(")).block());
+        let sent = format!(
+            "{}Why strip the BOM first?",
+            ctx(Some("pub fn decode(")).block()
+        );
         assert!(sent.contains("```rust\npub fn decode(\n```"));
         let (label, user) = split_prompt(&sent);
         assert_eq!(label.as_deref(), Some("buffer.rs 41–44"));

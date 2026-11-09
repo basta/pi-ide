@@ -32,7 +32,14 @@ fn start(extra: Vec<String>, log: RawLog) -> Harness {
     let (in_tx, in_rx) = mpsc::unbounded_channel();
     let (rec_tx, rec_rx) = mpsc::unbounded_channel();
 
-    tokio::spawn(run(client_read, client_write, cmd_rx, in_tx, Arc::new(log), None));
+    tokio::spawn(run(
+        client_read,
+        client_write,
+        cmd_rx,
+        in_tx,
+        Arc::new(log),
+        None,
+    ));
     tokio::spawn(async move {
         let mut lines = BufReader::new(pi_read).lines();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -40,7 +47,10 @@ fn start(extra: Vec<String>, log: RawLog) -> Harness {
             let _ = rec_tx.send(cmd.clone());
             if cmd["type"] == "prompt" {
                 for l in &extra {
-                    pi_write.write_all(format!("{l}\n").as_bytes()).await.unwrap();
+                    pi_write
+                        .write_all(format!("{l}\n").as_bytes())
+                        .await
+                        .unwrap();
                 }
                 // Write in odd-sized chunks, with CRLF on one line, to exercise framing.
                 let mut data = FIXTURE.replacen('\n', "\r\n", 1).into_bytes();
@@ -52,7 +62,11 @@ fn start(extra: Vec<String>, log: RawLog) -> Harness {
             }
         }
     });
-    Harness { commands: cmd_tx, inbound: in_rx, received: rec_rx }
+    Harness {
+        commands: cmd_tx,
+        inbound: in_rx,
+        received: rec_rx,
+    }
 }
 
 async fn collect_until_settled(rx: &mut mpsc::UnboundedReceiver<Inbound>) -> Vec<Inbound> {
@@ -73,23 +87,44 @@ async fn collect_until_settled(rx: &mut mpsc::UnboundedReceiver<Inbound>) -> Vec
 #[tokio::test]
 async fn replays_a_tool_call_session() {
     let mut h = start(vec![], RawLog::disabled());
-    h.commands.send(json!({"id":"p1","type":"prompt","message":"read note.txt"}).to_string()).unwrap();
+    h.commands
+        .send(json!({"id":"p1","type":"prompt","message":"read note.txt"}).to_string())
+        .unwrap();
     let recs = collect_until_settled(&mut h.inbound).await;
 
     let events: Vec<&AgentEvent> = recs
         .iter()
-        .filter_map(|r| if let Inbound::Event(e) = r { Some(e) } else { None })
+        .filter_map(|r| {
+            if let Inbound::Event(e) = r {
+                Some(e)
+            } else {
+                None
+            }
+        })
         .collect();
 
     // Responses to the recorded get_state and prompt came through.
     let responses: Vec<(&str, bool)> = recs
         .iter()
-        .filter_map(|r| if let Inbound::Response { command, success, .. } = r { Some((command.as_str(), *success)) } else { None })
+        .filter_map(|r| {
+            if let Inbound::Response {
+                command, success, ..
+            } = r
+            {
+                Some((command.as_str(), *success))
+            } else {
+                None
+            }
+        })
         .collect();
     assert_eq!(responses, vec![("get_state", true), ("prompt", true)]);
 
     // Extension status from the user's search extension.
-    assert!(events.iter().any(|e| matches!(e, AgentEvent::Status { key, .. } if key == "search")));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::Status { key, .. } if key == "search"))
+    );
 
     // The tool call, start and end, with the file's contents.
     let start = events.iter().find_map(|e| match e {
@@ -100,7 +135,12 @@ async fn replays_a_tool_call_session() {
     assert_eq!(name, "read");
     assert_eq!(args["path"], "note.txt");
     let end = events.iter().find_map(|e| match e {
-        AgentEvent::ToolEnd { id: end_id, result, is_error, .. } if *end_id == id => Some((result.clone(), *is_error)),
+        AgentEvent::ToolEnd {
+            id: end_id,
+            result,
+            is_error,
+            ..
+        } if *end_id == id => Some((result.clone(), *is_error)),
         _ => None,
     });
     let (result, is_error) = end.expect("tool end with matching id");
@@ -110,27 +150,66 @@ async fn replays_a_tool_call_session() {
     // Streamed answer text reassembles to the authoritative text_end content.
     let streamed: String = events
         .iter()
-        .filter_map(|e| if let AgentEvent::TextDelta { delta, .. } = e { Some(delta.as_str()) } else { None })
+        .filter_map(|e| {
+            if let AgentEvent::TextDelta { delta, .. } = e {
+                Some(delta.as_str())
+            } else {
+                None
+            }
+        })
         .collect();
-    let final_text = events.iter().find_map(|e| if let AgentEvent::TextEnd { content, .. } = e { Some(content.clone()) } else { None });
+    let final_text = events.iter().find_map(|e| {
+        if let AgentEvent::TextEnd { content, .. } = e {
+            Some(content.clone())
+        } else {
+            None
+        }
+    });
     assert_eq!(final_text.as_deref(), Some("hello from fixture"));
     assert_eq!(streamed, "hello from fixture");
 
     // Two assistant messages (tool call, then answer), thinking streamed, clean settle.
-    assert_eq!(events.iter().filter(|e| matches!(e, AgentEvent::AssistantStart)).count(), 2);
-    assert!(events.iter().any(|e| matches!(e, AgentEvent::ThinkingDelta { .. })));
-    assert!(matches!(events.last(), Some(AgentEvent::Settled { aborted: false })));
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, AgentEvent::AssistantStart))
+            .count(),
+        2
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::ThinkingDelta { .. }))
+    );
+    assert!(matches!(
+        events.last(),
+        Some(AgentEvent::Settled { aborted: false })
+    ));
     // Nothing in a real session should be unknown.
-    assert!(!events.iter().any(|e| matches!(e, AgentEvent::Unknown(_))), "unexpected Unknown events");
+    assert!(
+        !events.iter().any(|e| matches!(e, AgentEvent::Unknown(_))),
+        "unexpected Unknown events"
+    );
 }
 
 #[tokio::test]
 async fn blocking_dialogs_reach_the_client_unanswered() {
     let dialog = json!({"type":"extension_ui_request","id":"ui-7","method":"confirm","title":"Allow rm -rf?","message":"target/debug"}).to_string();
     let mut h = start(vec![dialog], RawLog::disabled());
-    h.commands.send(json!({"type":"prompt","message":"x"}).to_string()).unwrap();
+    h.commands
+        .send(json!({"type":"prompt","message":"x"}).to_string())
+        .unwrap();
     let recs = collect_until_settled(&mut h.inbound).await;
-    let d = recs.iter().find_map(|r| if let Inbound::Dialog(d) = r { Some(d.clone()) } else { None }).expect("dialog forwarded");
+    let d = recs
+        .iter()
+        .find_map(|r| {
+            if let Inbound::Dialog(d) = r {
+                Some(d.clone())
+            } else {
+                None
+            }
+        })
+        .expect("dialog forwarded");
     assert_eq!(d.id, "ui-7");
     assert_eq!(d.message.as_deref(), Some("target/debug"));
     // The connection must not answer on the user's behalf.
@@ -145,13 +224,21 @@ async fn raw_log_records_both_directions() {
     let path = dir.join("pi-rpc.jsonl");
     let _ = std::fs::remove_file(&path);
     let mut h = start(vec![], RawLog::open(path.clone()));
-    h.commands.send(json!({"type":"prompt","message":"x"}).to_string()).unwrap();
+    h.commands
+        .send(json!({"type":"prompt","message":"x"}).to_string())
+        .unwrap();
     collect_until_settled(&mut h.inbound).await;
 
     let log = std::fs::read_to_string(&path).unwrap();
-    let recs: Vec<Value> = log.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let recs: Vec<Value> = log
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
     assert_eq!(recs.iter().filter(|r| r["dir"] == "out").count(), 1);
-    assert_eq!(recs.iter().filter(|r| r["dir"] == "in").count(), FIXTURE.lines().count());
+    assert_eq!(
+        recs.iter().filter(|r| r["dir"] == "in").count(),
+        FIXTURE.lines().count()
+    );
     // Lines are logged raw (CR stripped), so they still parse as the original records.
     for r in recs.iter().filter(|r| r["dir"] == "in") {
         let _: Value = serde_json::from_str(r["line"].as_str().unwrap()).unwrap();
@@ -169,15 +256,30 @@ fn steer_and_follow_up_queue_updates_parse() {
     for line in fixture.lines() {
         for rec in pide_agent_pi::wire::parse_line(line) {
             match rec {
-                Inbound::Event(AgentEvent::Queue { steering, follow_up }) => queues.push((steering, follow_up)),
+                Inbound::Event(AgentEvent::Queue {
+                    steering,
+                    follow_up,
+                }) => queues.push((steering, follow_up)),
                 Inbound::Event(AgentEvent::UserPrompt { text }) => users.push(text),
-                Inbound::Response { command, success: false, error, .. } if command == "prompt" => rejected = error,
+                Inbound::Response {
+                    command,
+                    success: false,
+                    error,
+                    ..
+                } if command == "prompt" => rejected = error,
                 _ => {}
             }
         }
     }
-    assert_eq!(queues.first().unwrap().0, vec!["Also mention the word banana in your reply."]);
-    assert!(queues.iter().any(|(_, f)| f == &vec!["Now reply with just: follow-up received.".to_string()]));
+    assert_eq!(
+        queues.first().unwrap().0,
+        vec!["Also mention the word banana in your reply."]
+    );
+    assert!(
+        queues
+            .iter()
+            .any(|(_, f)| f == &vec!["Now reply with just: follow-up received.".to_string()])
+    );
     assert_eq!(queues.last().unwrap(), &(vec![], vec![]));
     // Delivered steer and follow-up show up as user messages.
     assert!(users.iter().any(|u| u.contains("banana")));
@@ -194,14 +296,40 @@ fn recorded_dialogs_parse() {
     let dialogs: Vec<_> = fixture
         .lines()
         .flat_map(pide_agent_pi::wire::parse_line)
-        .filter_map(|r| if let Inbound::Dialog(d) = r { Some(d) } else { None })
+        .filter_map(|r| {
+            if let Inbound::Dialog(d) = r {
+                Some(d)
+            } else {
+                None
+            }
+        })
         .collect();
     let kinds: Vec<DialogKind> = dialogs.iter().map(|d| d.kind).collect();
-    assert_eq!(kinds, [DialogKind::Confirm, DialogKind::Select, DialogKind::Input, DialogKind::Editor]);
-    assert_eq!(dialogs[0].message.as_deref(), Some("rm -rf target/debug/incremental"));
+    assert_eq!(
+        kinds,
+        [
+            DialogKind::Confirm,
+            DialogKind::Select,
+            DialogKind::Input,
+            DialogKind::Editor
+        ]
+    );
+    assert_eq!(
+        dialogs[0].message.as_deref(),
+        Some("rm -rf target/debug/incremental")
+    );
     assert_eq!(dialogs[1].options, ["Kimi K2.6", "GLM 5.2", "Sonnet 5.5"]);
-    assert_eq!(dialogs[2].placeholder.as_deref(), Some("e.g. crlf-save-fix"));
-    assert!(dialogs[3].prefill.as_deref().unwrap().starts_with("Keep CRLF"));
+    assert_eq!(
+        dialogs[2].placeholder.as_deref(),
+        Some("e.g. crlf-save-fix")
+    );
+    assert!(
+        dialogs[3]
+            .prefill
+            .as_deref()
+            .unwrap()
+            .starts_with("Keep CRLF")
+    );
     assert!(dialogs.iter().all(|d| !d.id.is_empty()));
 }
 
@@ -219,7 +347,14 @@ async fn file_tools_get_a_before_snapshot() {
     let (_pi_read, mut pi_write) = tokio::io::split(pi_io);
     let (_cmd_tx, cmd_rx) = mpsc::unbounded_channel();
     let (in_tx, mut in_rx) = mpsc::unbounded_channel();
-    tokio::spawn(run(client_read, client_write, cmd_rx, in_tx, Arc::new(RawLog::disabled()), Some(dir.clone())));
+    tokio::spawn(run(
+        client_read,
+        client_write,
+        cmd_rx,
+        in_tx,
+        Arc::new(RawLog::disabled()),
+        Some(dir.clone()),
+    ));
 
     let lines = [
         r#"{"type":"tool_execution_start","toolCallId":"functions.edit:1","toolName":"edit","args":{"path":"a.txt","edits":[{"oldText":"beta","newText":"BETA"}]}}"#,
@@ -227,7 +362,10 @@ async fn file_tools_get_a_before_snapshot() {
         r#"{"type":"tool_execution_start","toolCallId":"functions.read:3","toolName":"read","args":{"path":"a.txt"}}"#,
     ];
     for (i, l) in lines.iter().enumerate() {
-        pi_write.write_all(format!("{l}\n").as_bytes()).await.unwrap();
+        pi_write
+            .write_all(format!("{l}\n").as_bytes())
+            .await
+            .unwrap();
         tokio::time::sleep(Duration::from_millis(30)).await;
         // "pi" now runs that tool:
         match i {
@@ -238,12 +376,52 @@ async fn file_tools_get_a_before_snapshot() {
     }
     let mut touched = Vec::new();
     while let Ok(Some(rec)) = tokio::time::timeout(Duration::from_millis(300), in_rx.recv()).await {
-        if let Inbound::Event(AgentEvent::FileTouched { tool, path, before, .. }) = rec {
-            touched.push((tool, path.file_name().unwrap().to_string_lossy().to_string(), before));
+        if let Inbound::Event(AgentEvent::FileTouched {
+            tool, path, before, ..
+        }) = rec
+        {
+            touched.push((
+                tool,
+                path.file_name().unwrap().to_string_lossy().to_string(),
+                before,
+            ));
         }
     }
-    assert_eq!(touched.len(), 2, "only edit and write are file tools: {touched:?}");
-    assert_eq!(touched[0], ("edit".into(), "a.txt".into(), Some("alpha\nbeta\n".into())));
+    assert_eq!(
+        touched.len(),
+        2,
+        "only edit and write are file tools: {touched:?}"
+    );
+    assert_eq!(
+        touched[0],
+        ("edit".into(), "a.txt".into(), Some("alpha\nbeta\n".into()))
+    );
     assert_eq!(touched[1], ("write".into(), "new.txt".into(), None));
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// get_state / set_model / get_available_models as pi 1.5.0 answered them.
+#[test]
+fn model_responses_parse() {
+    let lines: Vec<serde_json::Value> = include_str!("fixtures/model_rpc_responses.jsonl")
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let by = |c: &str| lines.iter().find(|v| v["command"] == c).unwrap()["data"].clone();
+    let m = pide_agent_pi::wire::model_info(&by("get_state")["model"]).unwrap();
+    assert_eq!(
+        (m.provider.as_str(), m.id.as_str(), m.reasoning),
+        ("openrouter", "moonshotai/kimi-k2.6", true)
+    );
+    assert_eq!(by("get_state")["thinkingLevel"], "minimal");
+    let set = pide_agent_pi::wire::model_info(&by("set_model")).unwrap();
+    assert_eq!(set.id, "~anthropic/claude-haiku-latest");
+    let models = by("get_available_models")["models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(pide_agent_pi::wire::model_info)
+        .count();
+    assert_eq!(models, 3);
 }

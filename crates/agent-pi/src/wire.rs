@@ -7,7 +7,13 @@ use serde_json::Value;
 #[derive(Debug, Clone)]
 pub enum Inbound {
     Event(AgentEvent),
-    Response { id: Option<String>, command: String, success: bool, error: Option<String>, data: Value },
+    Response {
+        id: Option<String>,
+        command: String,
+        success: bool,
+        error: Option<String>,
+        data: Value,
+    },
     /// A blocking extension dialog (`select`/`confirm`/`input`/`editor`): pi waits for
     /// an `extension_ui_response` (or its own `timeout`).
     Dialog(DialogRequest),
@@ -33,7 +39,10 @@ const QUIET: &[&str] = &[
 ];
 
 fn s(v: &Value, key: &str) -> String {
-    v.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
+    v.get(key)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
 }
 
 fn idx(v: &Value) -> usize {
@@ -58,7 +67,11 @@ fn message_text(message: &Value) -> String {
 pub fn parse_line(line: &str) -> Vec<Inbound> {
     let v: Value = match serde_json::from_str(line) {
         Ok(v) => v,
-        Err(_) => return vec![Inbound::Event(AgentEvent::Unknown(Value::String(line.to_string())))],
+        Err(_) => {
+            return vec![Inbound::Event(AgentEvent::Unknown(Value::String(
+                line.to_string(),
+            )))];
+        }
     };
     let ty = v.get("type").and_then(Value::as_str).unwrap_or_default();
     let ev = |e| vec![Inbound::Event(e)];
@@ -74,7 +87,9 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
             let m = v.get("message").cloned().unwrap_or_default();
             match m.get("role").and_then(Value::as_str) {
                 Some("assistant") => ev(AgentEvent::AssistantStart),
-                Some("user") => ev(AgentEvent::UserPrompt { text: message_text(&m) }),
+                Some("user") => ev(AgentEvent::UserPrompt {
+                    text: message_text(&m),
+                }),
                 // system prompt, tool results (covered by tool_execution_*), custom: not shown
                 _ => vec![],
             }
@@ -82,10 +97,22 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
         "message_update" => {
             let e = v.get("assistantMessageEvent").cloned().unwrap_or_default();
             match e.get("type").and_then(Value::as_str).unwrap_or_default() {
-                "text_delta" => ev(AgentEvent::TextDelta { index: idx(&e), delta: s(&e, "delta") }),
-                "text_end" => ev(AgentEvent::TextEnd { index: idx(&e), content: s(&e, "content") }),
-                "thinking_delta" => ev(AgentEvent::ThinkingDelta { index: idx(&e), delta: s(&e, "delta") }),
-                "thinking_end" => ev(AgentEvent::ThinkingEnd { index: idx(&e), content: s(&e, "content") }),
+                "text_delta" => ev(AgentEvent::TextDelta {
+                    index: idx(&e),
+                    delta: s(&e, "delta"),
+                }),
+                "text_end" => ev(AgentEvent::TextEnd {
+                    index: idx(&e),
+                    content: s(&e, "content"),
+                }),
+                "thinking_delta" => ev(AgentEvent::ThinkingDelta {
+                    index: idx(&e),
+                    delta: s(&e, "delta"),
+                }),
+                "thinking_end" => ev(AgentEvent::ThinkingEnd {
+                    index: idx(&e),
+                    content: s(&e, "content"),
+                }),
                 // starts, tool-call argument streaming: shown via tool_execution_* instead
                 _ => vec![],
             }
@@ -97,7 +124,10 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
             }
             let stop = s(&m, "stopReason");
             let error = matches!(stop.as_str(), "error" | "aborted").then(|| {
-                m.get("errorMessage").and_then(Value::as_str).map(str::to_string).unwrap_or(stop)
+                m.get("errorMessage")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or(stop)
             });
             ev(AgentEvent::AssistantEnd { error })
         }
@@ -121,10 +151,18 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
             let list = |k: &str| -> Vec<String> {
                 v.get(k)
                     .and_then(Value::as_array)
-                    .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
                     .unwrap_or_default()
             };
-            ev(AgentEvent::Queue { steering: list("steering"), follow_up: list("followUp") })
+            ev(AgentEvent::Queue {
+                steering: list("steering"),
+                follow_up: list("followUp"),
+            })
         }
         "agent_settled" => ev(AgentEvent::Settled {
             aborted: v.get("aborted").and_then(Value::as_bool).unwrap_or(false),
@@ -138,7 +176,10 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
         "extension_ui_request" => match s(&v, "method").as_str() {
             "setStatus" => ev(AgentEvent::Status {
                 key: s(&v, "statusKey"),
-                text: v.get("statusText").and_then(Value::as_str).map(str::to_string),
+                text: v
+                    .get("statusText")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
             }),
             "notify" => ev(AgentEvent::Notify {
                 message: s(&v, "message"),
@@ -159,7 +200,12 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
                     options: v
                         .get("options")
                         .and_then(Value::as_array)
-                        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(Value::as_str)
+                                .map(str::to_string)
+                                .collect()
+                        })
                         .unwrap_or_default(),
                     placeholder: opt("placeholder"),
                     prefill: opt("prefill"),
@@ -180,20 +226,51 @@ mod tests {
 
     #[test]
     fn garbage_is_unknown_not_a_panic() {
-        assert!(matches!(&parse_line("not json")[..], [Inbound::Event(AgentEvent::Unknown(_))]));
-        assert!(matches!(&parse_line(r#"{"type":"brand_new_event"}"#)[..], [Inbound::Event(AgentEvent::Unknown(_))]));
-        assert!(matches!(&parse_line(r#"{"no_type":1}"#)[..], [Inbound::Event(AgentEvent::Unknown(_))]));
+        assert!(matches!(
+            &parse_line("not json")[..],
+            [Inbound::Event(AgentEvent::Unknown(_))]
+        ));
+        assert!(matches!(
+            &parse_line(r#"{"type":"brand_new_event"}"#)[..],
+            [Inbound::Event(AgentEvent::Unknown(_))]
+        ));
+        assert!(matches!(
+            &parse_line(r#"{"no_type":1}"#)[..],
+            [Inbound::Event(AgentEvent::Unknown(_))]
+        ));
     }
 
     #[test]
     fn aborted_assistant_message_reports_error() {
-        let out = parse_line(r#"{"type":"message_end","message":{"role":"assistant","stopReason":"aborted"}}"#);
-        assert!(matches!(&out[..], [Inbound::Event(AgentEvent::AssistantEnd { error: Some(e) })] if e == "aborted"));
+        let out = parse_line(
+            r#"{"type":"message_end","message":{"role":"assistant","stopReason":"aborted"}}"#,
+        );
+        assert!(
+            matches!(&out[..], [Inbound::Event(AgentEvent::AssistantEnd { error: Some(e) })] if e == "aborted")
+        );
     }
 
     #[test]
     fn dialogs_are_flagged() {
-        let out = parse_line(r#"{"type":"extension_ui_request","id":"u1","method":"select","title":"Allow rm?","options":["Allow","Block"],"timeout":10000}"#);
-        assert!(matches!(&out[..], [Inbound::Dialog(d)] if d.id == "u1" && d.kind == DialogKind::Select && d.options == ["Allow", "Block"] && d.timeout_ms == Some(10000)));
+        let out = parse_line(
+            r#"{"type":"extension_ui_request","id":"u1","method":"select","title":"Allow rm?","options":["Allow","Block"],"timeout":10000}"#,
+        );
+        assert!(
+            matches!(&out[..], [Inbound::Dialog(d)] if d.id == "u1" && d.kind == DialogKind::Select && d.options == ["Allow", "Block"] && d.timeout_ms == Some(10000))
+        );
     }
+}
+
+/// A pi Model object (recorded: tests/fixtures/model_rpc_responses.jsonl).
+pub fn model_info(v: &Value) -> Option<pide_core::ModelInfo> {
+    Some(pide_core::ModelInfo {
+        provider: v.get("provider")?.as_str()?.to_string(),
+        id: v.get("id")?.as_str()?.to_string(),
+        name: v
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        reasoning: v.get("reasoning").and_then(Value::as_bool).unwrap_or(false),
+    })
 }

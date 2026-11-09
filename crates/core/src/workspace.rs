@@ -37,7 +37,10 @@ impl Workspace {
             Ok((watcher, mut rx)) => {
                 let task = cx.spawn(async move |this: WeakEntity<Self>, cx| {
                     while let Some(changes) = rx.recv().await {
-                        if this.update(cx, |this, cx| this.on_disk_changes(changes, cx)).is_err() {
+                        if this
+                            .update(cx, |this, cx| this.on_disk_changes(changes, cx))
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -49,7 +52,13 @@ impl Workspace {
                 (None, None)
             }
         };
-        Self { root, buffers: Vec::new(), active: None, _watcher: watcher, _watch_task: task }
+        Self {
+            root,
+            buffers: Vec::new(),
+            active: None,
+            _watcher: watcher,
+            _watch_task: task,
+        }
     }
 
     pub fn root(&self) -> &Path {
@@ -62,7 +71,10 @@ impl Workspace {
 
     pub fn buffer_for(&self, path: &Path, cx: &App) -> Option<Entity<Buffer>> {
         let path = canonical(path);
-        self.buffers.iter().find(|b| b.read(cx).path == path).cloned()
+        self.buffers
+            .iter()
+            .find(|b| b.read(cx).path == path)
+            .cloned()
     }
 
     pub fn active(&self) -> Option<&Entity<Buffer>> {
@@ -77,7 +89,11 @@ impl Workspace {
     }
 
     /// Open a file (or return the already-open buffer). Reads off the UI thread.
-    pub fn open(&mut self, path: PathBuf, cx: &mut Context<Self>) -> Task<anyhow::Result<Entity<Buffer>>> {
+    pub fn open(
+        &mut self,
+        path: PathBuf,
+        cx: &mut Context<Self>,
+    ) -> Task<anyhow::Result<Entity<Buffer>>> {
         if let Some(b) = self.buffer_for(&path, cx) {
             return Task::ready(Ok(b));
         }
@@ -133,7 +149,11 @@ impl Workspace {
     }
 
     /// Save to disk. Read-only buffers are refused.
-    pub fn save(&mut self, buffer: &Entity<Buffer>, cx: &mut Context<Self>) -> Task<anyhow::Result<()>> {
+    pub fn save(
+        &mut self,
+        buffer: &Entity<Buffer>,
+        cx: &mut Context<Self>,
+    ) -> Task<anyhow::Result<()>> {
         let b = buffer.read(cx);
         if let Some(reason) = &b.read_only {
             return Task::ready(Err(anyhow::anyhow!("{reason}")));
@@ -161,10 +181,16 @@ impl Workspace {
     }
 
     /// Replace the buffer with what's on disk, dropping unsaved edits (conflict → Reload).
-    pub fn reload(&mut self, buffer: &Entity<Buffer>, cx: &mut Context<Self>) -> Task<anyhow::Result<()>> {
+    pub fn reload(
+        &mut self,
+        buffer: &Entity<Buffer>,
+        cx: &mut Context<Self>,
+    ) -> Task<anyhow::Result<()>> {
         let path = buffer.read(cx).path.clone();
         let buffer = buffer.clone();
-        let read = cx.background_executor().spawn(async move { std::fs::read(&path) });
+        let read = cx
+            .background_executor()
+            .spawn(async move { std::fs::read(&path) });
         cx.spawn(async move |this, cx| {
             let bytes = read.await?;
             this.update(cx, |this, cx| this.apply_disk_bytes(&buffer, &bytes, cx))
@@ -205,7 +231,10 @@ impl Workspace {
             b.revision += 1;
             cx.notify();
         });
-        cx.emit(WorkspaceEvent::FileChangedOnDisk { buffer: buffer.clone(), reloaded: true });
+        cx.emit(WorkspaceEvent::FileChangedOnDisk {
+            buffer: buffer.clone(),
+            reloaded: true,
+        });
     }
 
     fn on_disk_changes(&mut self, changes: fswatch::Changes, cx: &mut Context<Self>) {
@@ -221,10 +250,14 @@ impl Workspace {
             cx.emit(WorkspaceEvent::TreeChanged);
         }
         for path in relevant {
-            let Some(buffer) = self.buffer_for(&path, cx) else { continue };
+            let Some(buffer) = self.buffer_for(&path, cx) else {
+                continue;
+            };
             let known = buffer.read(cx).disk_hash;
             let read_path = buffer.read(cx).path.clone();
-            let read = cx.background_executor().spawn(async move { std::fs::read(&read_path) });
+            let read = cx
+                .background_executor()
+                .spawn(async move { std::fs::read(&read_path) });
             cx.spawn(async move |this, cx| {
                 let result = read.await;
                 let _ = this.update(cx, |this, cx| match result {
@@ -241,7 +274,10 @@ impl Workspace {
                                 b.conflict = true;
                                 cx.notify();
                             });
-                            cx.emit(WorkspaceEvent::FileChangedOnDisk { buffer: buffer.clone(), reloaded: false });
+                            cx.emit(WorkspaceEvent::FileChangedOnDisk {
+                                buffer: buffer.clone(),
+                                reloaded: false,
+                            });
                         } else {
                             this.apply_disk_bytes(&buffer, &bytes, cx);
                         }

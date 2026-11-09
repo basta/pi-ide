@@ -78,7 +78,10 @@ pub struct PiBackend {
 impl PiBackend {
     /// `resume`: an existing pi session file to continue.
     pub fn new(root: PathBuf, resume: Option<PathBuf>) -> Self {
-        let shared = Shared { session_file: resume, ..Default::default() };
+        let shared = Shared {
+            session_file: resume,
+            ..Default::default()
+        };
         Self {
             root,
             process: None,
@@ -119,7 +122,13 @@ impl PiBackend {
         let Some(pi) = find_pi() else {
             let message = "Can't find the `pi` executable (looked on PATH, /opt/homebrew/bin, /usr/local/bin). Install it with `npm i -g @earendil-works/pi-coding-agent`.".to_string();
             cx.emit(AgentEvent::Error(message.clone()));
-            agent.set_status(AgentStatus::Crashed { message, stderr_tail: vec![] }, cx);
+            agent.set_status(
+                AgentStatus::Crashed {
+                    message,
+                    stderr_tail: vec![],
+                },
+                cx,
+            );
             return;
         };
 
@@ -129,14 +138,22 @@ impl PiBackend {
             args.extend(extra.split_whitespace().map(str::to_string));
         }
         if let Some(session) = self.shared.borrow().session_file.clone() {
-            args.extend(["--session".to_string(), session.to_string_lossy().into_owned()]);
+            args.extend([
+                "--session".to_string(),
+                session.to_string_lossy().into_owned(),
+            ]);
         }
         {
             let mut sh = self.shared.borrow_mut();
             sh.expected_exit = false;
             sh.alive = true;
         }
-        log::info!("starting {} {} in {}", pi.display(), args.join(" "), self.root.display());
+        log::info!(
+            "starting {} {} in {}",
+            pi.display(),
+            args.join(" "),
+            self.root.display()
+        );
 
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<String>();
         let (in_tx, mut in_rx) = mpsc::unbounded_channel::<Inbound>();
@@ -144,7 +161,16 @@ impl PiBackend {
         let (exit_tx, exit_rx) = oneshot::channel::<(Option<i32>, Vec<String>, Option<String>)>();
 
         self.shared.borrow_mut().kill = Some(kill_tx);
-        pide_runtime::spawn(supervise(pi, args, self.root.clone(), self.tag, cmd_rx, in_tx, kill_rx, exit_tx));
+        pide_runtime::spawn(supervise(
+            pi,
+            args,
+            self.root.clone(),
+            self.tag,
+            cmd_rx,
+            in_tx,
+            kill_rx,
+            exit_tx,
+        ));
 
         // UI side: apply everything pi sends, then handle its exit.
         let shared = self.shared.clone();
@@ -165,9 +191,13 @@ impl PiBackend {
                         schedule_idle_stop(&shared, cx);
                     }
                     Inbound::Event(e) => agent.handle_event(e, cx),
-                    Inbound::Response { command, success, error, data, .. } => {
-                        handle_response(&shared, agent, &command, success, error, data, cx)
-                    }
+                    Inbound::Response {
+                        command,
+                        success,
+                        error,
+                        data,
+                        ..
+                    } => handle_response(&shared, agent, &command, success, error, data, cx),
                     Inbound::Dialog(req) => agent.handle_event(AgentEvent::Dialog(req), cx),
                 });
                 if ok.is_err() {
@@ -188,14 +218,32 @@ impl PiBackend {
                 }
                 let message = match spawn_error {
                     Some(e) => format!("Couldn't start pi: {e}"),
-                    None => format!("pi exited unexpectedly (exit code {}).", code.map_or("none".into(), |c| c.to_string())),
+                    None => format!(
+                        "pi exited unexpectedly (exit code {}).",
+                        code.map_or("none".into(), |c| c.to_string())
+                    ),
                 };
-                agent.handle_event(AgentEvent::Exited { code, stderr_tail: stderr_tail.clone() }, cx);
-                agent.set_status(AgentStatus::Crashed { message, stderr_tail }, cx);
+                agent.handle_event(
+                    AgentEvent::Exited {
+                        code,
+                        stderr_tail: stderr_tail.clone(),
+                    },
+                    cx,
+                );
+                agent.set_status(
+                    AgentStatus::Crashed {
+                        message,
+                        stderr_tail,
+                    },
+                    cx,
+                );
             });
         });
 
-        self.process = Some(Process { commands: cmd_tx, _inbound: inbound });
+        self.process = Some(Process {
+            commands: cmd_tx,
+            _inbound: inbound,
+        });
         agent.set_status(AgentStatus::Starting, cx);
         self.send(json!({"type": "get_state"}));
     }
@@ -211,7 +259,10 @@ fn handle_response(
     cx: &mut Context<Agent>,
 ) {
     if !success {
-        let msg = format!("pi rejected `{command}`: {}", error.unwrap_or_else(|| "no reason given".into()));
+        let msg = format!(
+            "pi rejected `{command}`: {}",
+            error.unwrap_or_else(|| "no reason given".into())
+        );
         log::warn!("{msg}");
         agent.handle_event(AgentEvent::Error(msg), cx);
         if command == "prompt" {
@@ -228,6 +279,12 @@ fn handle_response(
             if let Some(n) = data.get("sessionName").and_then(Value::as_str) {
                 agent.name = n.to_string().into();
             }
+            agent.model = data.get("model").and_then(crate::wire::model_info);
+            agent.thinking = data
+                .get("thinkingLevel")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            cx.notify();
             if matches!(agent.status(), AgentStatus::Starting) {
                 agent.set_status(AgentStatus::Idle, cx);
             }
@@ -236,6 +293,18 @@ fn handle_response(
             Some("handled") => agent.set_status(AgentStatus::Idle, cx),
             _ => agent.set_status(AgentStatus::Busy, cx),
         },
+        "set_model" => {
+            agent.model = crate::wire::model_info(&data);
+            cx.notify();
+        }
+        "get_available_models" => {
+            agent.models = data
+                .get("models")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(crate::wire::model_info).collect())
+                .unwrap_or_default();
+            cx.notify();
+        }
         "new_session" => {
             shared.borrow_mut().session_file = None;
             agent.session_file = None;
@@ -244,9 +313,45 @@ fn handle_response(
     }
 }
 
+impl PiBackend {
+    /// Send a command that needs the process, starting it if needed.
+    fn send_started(&mut self, msg: Value, agent: &mut Agent, cx: &mut Context<Agent>) {
+        self.shared.borrow_mut().idle_stop = None;
+        self.ensure_started(agent, cx);
+        if self.process.is_some() {
+            self.send(msg);
+        }
+    }
+}
+
 impl AgentBackend for PiBackend {
+    fn request_models(&mut self, agent: &mut Agent, cx: &mut Context<Agent>) {
+        self.send_started(json!({"type": "get_available_models"}), agent, cx);
+    }
+
+    fn set_model(
+        &mut self,
+        provider: String,
+        id: String,
+        agent: &mut Agent,
+        cx: &mut Context<Agent>,
+    ) {
+        self.send_started(
+            json!({"type": "set_model", "provider": provider, "modelId": id}),
+            agent,
+            cx,
+        );
+        // The thinking level may change with the model; pi answers in order.
+        if self.process.is_some() {
+            self.send(json!({"type": "get_state"}));
+        }
+    }
+
     fn prompt(&mut self, text: String, agent: &mut Agent, cx: &mut Context<Agent>) {
-        if agent.is_busy() && self.process.is_some() && !matches!(agent.status(), AgentStatus::Starting) {
+        if agent.is_busy()
+            && self.process.is_some()
+            && !matches!(agent.status(), AgentStatus::Starting)
+        {
             // Busy: a plain prompt would be rejected by pi; steer instead.
             self.queue(text, false, agent, cx);
             return;
@@ -301,7 +406,13 @@ impl AgentBackend for PiBackend {
         self.send(json!({"type": kind, "message": text}));
     }
 
-    fn answer_dialog(&mut self, id: String, answer: DialogAnswer, _agent: &mut Agent, _cx: &mut Context<Agent>) {
+    fn answer_dialog(
+        &mut self,
+        id: String,
+        answer: DialogAnswer,
+        _agent: &mut Agent,
+        _cx: &mut Context<Agent>,
+    ) {
         let mut rec = json!({"type": "extension_ui_response", "id": id});
         match answer {
             DialogAnswer::Value(v) => rec["value"] = json!(v),
@@ -335,7 +446,10 @@ fn schedule_idle_stop(shared: &Rc<RefCell<Shared>>, cx: &mut Context<Agent>) {
                 return;
             }
             if let Some(shared) = weak.upgrade() {
-                log::info!("session \"{}\" idle for {IDLE_STOP:?}; stopping its pi process", agent.name);
+                log::info!(
+                    "session \"{}\" idle for {IDLE_STOP:?}; stopping its pi process",
+                    agent.name
+                );
                 // Don't drop this task from inside itself: take only the kill switch.
                 let mut sh = shared.borrow_mut();
                 if sh.alive {
@@ -377,7 +491,11 @@ async fn supervise(
     exit: oneshot::Sender<(Option<i32>, Vec<String>, Option<String>)>,
 ) {
     // pi is a node script (`#!/usr/bin/env node`); make sure node's dir is on PATH.
-    let mut path = pi.parent().map(Path::to_path_buf).into_iter().collect::<Vec<_>>();
+    let mut path = pi
+        .parent()
+        .map(Path::to_path_buf)
+        .into_iter()
+        .collect::<Vec<_>>();
     if let Some(p) = std::env::var_os("PATH") {
         path.extend(std::env::split_paths(&p));
     }
@@ -409,7 +527,11 @@ async fn supervise(
         let tail = tail.clone();
         let log_path = paths::state_dir().join("pi-stderr.log");
         tokio::spawn(async move {
-            let mut file = std::fs::OpenOptions::new().create(true).append(true).open(&log_path).ok();
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)
+                .ok();
             let mut lines = tokio::io::BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 if let Some(f) = file.as_mut() {

@@ -2,10 +2,10 @@
 //! asks for the new name, the server computes the edit, and it is applied to
 //! every file (open editors stay undoable; other files are edited and saved).
 
-use gpui_kit::component::input::{Input, InputEvent, InputState, RopeExt as _};
-use gpui_kit::component::notification::Notification;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dialog::{DialogAction, DialogClose, DialogFooter};
+use gpui_kit::component::input::{Input, InputEvent, InputState, RopeExt as _};
+use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{Sizable as _, WindowExt as _};
 use gpui_kit::*;
 use lsp_types::{PrepareRenameResponse, WorkspaceEdit};
@@ -16,7 +16,9 @@ use serde_json::json;
 use crate::EditorPanel;
 
 pub(crate) fn rename_symbol(window: &mut Window, cx: &mut App) {
-    let Some(panel) = crate::active_panel(window, cx) else { return };
+    let Some(panel) = crate::active_panel(window, cx) else {
+        return;
+    };
     let (path, editor, store) = {
         let p = panel.read(cx);
         (p.path.clone(), p.editor.clone(), p.lsp.clone())
@@ -24,12 +26,20 @@ pub(crate) fn rename_symbol(window: &mut Window, cx: &mut App) {
     let Some(store) = store else { return };
     let Some((enc, prepare)) = store.read(cx).server_for(&path).map(|s| {
         let prepare = matches!(
-            s.capabilities.as_ref().and_then(|c| c.rename_provider.as_ref()),
-            Some(lsp_types::OneOf::Right(lsp_types::RenameOptions { prepare_provider: Some(true), .. }))
+            s.capabilities
+                .as_ref()
+                .and_then(|c| c.rename_provider.as_ref()),
+            Some(lsp_types::OneOf::Right(lsp_types::RenameOptions {
+                prepare_provider: Some(true),
+                ..
+            }))
         );
         (s.encoding, prepare)
     }) else {
-        window.push_notification(Notification::warning("No language server is running for this file."), cx);
+        window.push_notification(
+            Notification::warning("No language server is running for this file."),
+            cx,
+        );
         return;
     };
     let (rope, offset) = {
@@ -38,7 +48,10 @@ pub(crate) fn rename_symbol(window: &mut Window, cx: &mut App) {
     };
     let position = offset_to_server(&rope, offset, enc);
     // The word under the cursor, in case the server doesn't do prepareRename.
-    let fallback = rope.word_range(offset).map(|r| rope.slice(r).to_string()).unwrap_or_default();
+    let fallback = rope
+        .word_range(offset)
+        .map(|r| rope.slice(r).to_string())
+        .unwrap_or_default();
 
     let prepare_task = prepare.then(|| {
         store.update(cx, |s, cx| {
@@ -59,10 +72,15 @@ pub(crate) fn rename_symbol(window: &mut Window, cx: &mut App) {
                 Some(task) => match task.await {
                     Ok(v) if v.is_null() => None,
                     Ok(v) => match serde_json::from_value::<PrepareRenameResponse>(v) {
-                        Ok(PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. }) => Some(placeholder),
+                        Ok(PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. }) => {
+                            Some(placeholder)
+                        }
                         Ok(PrepareRenameResponse::Range(r)) => {
                             let r = range_from_server(&rope, r, enc);
-                            let (a, b) = (rope.position_to_offset(&r.start), rope.position_to_offset(&r.end));
+                            let (a, b) = (
+                                rope.position_to_offset(&r.start),
+                                rope.position_to_offset(&r.end),
+                            );
                             Some(rope.slice(a..b).to_string())
                         }
                         Ok(PrepareRenameResponse::DefaultBehavior { .. }) => Some(fallback),
@@ -75,7 +93,10 @@ pub(crate) fn rename_symbol(window: &mut Window, cx: &mut App) {
                 },
             };
             let _ = cx.update(|window, cx| match current.filter(|c| !c.is_empty()) {
-                None => window.push_notification(Notification::warning("There's nothing to rename here."), cx),
+                None => window.push_notification(
+                    Notification::warning("There's nothing to rename here."),
+                    cx,
+                ),
                 Some(current) => open_dialog(panel, current, position, enc, window, cx),
             });
         })
@@ -101,7 +122,15 @@ fn open_dialog(
             if new_name.is_empty() || new_name == current {
                 return;
             }
-            perform(panel.clone(), current.clone(), new_name, position, enc, window, cx);
+            perform(
+                panel.clone(),
+                current.clone(),
+                new_name,
+                position,
+                enc,
+                window,
+                cx,
+            );
         }
     });
 
@@ -131,8 +160,14 @@ fn open_dialog(
             .child(Input::new(&input).large())
             .footer(
                 DialogFooter::new()
-                    .child(DialogClose::new().child(Button::new("rename-cancel").label("Cancel").outline()))
-                    .child(DialogAction::new().child(Button::new("rename-ok").label("Rename").primary())),
+                    .child(
+                        DialogClose::new()
+                            .child(Button::new("rename-cancel").label("Cancel").outline()),
+                    )
+                    .child(
+                        DialogAction::new()
+                            .child(Button::new("rename-ok").label("Rename").primary()),
+                    ),
             )
             .on_ok(move |_, window, cx| {
                 run(window, cx);
@@ -169,7 +204,9 @@ fn perform(
     });
     window
         .spawn(cx, async move |cx| {
-            let result = task.await.and_then(|v| Ok(serde_json::from_value::<Option<WorkspaceEdit>>(v)?));
+            let result = task
+                .await
+                .and_then(|v| Ok(serde_json::from_value::<Option<WorkspaceEdit>>(v)?));
             let _ = cx.update(|window, cx| match result {
                 Ok(Some(edit)) => {
                     let files = edit.changes.as_ref().map(|c| c.len()).unwrap_or(0)
@@ -179,11 +216,18 @@ fn perform(
                             None => 0,
                         };
                     crate::apply_workspace_edit(edit, enc, window, cx);
-                    let note = format!("Renamed {old} to {new_name} in {files} file{}.", if files == 1 { "" } else { "s" });
+                    let note = format!(
+                        "Renamed {old} to {new_name} in {files} file{}.",
+                        if files == 1 { "" } else { "s" }
+                    );
                     window.push_notification(Notification::info(note), cx);
                 }
-                Ok(None) => window.push_notification(Notification::warning("The language server made no changes."), cx),
-                Err(e) => window.push_notification(Notification::error(format!("Rename failed: {e:#}")), cx),
+                Ok(None) => window.push_notification(
+                    Notification::warning("The language server made no changes."),
+                    cx,
+                ),
+                Err(e) => window
+                    .push_notification(Notification::error(format!("Rename failed: {e:#}")), cx),
             });
         })
         .detach();
