@@ -1767,13 +1767,37 @@ impl AgentChat {
                             .gap_2()
                             .child(div().text_color(color).child(mark))
                             .child(div().font_weight(FontWeight::BOLD).child(name.clone()))
-                            .child(
+                            .child({
+                                // A file tool's path opens the file.
+                                let file =
+                                    matches!(name.as_str(), "read" | "write" | "edit").then(|| {
+                                        let p = std::path::Path::new(summary.as_str());
+                                        if p.is_absolute() {
+                                            p.to_path_buf()
+                                        } else {
+                                            self.workspace.read(cx).root().join(p)
+                                        }
+                                    });
                                 div()
+                                    .id(("tool-path", ix))
                                     .flex_1()
                                     .overflow_hidden()
                                     .text_ellipsis()
-                                    .child(summary.clone()),
-                            )
+                                    .when_some(file, |d, file| {
+                                        d.cursor_pointer().hover(|s| s.underline()).on_click(
+                                            move |_, window, cx| {
+                                                if file.is_file() {
+                                                    pide_core::opener::open_file(
+                                                        file.clone(),
+                                                        window,
+                                                        cx,
+                                                    );
+                                                }
+                                            },
+                                        )
+                                    })
+                                    .child(summary.clone())
+                            })
                             .when_some(*duration_ms, |this, d| {
                                 this.child(
                                     div()
