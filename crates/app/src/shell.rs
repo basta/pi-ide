@@ -100,6 +100,9 @@ impl Shell {
             _subs: subs,
         };
         this.watch_keymap(window, cx);
+        if let Some(file) = std::env::var_os("PIDE_BENCH") {
+            window.defer(cx, move |window, cx| pide_editor::run_benchmark(PathBuf::from(file), window, cx));
+        }
         window.on_next_frame(|_, _| {
             if let Some(t) = crate::STARTED.get() {
                 log::info!("startup: process start -> first frame {} ms", t.elapsed().as_millis());

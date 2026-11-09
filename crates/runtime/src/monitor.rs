@@ -2,7 +2,8 @@
 //!
 //! Two signals:
 //! - a foreground timer that measures how late it fires; lateness means the UI
-//!   thread was busy with *anything* (event handlers, draws, entity updates);
+//!   thread was busy with *anything* (event handlers, draws, entity updates).
+//!   Only checked while the app is active: macOS throttles background apps;
 //! - GPUI's frame trace, which says how long each `Window::draw` took.
 
 use std::time::{Duration, Instant};
@@ -21,7 +22,10 @@ pub fn start(cx: &mut App) -> Task<()> {
             let before = Instant::now();
             cx.background_executor().timer(TICK).await;
             let late = before.elapsed().saturating_sub(TICK);
-            if late > BUDGET {
+            // A hidden or background app gets its timers throttled by the OS (App Nap,
+            // occlusion); lateness then isn't our work, so only judge it while active.
+            let active = cx.update(|cx| cx.active_window().is_some());
+            if active && late > BUDGET {
                 log::warn!("ui thread blocked ~{} ms", late.as_millis());
             }
             for event in frames.collect_unseen() {

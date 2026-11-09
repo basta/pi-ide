@@ -423,3 +423,75 @@ impl Render for EditorPanel {
             )
     }
 }
+
+/// `PIDE_BENCH=<file>`: open the file, scroll through it and type in it via the
+/// editor API, log GPUI's frame timings, then quit. For checking M1's frame budgets
+/// in the real app (with docks, tree and chat around the editor).
+pub fn run_benchmark(path: PathBuf, window: &mut Window, cx: &mut App) {
+    open_path(path.clone(), window, cx);
+    window
+        .spawn(cx, async move |cx| {
+            use std::time::{Duration, Instant};
+            cx.background_executor().timer(Duration::from_secs(3)).await;
+            let Ok(Some(editor)) = cx.update(|_, cx| {
+                cx.global::<OpenEditors>()
+                    .0
+                    .iter()
+                    .filter_map(|w| w.upgrade())
+                    .find(|p| p.read(cx).path.ends_with(path.file_name().unwrap_or_default()))
+                    .map(|p| p.read(cx).editor.clone())
+            }) else {
+                log::error!("bench: editor not found");
+                return;
+            };
+            set_trace_enabled(true);
+            let mut collector = FrameTimingCollector::new();
+            let mut report = |name: &str, collector: &mut FrameTimingCollector| {
+                let mut draws: Vec<f64> = collector
+                    .collect_unseen()
+                    .into_iter()
+                    .filter_map(|e| match e {
+                        FrameEvent::Draw(t) => Some(t.draw_end.duration_since(t.draw_start).as_secs_f64() * 1e3),
+                        _ => None,
+                    })
+                    .collect();
+                draws.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let n = draws.len().max(1);
+                let p = |q: f64| draws.get(((n - 1) as f64 * q) as usize).copied().unwrap_or(0.0);
+                log::info!(
+                    "bench {name}: frames {} | draw p50 {:.2} p95 {:.2} max {:.2} ms | >16ms {} | >32ms {}",
+                    draws.len(),
+                    p(0.5),
+                    p(0.95),
+                    draws.last().copied().unwrap_or(0.0),
+                    draws.iter().filter(|d| **d > 16.0).count(),
+                    draws.iter().filter(|d| **d > 32.0).count()
+                );
+            };
+            let line_h = cx.update(|_, cx| editor.read(cx).line_height()).ok().flatten().unwrap_or(px(20.));
+            let lines = cx.update(|_, cx| editor.read(cx).text().to_string().lines().count()).unwrap_or(0);
+
+            collector.collect_unseen();
+            for i in 0..(lines / 60) {
+                let y = line_h * (60.0 * i as f32);
+                let _ = cx.update(|_, cx| editor.update(cx, |e, cx| e.set_scroll_offset(point(px(0.), -y), cx)));
+                cx.background_executor().timer(Duration::from_millis(16)).await;
+            }
+            report("fast scroll (60 lines/frame, whole file)", &mut collector);
+
+            let _ = cx.update(|window, cx| {
+                editor.update(cx, |e, cx| e.set_cursor_position(gpui_kit::component::input::Position::new((lines / 2) as u32, 0), window, cx))
+            });
+            cx.background_executor().timer(Duration::from_millis(300)).await;
+            collector.collect_unseen();
+            let started = Instant::now();
+            for ch in "let bench = 42; // typing in the middle\n".chars().cycle().take(200) {
+                let _ = cx.update(|window, cx| editor.update(cx, |e, cx| e.insert(ch.to_string(), window, cx)));
+                cx.background_executor().timer(Duration::from_millis(16)).await;
+            }
+            report("typing (200 chars mid-file)", &mut collector);
+            log::info!("bench: done in {:.1} s", started.elapsed().as_secs_f64());
+            let _ = cx.update(|_, cx| cx.quit());
+        })
+        .detach();
+}
