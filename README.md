@@ -3,7 +3,7 @@
 A personal, native code editor in Rust on GPUI + GPUI Kit, with the pi coding agent built in.
 Spec: the claude.ai doc "pi IDE — Implementation Spec". Contributor/agent guide: `AGENTS.md`.
 
-Status: **M2.5** (projects: one window per project, recent projects) in progress; M2 signed off. M0 results: `docs/SPIKE.md`.
+Status: **M2.5** (projects: one window per project, recent projects, in-window menu bar) signed off. Next: M3 (LSP). M0 results: `docs/SPIKE.md`.
 
 ## Run
 
