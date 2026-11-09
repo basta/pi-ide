@@ -267,10 +267,11 @@ fn handle_response(
     cx: &mut Context<Agent>,
 ) {
     if !success {
-        let msg = format!(
-            "pi rejected `{command}`: {}",
-            error.unwrap_or_else(|| "no reason given".into())
-        );
+        let reason = error.unwrap_or_else(|| "no reason given".into());
+        let msg = match command {
+            "compact" => format!("Not compacted: {reason}."),
+            _ => format!("pi rejected `{command}`: {reason}"),
+        };
         log::warn!("{msg}");
         agent.handle_event(AgentEvent::Error(msg), cx);
         if command == "prompt" {
@@ -304,6 +305,27 @@ fn handle_response(
         "set_model" => {
             agent.model = crate::wire::model_info(&data);
             cx.notify();
+        }
+        "compact" => {
+            let n = |k: &str| {
+                data[k]
+                    .as_u64()
+                    .map(|t| format!("{:.1}k", t as f64 / 1000.0))
+            };
+            let message = match (n("tokensBefore"), n("estimatedTokensAfter")) {
+                (Some(b), Some(a)) => format!("Compacted: {b} → about {a} tokens of context."),
+                _ => "Compacted.".to_string(),
+            };
+            if let Some(s) = agent.stats.as_mut() {
+                s.context_percent = None; // unknown until the next reply
+            }
+            agent.handle_event(
+                AgentEvent::Notify {
+                    message,
+                    error: false,
+                },
+                cx,
+            );
         }
         "get_session_stats" => {
             agent.stats = Some(crate::wire::session_stats(&data));
@@ -342,6 +364,17 @@ impl PiBackend {
 }
 
 impl AgentBackend for PiBackend {
+    fn compact(&mut self, agent: &mut Agent, cx: &mut Context<Agent>) {
+        agent.handle_event(
+            AgentEvent::Notify {
+                message: "Compacting the conversation…".into(),
+                error: false,
+            },
+            cx,
+        );
+        self.send_started(json!({"type": "compact"}), agent, cx);
+    }
+
     fn request_commands(&mut self, agent: &mut Agent, cx: &mut Context<Agent>) {
         self.send_started(json!({"type": "get_commands"}), agent, cx);
     }

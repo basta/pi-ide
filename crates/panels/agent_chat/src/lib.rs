@@ -70,6 +70,11 @@ pub fn init(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
+        CommandSpec::new("agent.compact", "Agent: Compact Session"),
+        move |window, cx| active(window, cx).update(cx, |a, cx| a.compact(cx)),
+    );
+    CommandRegistry::register(
+        cx,
         CommandSpec::new("agent.restart", "Agent: Restart pi"),
         move |window, cx| active(window, cx).update(cx, |a, cx| a.restart(cx)),
     );

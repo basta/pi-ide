@@ -44,6 +44,8 @@ pub trait AgentBackend: 'static {
     fn restart(&mut self, agent: &mut Agent, cx: &mut Context<Agent>);
     /// Ask for the models this session can use; they arrive in `agent.models`.
     fn request_models(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
+    /// Summarize the conversation so far to free context (pi's `compact`).
+    fn compact(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
     /// Ask for the session's slash commands; they arrive in `agent.commands`.
     fn request_commands(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
     /// Switch this session's model; `agent.model` updates when the backend confirms.
@@ -339,6 +341,20 @@ impl Agent {
 
     pub fn request_models(&mut self, cx: &mut Context<Self>) {
         self.with_backend(cx, |b, a, cx| b.request_models(a, cx));
+    }
+
+    pub fn compact(&mut self, cx: &mut Context<Self>) {
+        if self.is_busy() {
+            self.handle_event(
+                AgentEvent::Notify {
+                    message: "pi is working; compact when it's done.".into(),
+                    error: false,
+                },
+                cx,
+            );
+            return;
+        }
+        self.with_backend(cx, |b, a, cx| b.compact(a, cx));
     }
 
     /// Fetch the slash commands once (starts the agent if needed).

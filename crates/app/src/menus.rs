@@ -97,6 +97,7 @@ fn menus() -> Vec<Menu> {
                 cmd("Previous Session", "agent.prev_session"),
                 MenuItem::separator(),
                 cmd("Stop", "agent.abort"),
+                cmd("Compact Session", "agent.compact"),
                 cmd("Restart pi", "agent.restart"),
                 MenuItem::separator(),
                 cmd("pi Settings…", "pi.settings"),
