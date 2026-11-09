@@ -10,7 +10,7 @@ use std::rc::Rc;
 use gpui_kit::assets::Assets;
 use gpui_kit::*;
 use pide_agent_pi::PiBackend;
-use pide_core::{Agent, CommandRegistry, CommandSpec, Services, Workspace, keymap, paths};
+use pide_core::{CommandRegistry, CommandSpec, Services, Sessions, Workspace, keymap, paths};
 
 fn init_logging() {
     let dir = paths::state_dir();
@@ -44,8 +44,11 @@ fn main() {
         theme::apply(pide_core::settings::load().theme, None, cx);
 
         let workspace = cx.new(|cx| Workspace::new(root.clone(), cx));
-        let agent = cx.new(|_| Agent::new(Box::new(PiBackend::new(root.clone()))));
-        cx.set_global(Services { workspace, agent });
+        let factory_root = root.clone();
+        let factory: pide_core::sessions::BackendFactory =
+            Rc::new(move |resume| Box::new(PiBackend::new(factory_root.clone(), resume)) as Box<dyn pide_core::AgentBackend>);
+        let sessions = cx.new(|cx| Sessions::new(factory, cx));
+        cx.set_global(Services { workspace, sessions });
 
         pide_editor::init(cx);
         pide_file_tree::init(cx);

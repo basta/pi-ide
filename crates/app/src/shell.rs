@@ -73,7 +73,7 @@ impl Shell {
                     this.schedule_save(window, cx);
                 }
             }),
-            cx.observe(&services.agent, |_, _, cx| cx.notify()),
+            cx.observe(&services.sessions, |_, _, cx| cx.notify()),
             cx.observe_window_appearance(window, |_, window, cx| crate::theme::on_system_appearance_changed(window, cx)),
             cx.subscribe(&services.workspace, |_, _, ev: &WorkspaceEvent, cx| {
                 if !matches!(ev, WorkspaceEvent::TreeChanged) {
@@ -195,15 +195,28 @@ impl Shell {
             let rel = b.path.strip_prefix(&root).unwrap_or(&b.path).display().to_string();
             (rel, b.line_ending.label(), b.is_dirty(), b.read_only.is_some())
         });
-        let agent = services.agent.read(cx);
-        let agent_label = match agent.status() {
-            AgentStatus::Idle => "pi: idle".to_string(),
-            AgentStatus::Starting => "pi: starting".into(),
-            AgentStatus::Busy => "pi: working".into(),
-            AgentStatus::Aborting => "pi: stopping".into(),
-            AgentStatus::Crashed { .. } => "pi: crashed".into(),
+        let sessions = services.sessions.read(cx);
+        let (mut working, mut waiting, mut crashed) = (0, 0, 0);
+        for a in sessions.all() {
+            let a = a.read(cx);
+            match a.status() {
+                AgentStatus::Busy | AgentStatus::Starting | AgentStatus::Aborting => working += 1,
+                AgentStatus::Crashed { .. } => crashed += 1,
+                _ if a.waiting => waiting += 1,
+                _ => {}
+            }
+        }
+        let mut parts = Vec::new();
+        if working > 0 { parts.push(format!("{working} working")); }
+        if waiting > 0 { parts.push(format!("{waiting} need you")); }
+        if crashed > 0 { parts.push(format!("{crashed} crashed")); }
+        let agent_label = if parts.is_empty() {
+            format!("pi: {} session{}, idle", sessions.all().len(), if sessions.all().len() == 1 { "" } else { "s" })
+        } else {
+            format!("pi: {}", parts.join(", "))
         };
-        let items: Vec<String> = agent.status_items.iter().map(|(_, t)| t.clone()).collect();
+        let active = sessions.active();
+        let items: Vec<String> = active.read(cx).status_items.iter().map(|(_, t)| t.clone()).collect();
         let theme = cx.theme();
         h_flex()
             .w_full()

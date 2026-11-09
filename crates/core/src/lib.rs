@@ -10,6 +10,7 @@ pub mod fswatch;
 pub mod keymap;
 pub mod panel;
 pub mod paths;
+pub mod sessions;
 pub mod settings;
 pub mod workspace;
 
@@ -18,4 +19,5 @@ pub use buffer::{Buffer, LineEnding};
 pub use commands::{CommandRegistry, CommandSpec, RunCommand};
 pub use events::{AgentEvent, DiagnosticsEvent, WorkspaceEvent};
 pub use panel::{DockPosition, Panel, Services};
+pub use sessions::{Sessions, SessionsEvent};
 pub use workspace::Workspace;

@@ -26,53 +26,83 @@ use crate::wire::Inbound;
 
 const STDERR_TAIL: usize = 20;
 const ABORT_DEADLINE: Duration = Duration::from_secs(1);
+/// An idle session stops its pi process after this long (spec M2); the next
+/// prompt resumes it with `--session <file>`.
+const IDLE_STOP: Duration = Duration::from_secs(5 * 60);
 
 /// State shared between the backend and its inbound task.
 #[derive(Default)]
 struct Shared {
-    /// pi's session file, from `get_state`; used to resume after a restart.
-    session_file: Option<String>,
+    /// pi's session file, from `get_state` (or the one we resumed); used to resume after a stop.
+    session_file: Option<PathBuf>,
     /// Set before we kill/stop pi on purpose, so its exit isn't a crash.
     expected_exit: bool,
+    /// The process is running.
+    alive: bool,
+    kill: Option<oneshot::Sender<()>>,
+    idle_stop: Option<Task<()>>,
+}
+
+impl Shared {
+    fn stop(&mut self) {
+        if self.alive {
+            self.expected_exit = true;
+        }
+        if let Some(k) = self.kill.take() {
+            let _ = k.send(());
+        }
+        self.idle_stop = None;
+    }
 }
 
 struct Process {
     commands: mpsc::UnboundedSender<String>,
-    kill: Option<oneshot::Sender<()>>,
     _inbound: Task<()>,
 }
+
+static NEXT_SESSION_TAG: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 pub struct PiBackend {
     root: PathBuf,
     process: Option<Process>,
     shared: Rc<RefCell<Shared>>,
     next_id: u64,
+    /// Tags this session's lines in the shared raw log.
+    tag: u64,
     abort_deadline: Option<Task<()>>,
 }
 
 impl PiBackend {
-    pub fn new(root: PathBuf) -> Self {
-        Self { root, process: None, shared: Rc::default(), next_id: 0, abort_deadline: None }
+    /// `resume`: an existing pi session file to continue.
+    pub fn new(root: PathBuf, resume: Option<PathBuf>) -> Self {
+        let shared = Shared { session_file: resume, ..Default::default() };
+        Self {
+            root,
+            process: None,
+            shared: Rc::new(RefCell::new(shared)),
+            next_id: 0,
+            tag: NEXT_SESSION_TAG.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            abort_deadline: None,
+        }
     }
 
     fn send(&mut self, mut cmd: Value) {
         self.next_id += 1;
-        cmd["id"] = json!(format!("pide-{}", self.next_id));
+        cmd["id"] = json!(format!("pide-{}-{}", self.tag, self.next_id));
         if let Some(p) = &self.process {
             let _ = p.commands.send(cmd.to_string());
         }
     }
 
     fn kill(&mut self) {
-        if let Some(mut p) = self.process.take() {
-            self.shared.borrow_mut().expected_exit = true;
-            if let Some(k) = p.kill.take() {
-                let _ = k.send(());
-            }
-        }
+        self.shared.borrow_mut().stop();
+        self.process = None;
     }
 
     fn ensure_started(&mut self, agent: &mut Agent, cx: &mut Context<Agent>) {
+        if !self.shared.borrow().alive {
+            self.process = None; // stopped (idle, killed, crashed) since we last looked
+        }
         if self.process.is_some() {
             return;
         }
@@ -85,9 +115,13 @@ impl PiBackend {
 
         let mut args = vec!["--mode".to_string(), "rpc".to_string()];
         if let Some(session) = self.shared.borrow().session_file.clone() {
-            args.extend(["--session".to_string(), session]);
+            args.extend(["--session".to_string(), session.to_string_lossy().into_owned()]);
         }
-        self.shared.borrow_mut().expected_exit = false;
+        {
+            let mut sh = self.shared.borrow_mut();
+            sh.expected_exit = false;
+            sh.alive = true;
+        }
         log::info!("starting {} {} in {}", pi.display(), args.join(" "), self.root.display());
 
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<String>();
@@ -95,7 +129,8 @@ impl PiBackend {
         let (kill_tx, kill_rx) = oneshot::channel::<()>();
         let (exit_tx, exit_rx) = oneshot::channel::<(Option<i32>, Vec<String>, Option<String>)>();
 
-        pide_runtime::spawn(supervise(pi, args, self.root.clone(), cmd_rx, in_tx, kill_rx, exit_tx));
+        self.shared.borrow_mut().kill = Some(kill_tx);
+        pide_runtime::spawn(supervise(pi, args, self.root.clone(), self.tag, cmd_rx, in_tx, kill_rx, exit_tx));
 
         // UI side: apply everything pi sends, then handle its exit.
         let shared = self.shared.clone();
@@ -103,6 +138,10 @@ impl PiBackend {
             while let Some(rec) = in_rx.recv().await {
                 let ok = agent.update(cx, |agent, cx| match rec {
                     Inbound::Event(AgentEvent::UserPrompt { .. }) => {} // echoed by us on send
+                    Inbound::Event(e @ AgentEvent::Settled { .. }) => {
+                        agent.handle_event(e, cx);
+                        schedule_idle_stop(&shared, cx);
+                    }
                     Inbound::Event(e) => agent.handle_event(e, cx),
                     Inbound::Response { command, success, error, data, .. } => {
                         handle_response(&shared, agent, &command, success, error, data, cx)
@@ -114,7 +153,13 @@ impl PiBackend {
                 }
             }
             let (code, stderr_tail, spawn_error) = exit_rx.await.unwrap_or((None, vec![], None));
-            let expected = std::mem::take(&mut shared.borrow_mut().expected_exit);
+            let expected = {
+                let mut sh = shared.borrow_mut();
+                sh.alive = false;
+                sh.kill = None;
+                sh.idle_stop = None;
+                std::mem::take(&mut sh.expected_exit)
+            };
             let _ = agent.update(cx, |agent, cx| {
                 if expected {
                     return;
@@ -128,7 +173,7 @@ impl PiBackend {
             });
         });
 
-        self.process = Some(Process { commands: cmd_tx, kill: Some(kill_tx), _inbound: inbound });
+        self.process = Some(Process { commands: cmd_tx, _inbound: inbound });
         agent.set_status(AgentStatus::Starting, cx);
         self.send(json!({"type": "get_state"}));
     }
@@ -155,7 +200,11 @@ fn handle_response(
     match command {
         "get_state" => {
             if let Some(f) = data.get("sessionFile").and_then(Value::as_str) {
-                shared.borrow_mut().session_file = Some(f.to_string());
+                shared.borrow_mut().session_file = Some(PathBuf::from(f));
+                agent.session_file = Some(PathBuf::from(f));
+            }
+            if let Some(n) = data.get("sessionName").and_then(Value::as_str) {
+                agent.name = n.to_string().into();
             }
             if matches!(agent.status(), AgentStatus::Starting) {
                 agent.set_status(AgentStatus::Idle, cx);
@@ -165,7 +214,10 @@ fn handle_response(
             Some("handled") => agent.set_status(AgentStatus::Idle, cx),
             _ => agent.set_status(AgentStatus::Busy, cx),
         },
-        "new_session" => shared.borrow_mut().session_file = None,
+        "new_session" => {
+            shared.borrow_mut().session_file = None;
+            agent.session_file = None;
+        }
         _ => {}
     }
 }
@@ -179,6 +231,7 @@ impl AgentBackend for PiBackend {
         if matches!(agent.status(), AgentStatus::Crashed { .. }) {
             agent.set_status(AgentStatus::Idle, cx);
         }
+        self.shared.borrow_mut().idle_stop = None;
         self.ensure_started(agent, cx);
         if self.process.is_none() {
             return;
@@ -189,7 +242,7 @@ impl AgentBackend for PiBackend {
     }
 
     fn abort(&mut self, agent: &mut Agent, cx: &mut Context<Agent>) {
-        if self.process.is_none() || !agent.is_busy() {
+        if !self.shared.borrow().alive || !agent.is_busy() {
             return;
         }
         self.send(json!({"type": "abort"}));
@@ -215,7 +268,7 @@ impl AgentBackend for PiBackend {
     }
 
     fn new_session(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {
-        if self.process.is_some() {
+        if self.shared.borrow().alive {
             self.send(json!({"type": "new_session"}));
         }
         self.shared.borrow_mut().session_file = None;
@@ -226,6 +279,31 @@ impl AgentBackend for PiBackend {
         self.abort_deadline = None;
         agent.set_status(AgentStatus::Idle, cx);
     }
+}
+
+/// After a run settles, stop the process if the session stays idle for [`IDLE_STOP`].
+fn schedule_idle_stop(shared: &Rc<RefCell<Shared>>, cx: &mut Context<Agent>) {
+    let weak = Rc::downgrade(shared);
+    let task = cx.spawn(async move |agent: WeakEntity<Agent>, cx| {
+        cx.background_executor().timer(IDLE_STOP).await;
+        let _ = agent.update(cx, |agent, _| {
+            if agent.is_busy() || agent.waiting {
+                return;
+            }
+            if let Some(shared) = weak.upgrade() {
+                log::info!("session \"{}\" idle for {IDLE_STOP:?}; stopping its pi process", agent.name);
+                // Don't drop this task from inside itself: take only the kill switch.
+                let mut sh = shared.borrow_mut();
+                if sh.alive {
+                    sh.expected_exit = true;
+                }
+                if let Some(k) = sh.kill.take() {
+                    let _ = k.send(());
+                }
+            }
+        });
+    });
+    shared.borrow_mut().idle_stop = Some(task);
 }
 
 impl Drop for PiBackend {
@@ -248,6 +326,7 @@ async fn supervise(
     pi: PathBuf,
     args: Vec<String>,
     cwd: PathBuf,
+    tag: u64,
     commands: mpsc::UnboundedReceiver<String>,
     inbound: mpsc::UnboundedSender<Inbound>,
     kill: oneshot::Receiver<()>,
@@ -301,7 +380,7 @@ async fn supervise(
         })
     };
 
-    let log = Arc::new(RawLog::open(paths::state_dir().join("pi-rpc.jsonl")));
+    let log = Arc::new(RawLog::open(paths::state_dir().join("pi-rpc.jsonl")).tagged(tag));
     let connection = conn::run(stdout, stdin, commands, inbound, log);
     tokio::select! {
         _ = connection => {}

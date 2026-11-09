@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 use crate::wire::{Inbound, parse_line};
 
 /// Append-only raw log of every line in both directions (spec: always on).
-pub struct RawLog(Option<Mutex<std::fs::File>>);
+pub struct RawLog(Option<Mutex<std::fs::File>>, u64);
 
 impl RawLog {
     pub fn open(path: PathBuf) -> Self {
@@ -22,22 +22,28 @@ impl RawLog {
             let _ = std::fs::create_dir_all(dir);
         }
         match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-            Ok(f) => Self(Some(Mutex::new(f))),
+            Ok(f) => Self(Some(Mutex::new(f)), 0),
             Err(e) => {
                 log::error!("can't open {}: {e}", path.display());
-                Self(None)
+                Self(None, 0)
             }
         }
     }
 
     pub fn disabled() -> Self {
-        Self(None)
+        Self(None, 0)
+    }
+
+    /// Tag every line with a session number (several sessions share one log).
+    pub fn tagged(mut self, session: u64) -> Self {
+        self.1 = session;
+        self
     }
 
     fn write(&self, dir: &str, line: &str) {
         let Some(f) = &self.0 else { return };
         let ts = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-        let rec = json!({ "ts": ts as u64, "dir": dir, "line": line });
+        let rec = json!({ "ts": ts as u64, "session": self.1, "dir": dir, "line": line });
         if let Ok(mut f) = f.lock() {
             let _ = writeln!(f, "{rec}");
         }

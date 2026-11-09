@@ -6,7 +6,7 @@
 
 use gpui_kit::*;
 
-use crate::{Agent, Workspace};
+use crate::{Agent, Sessions, Workspace};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DockPosition {
@@ -30,7 +30,7 @@ pub trait Panel: gpui_kit::component::dock::Panel {
 #[derive(Clone)]
 pub struct Services {
     pub workspace: Entity<Workspace>,
-    pub agent: Entity<Agent>,
+    pub sessions: Entity<Sessions>,
 }
 
 impl Global for Services {}
@@ -38,5 +38,10 @@ impl Global for Services {}
 impl Services {
     pub fn global(cx: &App) -> Self {
         cx.global::<Services>().clone()
+    }
+
+    /// The session the pi panel is showing.
+    pub fn active_agent(cx: &App) -> Entity<Agent> {
+        cx.global::<Services>().sessions.read(cx).active()
     }
 }

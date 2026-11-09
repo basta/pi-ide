@@ -34,13 +34,31 @@ pub struct Agent {
     status: AgentStatus,
     /// Extension status items (`setStatus`), shown in the status bar.
     pub status_items: Vec<(String, String)>,
+    /// Display name: pi's session name, or the start of the first prompt.
+    pub name: SharedString,
+    /// Finished while you were looking at another session.
+    pub unread: bool,
+    /// A blocking question (extension dialog) is waiting for an answer.
+    pub waiting: bool,
+    /// pi's session file, once known; used to resume after the process stops.
+    pub session_file: Option<std::path::PathBuf>,
 }
+
+pub const UNNAMED: &str = "New session";
 
 impl EventEmitter<AgentEvent> for Agent {}
 
 impl Agent {
     pub fn new(backend: Box<dyn AgentBackend>) -> Self {
-        Self { backend: Some(backend), status: AgentStatus::Idle, status_items: Vec::new() }
+        Self {
+            backend: Some(backend),
+            status: AgentStatus::Idle,
+            status_items: Vec::new(),
+            name: UNNAMED.into(),
+            unread: false,
+            waiting: false,
+            session_file: None,
+        }
     }
 
     pub fn status(&self) -> &AgentStatus {
@@ -67,6 +85,10 @@ impl Agent {
     }
 
     pub fn prompt(&mut self, text: String, cx: &mut Context<Self>) {
+        if self.name.as_ref() == UNNAMED {
+            self.name = name_from_prompt(&text).into();
+            cx.notify();
+        }
         self.with_backend(cx, |b, a, cx| b.prompt(text, a, cx));
     }
     pub fn abort(&mut self, cx: &mut Context<Self>) {
@@ -100,4 +122,14 @@ impl Agent {
         }
         cx.emit(event);
     }
+}
+
+/// "fix the flaky replay test please" -> "fix the flaky replay test"
+pub fn name_from_prompt(text: &str) -> String {
+    let words: Vec<&str> = text.split_whitespace().take(5).collect();
+    let mut name = words.join(" ");
+    if name.chars().count() > 32 {
+        name = name.chars().take(31).collect::<String>() + "…";
+    }
+    if name.is_empty() { UNNAMED.to_string() } else { name }
 }
