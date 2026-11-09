@@ -4747,6 +4747,15 @@ version = "0.1.0"
 [[package]]
 name = "pide-agent-pi"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gpui-kit",
+ "log",
+ "pide-core",
+ "pide-runtime",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "pide-core"
