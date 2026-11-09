@@ -21,6 +21,7 @@ Dependencies only go downward: `app` → panels/`editor`/`agent-pi` → `core`/`
 | `crates/panels/language_servers` | `pide-language-servers` | Language Servers tab: status, Install (streams output), Restart. |
 | `crates/panels/problems` | `pide-problems` | Problems panel (bottom dock, Cmd+6): diagnostics by file, click to jump; error/warning counts for the status bar. |
 | `crates/panels/pi_settings` | `pide-pi-settings` | pi Settings tab (Settings → pi…, M3.5): packages (via `pi install/update/remove`), tools and built-in extensions, skills and prompts, MCP servers, default model and thinking, instruction files; Everyone (`~/.pi/agent`) / This project (`.pi/`); Restart sessions. |
+| `crates/panels/search` | `pide-search` | Find in Files (Cmd+Shift+F, bottom dock): `engine.rs` (pure search/replace, gitignore-aware, open buffers win) and the panel; Replace All goes through `Workspace::replace_text` for open files. |
 | `crates/panels/agent_chat` | `pide-agent-chat` | pi panel: session tabs (narrow) / sidebar (≥ 640 px), per-session chat with history, steer/follow-up, extension dialog cards, Changes view, context toggle, `agent.*` commands. |
 | `spike/` | `spike` | M0 throwaway benchmark. Not part of the app. |
 | `reference/` | — | Upstream GPUI Kit examples at the pinned tag. Not built. Read these before writing GPUI code. |
@@ -47,6 +48,8 @@ Dependencies only go downward: `app` → panels/`editor`/`agent-pi` → `core`/`
 - **One `Agent` per session.** `Sessions` holds them; `Services::active_agent(window, cx)` is the one the pi panel shows. New `AgentEvent`s go in `core/src/events.rs`, parsing in `agent-pi/src/wire.rs`, with a recorded fixture test.
 - **Testing pi config changes** without touching the user's: `PI_CODING_AGENT_DIR=<copy of ~/.pi/agent>` (pi and pide both honour it).
 - **Driving the app in tests:** screenshots are 2× pixels; click coordinates are points (pixels ÷ 2). `sips --cropOffset` takes Y then X.
+- **Don't test pide on this repo with rust-analyzer running for long:** its `cargo check` writes to `target/` and the disk is nearly full. Use a small demo project.
+- **Git** (`core/src/git.rs`): branch from `.git/HEAD`, HEAD text via `git show`, line diff with `similar`; the editor draws marks with GPUI Kit's gutter decorations (`editor/src/git_gutter.rs`).
 - **Dev hooks:** `PIDE_PI_ARGS` adds flags to every pi process (`PIDE_PI_ARGS="-e dev/pi-ask-test.ts"` loads the dialog test extension: send `/ask-test`). `PIDE_BENCH=<file>` runs the frame benchmark.
 - **Never read an entity inside its own update.** GPUI panics (“cannot read X while it is already being updated”) and, inside a macOS event callback, aborts the app. It has bitten four times: a command run from the shell's listener, a tab switch from inside the panel, a GPUI Kit provider (`perform_code_action` runs inside the editor's update), and a palette that opens a window. Run commands from a plain `on_action` (not `cx.listener`), `cx.defer`/`window.defer` work that touches the caller, and don't read the `EditorState` passed to a provider callback.
 - **Editor-only keys** use `CommandSpec::in_context(pide_core::commands::EDITOR)`; a global key shadows the same key in narrower contexts (Alt+Enter in the pi composer).

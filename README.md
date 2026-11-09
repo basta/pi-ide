@@ -3,7 +3,7 @@
 A personal, native code editor in Rust on GPUI + GPUI Kit, with the pi coding agent built in.
 Spec: the claude.ai doc "pi IDE — Implementation Spec". Contributor/agent guide: `AGENTS.md`.
 
-Status: **M3** (language servers) and **M3.5** (pi Settings) built and tested in the app. Next: M4 (daily-driver gaps). M0 results: `docs/SPIKE.md`.
+Status: **M3** (language servers), **M3.5** (pi Settings) and **M4** (Go to File, Find in Files, git) built and tested in the app. Next: M5 (previews). M0 results: `docs/SPIKE.md`.
 
 ## Run
 
@@ -26,6 +26,8 @@ Requires `pi` (`npm i -g @earendil-works/pi-coding-agent`) for the chat panel; i
 | Cmd+F2 | Stop pi (active session) |
 | Ctrl+Tab / Ctrl+Shift+Tab | Next / previous pi session |
 | Enter / Option+Enter (pi input, while pi works) | Steer / queue a follow-up |
+| Cmd+Shift+O | Go to File |
+| Cmd+Shift+F | Find in Files (replace too) |
 | Cmd+6 | Problems panel |
 | Cmd+B (editor) | Go to declaration (also Cmd+click) |
 | Option+Enter (editor) | Quick fixes |
