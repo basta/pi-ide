@@ -306,6 +306,10 @@ fn handle_response(
             agent.model = crate::wire::model_info(&data);
             cx.notify();
         }
+        "get_available_thinking_levels" => {
+            agent.thinking_levels = crate::wire::thinking_levels(&data);
+            cx.notify();
+        }
         "compact" => {
             let n = |k: &str| {
                 data[k]
@@ -364,6 +368,22 @@ impl PiBackend {
 }
 
 impl AgentBackend for PiBackend {
+    fn request_thinking_levels(&mut self, agent: &mut Agent, cx: &mut Context<Agent>) {
+        self.send_started(json!({"type": "get_available_thinking_levels"}), agent, cx);
+    }
+
+    fn set_thinking(&mut self, level: String, agent: &mut Agent, cx: &mut Context<Agent>) {
+        self.send_started(
+            json!({"type": "set_thinking_level", "level": level}),
+            agent,
+            cx,
+        );
+        // The response carries no data; get_state reports the level now in effect.
+        if self.process.is_some() {
+            self.send(json!({"type": "get_state"}));
+        }
+    }
+
     fn compact(&mut self, agent: &mut Agent, cx: &mut Context<Agent>) {
         agent.handle_event(
             AgentEvent::Notify {

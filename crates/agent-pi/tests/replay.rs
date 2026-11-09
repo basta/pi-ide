@@ -450,3 +450,16 @@ fn session_stats_parse() {
     assert_eq!(s.context_tokens, Some(3499));
     assert!(s.context_percent.unwrap() > 1.0);
 }
+
+#[test]
+fn thinking_levels_parse() {
+    let lines: Vec<serde_json::Value> = include_str!("fixtures/thinking_rpc_responses.jsonl")
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let levels = pide_agent_pi::wire::thinking_levels(&lines[0]["data"]);
+    assert_eq!(levels, ["off", "minimal", "low", "medium", "high"]);
+    assert_eq!(lines[1]["command"], "set_thinking_level");
+    assert_eq!(lines[2]["data"]["thinkingLevel"], "medium");
+}

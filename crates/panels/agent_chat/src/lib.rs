@@ -1683,13 +1683,16 @@ impl AgentChat {
         let slash_rows_empty_hint = slash_rows.is_empty()
             && !a.commands_loaded
             && slash::typed(&self.input.read(cx).value()).is_some();
-        let model_label = match (&a.model, &a.thinking) {
-            (Some(m), Some(t)) if m.reasoning && t != "off" => {
-                format!("{} · {t}", model_picker::short_label(m))
-            }
-            (Some(m), _) => model_picker::short_label(m),
-            (None, _) => "Model".to_string(),
+        let model_label = match &a.model {
+            Some(m) => model_picker::short_label(m),
+            None => "Model".to_string(),
         };
+        // Thinking level, for models that reason.
+        let thinking_label = match (&a.model, &a.thinking) {
+            (Some(m), Some(t)) if m.reasoning => Some(format!("thinking: {t}")),
+            _ => None,
+        };
+        let agent_thinking = agent.clone();
         let stats = a.stats.clone().filter(|s| s.tokens_total > 0);
         let model_tip = a.model.as_ref().map(|m| format!("{}/{}", m.provider, m.id));
         let agent_model = agent.clone();
@@ -1778,6 +1781,20 @@ impl AgentChat {
                             }
                         );
                         this.child(Button::new("session-stats").xsmall().ghost().label(label).tooltip(tip))
+                    })
+                    .when_some(thinking_label, |this, label| {
+                        this.child(
+                            Button::new("pick-thinking")
+                                .xsmall()
+                                .ghost()
+                                .label(label)
+                                .tooltip("Thinking level for this session")
+                                .on_click(move |_, window, cx| {
+                                    let agent = agent_thinking.clone();
+                                    agent.update(cx, |a, cx| a.request_thinking_levels(cx));
+                                    model_picker::open_thinking(agent, window, cx);
+                                }),
+                        )
                     })
                     .child(
                         Button::new("pick-model")

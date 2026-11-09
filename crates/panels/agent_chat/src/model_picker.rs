@@ -134,6 +134,73 @@ pub(crate) fn open(agent: Entity<Agent>, window: &mut Window, cx: &mut App) {
     });
 }
 
+/// The thinking-level picker: the levels the model supports, current ticked.
+pub(crate) fn open_thinking(agent: Entity<Agent>, window: &mut Window, cx: &mut App) {
+    if window.has_active_dialog(cx) {
+        return;
+    }
+    let state = cx.new(|cx| CommandState::new(window, cx));
+    let focus_once = Rc::new(Cell::new(true));
+    window.open_dialog(cx, move |dialog, _, _| {
+        let (agent, state, focus_once) = (agent.clone(), state.clone(), focus_once.clone());
+        dialog
+            .close_button(false)
+            .p_0()
+            .w(px(320.))
+            .content(move |content, window, cx| {
+                if focus_once.replace(false) {
+                    let state = state.clone();
+                    window.defer(cx, move |window, cx| {
+                        state.read(cx).focus_handle(cx).focus(window, cx)
+                    });
+                }
+                let a = agent.read(cx);
+                let current = a.thinking.clone().unwrap_or_default();
+                let levels: Vec<String> = if a.thinking_levels.is_empty() {
+                    vec![current.clone()]
+                } else {
+                    a.thinking_levels.clone()
+                };
+                let rows: Vec<CommandItem> = levels
+                    .iter()
+                    .map(|l| {
+                        let (l, tick) = (l.clone(), *l == current);
+                        CommandItem::new().label(l.clone()).child(move |_, _| {
+                            h_flex()
+                                .gap_2()
+                                .child(div().w(px(14.)).flex_none().child(if tick {
+                                    "✓"
+                                } else {
+                                    ""
+                                }))
+                                .child(l.clone())
+                        })
+                    })
+                    .collect();
+                let (levels_c, agent_c) = (levels.clone(), agent.clone());
+                content.child(
+                    Command::new(&state)
+                        .bordered(false)
+                        .rounded(cx.theme().radius_lg)
+                        .placeholder("Thinking level")
+                        .max_h(px(320.))
+                        .filterable(false)
+                        .items(rows)
+                        .on_confirm(move |ix, window, cx| {
+                            let pick = levels_c.get(ix.row).cloned();
+                            window.close_dialog(cx);
+                            if let Some(level) = pick {
+                                let agent = agent_c.clone();
+                                window.defer(cx, move |_, cx| {
+                                    agent.update(cx, |a, cx| a.set_thinking(level, cx))
+                                });
+                            }
+                        }),
+                )
+            })
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

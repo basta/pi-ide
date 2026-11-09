@@ -317,3 +317,15 @@ pub fn session_stats(data: &Value) -> pide_core::SessionStats {
         context_window: u(&c["contextWindow"]),
     }
 }
+
+/// `get_available_thinking_levels`' data (recorded: tests/fixtures/thinking_rpc_responses.jsonl).
+pub fn thinking_levels(data: &Value) -> Vec<String> {
+    data.get("levels")
+        .and_then(Value::as_array)
+        .map(|l| {
+            l.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}

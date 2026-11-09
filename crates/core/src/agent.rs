@@ -44,6 +44,10 @@ pub trait AgentBackend: 'static {
     fn restart(&mut self, agent: &mut Agent, cx: &mut Context<Agent>);
     /// Ask for the models this session can use; they arrive in `agent.models`.
     fn request_models(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
+    /// Ask for the thinking levels the current model supports (`agent.thinking_levels`).
+    fn request_thinking_levels(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
+    /// Set this session's thinking level; `agent.thinking` updates when confirmed.
+    fn set_thinking(&mut self, _level: String, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
     /// Summarize the conversation so far to free context (pi's `compact`).
     fn compact(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
     /// Ask for the session's slash commands; they arrive in `agent.commands`.
@@ -110,6 +114,8 @@ pub struct Agent {
     pub thinking: Option<String>,
     /// Models to pick from (filled by `request_models`).
     pub models: Vec<ModelInfo>,
+    /// Thinking levels the model supports (filled by `request_thinking_levels`).
+    pub thinking_levels: Vec<String>,
     /// Cost and context use, refreshed after each run (backend permitting).
     pub stats: Option<SessionStats>,
     /// Slash commands (filled by `request_commands`).
@@ -149,6 +155,7 @@ impl Agent {
             model: None,
             thinking: None,
             models: Vec::new(),
+            thinking_levels: Vec::new(),
             commands: Vec::new(),
             stats: None,
             commands_loaded: false,
@@ -341,6 +348,14 @@ impl Agent {
 
     pub fn request_models(&mut self, cx: &mut Context<Self>) {
         self.with_backend(cx, |b, a, cx| b.request_models(a, cx));
+    }
+
+    pub fn request_thinking_levels(&mut self, cx: &mut Context<Self>) {
+        self.with_backend(cx, |b, a, cx| b.request_thinking_levels(a, cx));
+    }
+
+    pub fn set_thinking(&mut self, level: String, cx: &mut Context<Self>) {
+        self.with_backend(cx, |b, a, cx| b.set_thinking(level, a, cx));
     }
 
     pub fn compact(&mut self, cx: &mut Context<Self>) {

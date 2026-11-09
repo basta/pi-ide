@@ -1,0 +1,3 @@
+{"id":"t1","type":"response","command":"get_available_thinking_levels","success":true,"data":{"levels":["off","minimal","low","medium","high"]}}
+{"id":"t2","type":"response","command":"set_thinking_level","success":true}
+{"id":"t3","type":"response","command":"get_state","success":true,"data":{"thinkingLevel":"medium"}}
