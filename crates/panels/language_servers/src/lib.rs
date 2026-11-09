@@ -24,6 +24,17 @@ enum InstallRun {
     Done { ok: bool, summary: String, lines: Vec<String> },
 }
 
+/// The open instance per window (restored from a layout or opened by command),
+/// so the command focuses it instead of adding a second one.
+#[derive(Default)]
+struct Instances(std::collections::HashMap<WindowId, WeakEntity<LanguageServers>>);
+impl Global for Instances {}
+
+/// This window's open LanguageServers panel, if any.
+pub fn existing(window: &Window, cx: &App) -> Option<Entity<LanguageServers>> {
+    cx.try_global::<Instances>()?.0.get(&window.window_handle().window_id())?.upgrade()
+}
+
 pub struct LanguageServers {
     store: Entity<LspStore>,
     /// Fresh `--version` checks, for servers this project hasn't started.
@@ -40,6 +51,8 @@ impl LanguageServers {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let workspace = Services::of(window, cx).workspace;
         let store = LspStore::for_workspace(&workspace, cx);
+        let me = cx.weak_entity();
+        cx.default_global::<Instances>().0.insert(window.window_handle().window_id(), me);
         let mut this = Self {
             _subs: vec![cx.observe(&store, |_, _, cx| cx.notify())],
             store,

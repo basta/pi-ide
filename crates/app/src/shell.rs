@@ -46,8 +46,7 @@ fn layout_file(root: &Path) -> PathBuf {
 pub struct Shell {
     services: Services,
     lsp: Entity<pide_lsp::LspStore>,
-    language_servers: Option<WeakEntity<pide_language_servers::LanguageServers>>,
-    problems: Option<WeakEntity<pide_problems::Problems>>,
+
     menu_bar: Entity<gpui_kit::component::menu::AppMenuBar>,
     dock: Entity<DockArea>,
     _skin: Rc<DockSkin>,
@@ -138,8 +137,7 @@ impl Shell {
         let this = Self {
             services: services.clone(),
             lsp,
-            language_servers: None,
-            problems: None,
+
             menu_bar: crate::menus::bar(cx),
             dock,
             _skin: skin,
@@ -289,7 +287,7 @@ pub fn show_language_servers(window: &mut Window, cx: &mut App) {
     let id = window.window_handle().window_id();
     let Some(shell) = cx.try_global::<Shells>().and_then(|h| h.0.get(&id)?.upgrade()) else { return };
     shell.update(cx, |shell, cx| {
-        if let Some(p) = shell.language_servers.as_ref().and_then(|w| w.upgrade()) {
+        if let Some(p) = pide_language_servers::existing(window, cx) {
             let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
             if shell.dock.read(cx).panel(pid).is_some() {
                 shell.dock.update(cx, |d, cx| d.select_panel(pid, window, cx));
@@ -298,7 +296,7 @@ pub fn show_language_servers(window: &mut Window, cx: &mut App) {
         }
         let p = cx.new(|cx| pide_language_servers::LanguageServers::new(window, cx));
         shell.dock.update(cx, |d, cx| d.add_panel_view(panel_handle(p.clone()), DockPlacement::Center, None, window, cx));
-        shell.language_servers = Some(p.downgrade());
+        let _ = p;
     });
 }
 
@@ -307,7 +305,7 @@ pub fn toggle_problems(window: &mut Window, cx: &mut App) {
     let id = window.window_handle().window_id();
     let Some(shell) = cx.try_global::<Shells>().and_then(|h| h.0.get(&id)?.upgrade()) else { return };
     shell.update(cx, |shell, cx| {
-        let existing = shell.problems.as_ref().and_then(|w| w.upgrade()).filter(|p| {
+        let existing = pide_problems::existing(window, cx).filter(|p| {
             shell.dock.read(cx).panel(gpui_kit::component::dock::PanelId::from(p.entity_id())).is_some()
         });
         match existing {
@@ -330,7 +328,7 @@ pub fn toggle_problems(window: &mut Window, cx: &mut App) {
                         d.toggle_dock(DockPlacement::Bottom, window, cx);
                     }
                 });
-                shell.problems = Some(p.downgrade());
+                let _ = p;
             }
         }
     });

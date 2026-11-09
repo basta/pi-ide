@@ -31,6 +31,17 @@ pub fn counts(store: &LspStore) -> (usize, usize) {
     (errors, warnings)
 }
 
+/// The open instance per window (restored from a layout or opened by command),
+/// so the command focuses it instead of adding a second one.
+#[derive(Default)]
+struct Instances(std::collections::HashMap<WindowId, WeakEntity<Problems>>);
+impl Global for Instances {}
+
+/// This window's open Problems panel, if any.
+pub fn existing(window: &Window, cx: &App) -> Option<Entity<Problems>> {
+    cx.try_global::<Instances>()?.0.get(&window.window_handle().window_id())?.upgrade()
+}
+
 pub struct Problems {
     store: Entity<LspStore>,
     root: PathBuf,
@@ -46,6 +57,8 @@ impl Problems {
         let workspace = Services::of(window, cx).workspace;
         let root = workspace.read(cx).root().to_path_buf();
         let store = LspStore::for_workspace(&workspace, cx);
+        let me = cx.weak_entity();
+        cx.default_global::<Instances>().0.insert(window.window_handle().window_id(), me);
         Self {
             _subs: vec![cx.observe(&store, |_, _, cx| cx.notify())],
             store,
