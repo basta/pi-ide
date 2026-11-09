@@ -36,10 +36,17 @@ impl Providers {
     }
 
     fn request(&self, text: &Rope, method: &str, params: Value, cx: &mut App) -> Task<Result<Value>> {
+        self.request_with(Some(text), method, params, cx)
+    }
+
+    /// `text`: the editor's current text, synced to the server first. `None`
+    /// when the caller can't read the editor (GPUI Kit calls some providers
+    /// from inside the editor's own update; reading it there panics).
+    fn request_with(&self, text: Option<&Rope>, method: &str, params: Value, cx: &mut App) -> Task<Result<Value>> {
         let Some(store) = self.store.upgrade() else {
             return Task::ready(Err(anyhow::anyhow!("project closed")));
         };
-        store.update(cx, |s, cx| s.request(&self.path, Some(text), method, params, cx))
+        store.update(cx, |s, cx| s.request(&self.path, text, method, params, cx))
     }
 
     fn trigger_characters(&self, cx: &App) -> Vec<String> {
@@ -275,9 +282,10 @@ impl CodeActionProvider for Providers {
         cx: &mut App,
     ) -> Task<Result<()>> {
         let Some(enc) = self.encoding(cx) else { return Task::ready(Ok(())) };
+        // Called from inside `state`'s update: don't read `state` here.
+        let _ = &state;
         let resolve = if action.edit.is_none() && action.data.is_some() {
-            let rope = state.read(cx).text().clone();
-            Some(self.request(&rope, "codeAction/resolve", serde_json::to_value(&action).unwrap_or_default(), cx))
+            Some(self.request_with(None, "codeAction/resolve", serde_json::to_value(&action).unwrap_or_default(), cx))
         } else {
             None
         };

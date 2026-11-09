@@ -60,6 +60,13 @@ pub fn init(cx: &mut App) {
     });
 
     CommandRegistry::register(cx, CommandSpec::new("editor.save", "File: Save").key("cmd-s"), save_active);
+    // JetBrains keys for GPUI Kit's editor actions (which have no default binding, or a VS Code one).
+    CommandRegistry::register(cx, CommandSpec::new("editor.go_to_definition", "Navigate: Go to Declaration").key("cmd-b"), |window, cx| {
+        window.dispatch_action(Box::new(gpui_kit::component::input::GoToDefinition), cx)
+    });
+    CommandRegistry::register(cx, CommandSpec::new("editor.quick_fix", "Code: Show Quick Fixes").key("alt-enter"), |window, cx| {
+        window.dispatch_action(Box::new(gpui_kit::component::input::ToggleCodeActions), cx)
+    });
     CommandRegistry::register(cx, CommandSpec::new("editor.close", "File: Close Tab").key("cmd-w"), |window, cx| {
         window.dispatch_action(Box::new(ClosePanel), cx)
     });
