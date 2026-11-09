@@ -78,6 +78,10 @@ pub struct Shell {
     /// Current git branch, re-read every few seconds (None outside a repository).
     branch: Option<String>,
     _branch_poll: Task<()>,
+    /// "12:5" (or with the selection size) for the status bar; polled, since
+    /// the editor has no cursor-moved event.
+    cursor: Option<String>,
+    _cursor_poll: Task<()>,
     lsp: Entity<pide_lsp::LspStore>,
 
     menu_bar: Entity<gpui_kit::component::menu::AppMenuBar>,
@@ -195,7 +199,34 @@ impl Shell {
                 cx.background_executor().timer(Duration::from_secs(3)).await;
             }
         });
+        let cursor_poll = cx.spawn_in(window, async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(250))
+                    .await;
+                let alive = this.update_in(cx, |this, window, cx| {
+                    let label = pide_core::context::current(window, cx).map(|c| {
+                        let (l, col) = c.end;
+                        match &c.selected {
+                            Some(t) if !t.is_empty() => {
+                                format!("{l}:{col} ({} chars)", t.chars().count())
+                            }
+                            _ => format!("{l}:{col}"),
+                        }
+                    });
+                    if this.cursor != label {
+                        this.cursor = label;
+                        cx.notify();
+                    }
+                });
+                if alive.is_err() {
+                    break;
+                }
+            }
+        });
         let this = Self {
+            cursor: None,
+            _cursor_poll: cursor_poll,
             pdfs: Vec::new(),
             branch: None,
             _branch_poll: branch_poll,
@@ -383,6 +414,7 @@ impl Shell {
                     })
                     .when_some(file, |this, (rel, le, dirty, ro)| {
                         this.child(format!("{rel}{}", if dirty { " ●" } else { "" }))
+                            .children(self.cursor.clone())
                             .child(le)
                             .when(ro, |this| this.child("read-only"))
                     }),
