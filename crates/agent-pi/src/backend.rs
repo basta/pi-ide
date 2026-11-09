@@ -384,6 +384,14 @@ impl AgentBackend for PiBackend {
         }
     }
 
+    fn renamed(&mut self, agent: &mut Agent, cx: &mut Context<Agent>) {
+        // A session that exists on disk keeps the name; a fresh one only has it in pide.
+        if self.process.is_some() || agent.session_file.is_some() {
+            let name = agent.name.to_string();
+            self.send_started(json!({"type": "set_session_name", "name": name}), agent, cx);
+        }
+    }
+
     fn compact(&mut self, agent: &mut Agent, cx: &mut Context<Agent>) {
         agent.handle_event(
             AgentEvent::Notify {

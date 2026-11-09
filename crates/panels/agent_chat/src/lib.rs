@@ -23,6 +23,7 @@ use pide_core::{
 use serde_json::{Value, json};
 
 mod model_picker;
+mod rename;
 mod slash;
 
 pub const PANEL_NAME: &str = "agent_chat";
@@ -67,6 +68,11 @@ pub fn init(cx: &mut App) {
         cx,
         CommandSpec::new("agent.abort", "Agent: Stop").key("cmd-f2"),
         move |window, cx| active(window, cx).update(cx, |a, cx| a.abort(cx)),
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.rename", "Agent: Rename Session…"),
+        move |window, cx| rename::open(active(window, cx), window, cx),
     );
     CommandRegistry::register(
         cx,

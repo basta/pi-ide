@@ -92,6 +92,7 @@ fn menus() -> Vec<Menu> {
             items: vec![
                 cmd("New Session", "agent.new_session"),
                 cmd("Close Session", "agent.close_session"),
+                cmd("Rename Session…", "agent.rename"),
                 MenuItem::separator(),
                 cmd("Next Session", "agent.next_session"),
                 cmd("Previous Session", "agent.prev_session"),
