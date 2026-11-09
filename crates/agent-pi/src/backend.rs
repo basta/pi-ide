@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui_kit::*;
-use pide_core::{Agent, AgentBackend, AgentEvent, AgentStatus, paths};
+use pide_core::{Agent, AgentBackend, AgentEvent, AgentStatus, DialogAnswer, paths};
 use serde_json::{Value, json};
 use tokio::io::AsyncBufReadExt;
 use tokio::sync::{mpsc, oneshot};
@@ -97,6 +97,13 @@ impl PiBackend {
         }
     }
 
+    /// Write a record as-is (no command id), e.g. an `extension_ui_response`.
+    fn send_raw(&mut self, rec: Value) {
+        if let Some(p) = &self.process {
+            let _ = p.commands.send(rec.to_string());
+        }
+    }
+
     fn kill(&mut self) {
         self.shared.borrow_mut().stop();
         self.process = None;
@@ -117,6 +124,10 @@ impl PiBackend {
         };
 
         let mut args = vec!["--mode".to_string(), "rpc".to_string()];
+        // Extra flags for every pi process, e.g. PIDE_PI_ARGS="-e dev/pi-ask-test.ts" or "--model …".
+        if let Ok(extra) = std::env::var("PIDE_PI_ARGS") {
+            args.extend(extra.split_whitespace().map(str::to_string));
+        }
         if let Some(session) = self.shared.borrow().session_file.clone() {
             args.extend(["--session".to_string(), session.to_string_lossy().into_owned()]);
         }
@@ -157,7 +168,7 @@ impl PiBackend {
                     Inbound::Response { command, success, error, data, .. } => {
                         handle_response(&shared, agent, &command, success, error, data, cx)
                     }
-                    Inbound::Dialog { .. } => {} // answered in conn
+                    Inbound::Dialog(req) => agent.handle_event(AgentEvent::Dialog(req), cx),
                 });
                 if ok.is_err() {
                     return;
@@ -288,6 +299,16 @@ impl AgentBackend for PiBackend {
         }
         let kind = if follow_up { "follow_up" } else { "steer" };
         self.send(json!({"type": kind, "message": text}));
+    }
+
+    fn answer_dialog(&mut self, id: String, answer: DialogAnswer, _agent: &mut Agent, _cx: &mut Context<Agent>) {
+        let mut rec = json!({"type": "extension_ui_response", "id": id});
+        match answer {
+            DialogAnswer::Value(v) => rec["value"] = json!(v),
+            DialogAnswer::Confirmed(c) => rec["confirmed"] = json!(c),
+            DialogAnswer::Cancelled => rec["cancelled"] = json!(true),
+        }
+        self.send_raw(rec);
     }
 
     fn new_session(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {

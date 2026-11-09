@@ -31,6 +31,41 @@ pub enum DiagnosticsEvent {
     Updated { path: PathBuf },
 }
 
+/// A blocking question from a pi extension (`extension_ui_request`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct DialogRequest {
+    pub id: String,
+    pub kind: DialogKind,
+    pub title: String,
+    /// `confirm`'s body text.
+    pub message: Option<String>,
+    /// `select`'s choices.
+    pub options: Vec<String>,
+    /// `input`'s placeholder.
+    pub placeholder: Option<String>,
+    /// `editor`'s initial text.
+    pub prefill: Option<String>,
+    /// pi answers by itself after this long (its default), so the card is dropped then.
+    pub timeout_ms: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DialogKind {
+    Select,
+    Confirm,
+    Input,
+    Editor,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum DialogAnswer {
+    /// `select` / `input` / `editor`.
+    Value(String),
+    /// `confirm`.
+    Confirmed(bool),
+    Cancelled,
+}
+
 /// Emitted by [`crate::Agent`]. Backend-neutral: the pi RPC backend maps its
 /// wire records onto these, an ACP backend could do the same.
 #[derive(Clone, Debug)]
@@ -55,6 +90,8 @@ pub enum AgentEvent {
     Queue { steering: Vec<String>, follow_up: Vec<String> },
     /// The agent will not continue on its own.
     Settled { aborted: bool },
+    /// A blocking extension dialog; pi waits until it's answered (or its timeout).
+    Dialog(DialogRequest),
     /// Fire-and-forget extension UI: status bar item.
     Status { key: String, text: Option<String> },
     /// Fire-and-forget extension UI: toast.

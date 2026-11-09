@@ -17,7 +17,7 @@ pub mod workspace;
 pub use agent::{Agent, AgentBackend, AgentStatus};
 pub use buffer::{Buffer, LineEnding};
 pub use commands::{CommandRegistry, CommandSpec, RunCommand};
-pub use events::{AgentEvent, DiagnosticsEvent, WorkspaceEvent};
+pub use events::{AgentEvent, DiagnosticsEvent, DialogAnswer, DialogKind, DialogRequest, WorkspaceEvent};
 pub use panel::{DockPosition, Panel, Services};
 pub use sessions::{Sessions, SessionsEvent};
 pub use workspace::Workspace;

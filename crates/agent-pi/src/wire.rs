@@ -1,6 +1,6 @@
 //! Wire records → backend-neutral [`AgentEvent`]s. Pure; tested on fixtures.
 
-use pide_core::AgentEvent;
+use pide_core::{AgentEvent, DialogKind, DialogRequest};
 use serde_json::Value;
 
 /// One parsed stdout record.
@@ -9,8 +9,8 @@ pub enum Inbound {
     Event(AgentEvent),
     Response { id: Option<String>, command: String, success: bool, error: Option<String>, data: Value },
     /// A blocking extension dialog (`select`/`confirm`/`input`/`editor`): pi waits for
-    /// an `extension_ui_response`. Dialog UI arrives in M2; until then we cancel.
-    Dialog { id: String, method: String, title: String },
+    /// an `extension_ui_response` (or its own `timeout`).
+    Dialog(DialogRequest),
 }
 
 /// Records we know about and deliberately don't surface (yet).
@@ -144,11 +144,28 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
                 message: s(&v, "message"),
                 error: s(&v, "notifyType") == "error",
             }),
-            m @ ("select" | "confirm" | "input" | "editor") => vec![Inbound::Dialog {
-                id: s(&v, "id"),
-                method: m.to_string(),
-                title: s(&v, "title"),
-            }],
+            m @ ("select" | "confirm" | "input" | "editor") => {
+                let opt = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
+                vec![Inbound::Dialog(DialogRequest {
+                    id: s(&v, "id"),
+                    kind: match m {
+                        "select" => DialogKind::Select,
+                        "confirm" => DialogKind::Confirm,
+                        "input" => DialogKind::Input,
+                        _ => DialogKind::Editor,
+                    },
+                    title: s(&v, "title"),
+                    message: opt("message"),
+                    options: v
+                        .get("options")
+                        .and_then(Value::as_array)
+                        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                        .unwrap_or_default(),
+                    placeholder: opt("placeholder"),
+                    prefill: opt("prefill"),
+                    timeout_ms: v.get("timeout").and_then(Value::as_u64),
+                })]
+            }
             // setWidget, setTitle, set_editor_text: M2
             _ => vec![],
         },
@@ -176,7 +193,7 @@ mod tests {
 
     #[test]
     fn dialogs_are_flagged() {
-        let out = parse_line(r#"{"type":"extension_ui_request","id":"u1","method":"confirm","title":"Allow rm?"}"#);
-        assert!(matches!(&out[..], [Inbound::Dialog { id, method, .. }] if id == "u1" && method == "confirm"));
+        let out = parse_line(r#"{"type":"extension_ui_request","id":"u1","method":"select","title":"Allow rm?","options":["Allow","Block"],"timeout":10000}"#);
+        assert!(matches!(&out[..], [Inbound::Dialog(d)] if d.id == "u1" && d.kind == DialogKind::Select && d.options == ["Allow", "Block"] && d.timeout_ms == Some(10000)));
     }
 }

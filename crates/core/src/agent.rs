@@ -3,7 +3,7 @@
 
 use gpui_kit::*;
 
-use crate::events::AgentEvent;
+use crate::events::{AgentEvent, DialogAnswer, DialogRequest};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentStatus {
@@ -28,6 +28,8 @@ pub trait AgentBackend: 'static {
     /// While busy: `follow_up` false = steer (after the current tool calls),
     /// true = follow-up (after the run ends).
     fn queue(&mut self, text: String, follow_up: bool, agent: &mut Agent, cx: &mut Context<Agent>);
+    /// Answer a pending extension dialog.
+    fn answer_dialog(&mut self, id: String, answer: DialogAnswer, agent: &mut Agent, cx: &mut Context<Agent>);
     /// Stop (if running) and forget the crash; the next prompt resumes the session.
     fn restart(&mut self, agent: &mut Agent, cx: &mut Context<Agent>);
 }
@@ -47,6 +49,9 @@ pub struct Agent {
     pub session_file: Option<std::path::PathBuf>,
     /// Messages waiting to be delivered: (steering, follow-ups).
     pub queue: (Vec<String>, Vec<String>),
+    /// Extension dialogs waiting for an answer, oldest first. `waiting` mirrors `!is_empty()`.
+    pub dialogs: Vec<DialogRequest>,
+    _dialog_timers: Vec<Task<()>>,
 }
 
 pub const UNNAMED: &str = "New session";
@@ -64,6 +69,8 @@ impl Agent {
             waiting: false,
             session_file: None,
             queue: (Vec::new(), Vec::new()),
+            dialogs: Vec::new(),
+            _dialog_timers: Vec::new(),
         }
     }
 
@@ -97,6 +104,18 @@ impl Agent {
         }
         self.with_backend(cx, |b, a, cx| b.prompt(text, a, cx));
     }
+    /// Answer the dialog `id` and drop its card.
+    pub fn answer_dialog(&mut self, id: &str, answer: DialogAnswer, cx: &mut Context<Self>) {
+        if !self.dialogs.iter().any(|d| d.id == id) {
+            return;
+        }
+        self.dialogs.retain(|d| d.id != id);
+        self.waiting = !self.dialogs.is_empty();
+        let id = id.to_string();
+        self.with_backend(cx, |b, a, cx| b.answer_dialog(id, answer, a, cx));
+        cx.notify();
+    }
+
     /// Send while busy: steer (`follow_up` false) or queue a follow-up.
     pub fn queue(&mut self, text: String, follow_up: bool, cx: &mut Context<Self>) {
         self.with_backend(cx, |b, a, cx| b.queue(text, follow_up, a, cx));
@@ -117,12 +136,34 @@ impl Agent {
         match &event {
             AgentEvent::Settled { .. } => {
                 self.queue = (Vec::new(), Vec::new());
+                self.dialogs.clear();
+                self.waiting = false;
                 self.set_status(AgentStatus::Idle, cx)
             }
             AgentEvent::AssistantStart | AgentEvent::ToolStart { .. } => {
                 if !matches!(self.status, AgentStatus::Aborting) {
                     self.set_status(AgentStatus::Busy, cx)
                 }
+            }
+            AgentEvent::Dialog(req) => {
+                self.dialogs.push(req.clone());
+                self.waiting = true;
+                if let Some(ms) = req.timeout_ms {
+                    // pi resolves it itself after the timeout; drop our card then.
+                    let id = req.id.clone();
+                    self._dialog_timers.push(cx.spawn(async move |this: WeakEntity<Self>, cx| {
+                        cx.background_executor().timer(std::time::Duration::from_millis(ms)).await;
+                        let _ = this.update(cx, |this, cx| {
+                            if this.dialogs.iter().any(|d| d.id == id) {
+                                this.dialogs.retain(|d| d.id != id);
+                                this.waiting = !this.dialogs.is_empty();
+                                cx.emit(AgentEvent::Notify { message: "A pi question timed out; pi used its default answer.".into(), error: false });
+                                cx.notify();
+                            }
+                        });
+                    }));
+                }
+                cx.notify();
             }
             AgentEvent::Queue { steering, follow_up } => {
                 self.queue = (steering.clone(), follow_up.clone());

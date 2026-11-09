@@ -125,22 +125,18 @@ async fn replays_a_tool_call_session() {
 }
 
 #[tokio::test]
-async fn blocking_dialogs_are_cancelled() {
-    let dialog = json!({"type":"extension_ui_request","id":"ui-7","method":"confirm","title":"Allow rm -rf?"}).to_string();
+async fn blocking_dialogs_reach_the_client_unanswered() {
+    let dialog = json!({"type":"extension_ui_request","id":"ui-7","method":"confirm","title":"Allow rm -rf?","message":"target/debug"}).to_string();
     let mut h = start(vec![dialog], RawLog::disabled());
     h.commands.send(json!({"type":"prompt","message":"x"}).to_string()).unwrap();
     let recs = collect_until_settled(&mut h.inbound).await;
-    assert!(recs.iter().any(|r| matches!(r, Inbound::Event(AgentEvent::Notify { message, .. }) if message.contains("confirm"))));
-
-    let mut answered = false;
+    let d = recs.iter().find_map(|r| if let Inbound::Dialog(d) = r { Some(d.clone()) } else { None }).expect("dialog forwarded");
+    assert_eq!(d.id, "ui-7");
+    assert_eq!(d.message.as_deref(), Some("target/debug"));
+    // The connection must not answer on the user's behalf.
     while let Ok(cmd) = h.received.try_recv() {
-        if cmd["type"] == "extension_ui_response" {
-            assert_eq!(cmd["id"], "ui-7");
-            assert_eq!(cmd["cancelled"], true);
-            answered = true;
-        }
+        assert_ne!(cmd["type"], "extension_ui_response");
     }
-    assert!(answered, "dialog was not answered");
 }
 
 #[tokio::test]
@@ -188,4 +184,23 @@ fn steer_and_follow_up_queue_updates_parse() {
     assert!(users.iter().any(|u| u.contains("follow-up received")));
     // A plain prompt while busy is rejected — why the client must steer instead.
     assert!(rejected.unwrap().contains("streamingBehavior"));
+}
+
+#[test]
+fn recorded_dialogs_parse() {
+    // Recorded from pi 1.5.0 running dev/pi-ask-test.ts: `/ask-test` asks one of each.
+    use pide_core::DialogKind;
+    let fixture = include_str!("fixtures/dialogs_session.jsonl");
+    let dialogs: Vec<_> = fixture
+        .lines()
+        .flat_map(pide_agent_pi::wire::parse_line)
+        .filter_map(|r| if let Inbound::Dialog(d) = r { Some(d) } else { None })
+        .collect();
+    let kinds: Vec<DialogKind> = dialogs.iter().map(|d| d.kind).collect();
+    assert_eq!(kinds, [DialogKind::Confirm, DialogKind::Select, DialogKind::Input, DialogKind::Editor]);
+    assert_eq!(dialogs[0].message.as_deref(), Some("rm -rf target/debug/incremental"));
+    assert_eq!(dialogs[1].options, ["Kimi K2.6", "GLM 5.2", "Sonnet 5.5"]);
+    assert_eq!(dialogs[2].placeholder.as_deref(), Some("e.g. crlf-save-fix"));
+    assert!(dialogs[3].prefill.as_deref().unwrap().starts_with("Keep CRLF"));
+    assert!(dialogs.iter().all(|d| !d.id.is_empty()));
 }

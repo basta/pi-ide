@@ -1,0 +1,7 @@
+{"type":"extension_ui_request","id":"7d0ee660-d170-43da-b252-be76b2129a9e","method":"setStatus","statusKey":"search","statusText":"search: duckduckgo, jina"}
+{"type":"extension_ui_request","id":"b7b5e786-de65-4df2-822e-c5a884179f8e","method":"confirm","title":"Allow this command?","message":"rm -rf target/debug/incremental"}
+{"type":"extension_ui_request","id":"fe4518a3-7c91-4991-a419-8fb711ee9529","method":"select","title":"Which model for the review?","options":["Kimi K2.6","GLM 5.2","Sonnet 5.5"]}
+{"type":"extension_ui_request","id":"79a9fe6f-9495-49c1-83fb-15cf95e5d023","method":"input","title":"Name for the new branch","placeholder":"e.g. crlf-save-fix"}
+{"type":"extension_ui_request","id":"06ff3307-4d76-4e21-b72f-5b510ba22aa9","method":"editor","title":"Edit the commit message","prefill":"Keep CRLF endings on save\n\nBuffers remember their line ending."}
+{"type":"extension_ui_request","id":"cf0d84b5-0580-499f-9522-6acfa329b0aa","method":"notify","message":"answers: confirm=true select=GLM 5.2 input=my-branch editor=\"edited text\"","notifyType":"info"}
+{"id":"p1","type":"response","command":"prompt","success":true,"data":{"disposition":"handled"}}

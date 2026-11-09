@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use pide_core::AgentEvent;
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
@@ -101,16 +100,6 @@ pub async fn run<R, W>(
                         if line.is_empty() { continue; }
                         log.write("in", &line);
                         for rec in parse_line(&line) {
-                            if let Inbound::Dialog { id, method, title } = &rec {
-                                // Blocking dialog: pi waits for an answer. Cancel until M2 adds the UI.
-                                let resp = json!({"type": "extension_ui_response", "id": id, "cancelled": true}).to_string();
-                                let _ = send(&mut writer, &log, &resp).await;
-                                let _ = inbound.send(Inbound::Event(AgentEvent::Notify {
-                                    message: format!("A pi extension asked for a {method} dialog (\"{title}\"). Dialogs aren't supported yet, so it was cancelled."),
-                                    error: false,
-                                }));
-                                continue;
-                            }
                             if inbound.send(rec).is_err() {
                                 return;
                             }
