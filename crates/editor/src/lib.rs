@@ -18,7 +18,7 @@ use gpui_kit::component::dock::{
     ClosePanel, DockArea, DockPlacement, PanelEvent, PanelInfo, PanelState, TabGroup, panel_handle,
     register_panel,
 };
-use gpui_kit::component::input::{Editor, EditorState, InputEvent, TabSize};
+use gpui_kit::component::input::{Editor, EditorState, InputEditsEvent, InputEvent, TabSize};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ActiveTheme, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -346,6 +346,7 @@ pub struct EditorPanel {
     diff: Option<Entity<DiffState>>,
     /// The project's language servers (set once the file is attached).
     lsp: Option<Entity<pide_lsp::LspStore>>,
+    providers: Option<std::rc::Rc<lsp::Providers>>,
     /// Where to put the cursor once the file has loaded (go to definition, problems).
     pending_cursor: Option<(u32, u32)>,
     /// Signature help being shown, and the line it was asked for on.
@@ -414,6 +415,7 @@ impl EditorPanel {
             deleted: false,
             diff: None,
             lsp: None,
+            providers: None,
             pending_cursor: None,
             signature: None,
             signature_line: 0,
@@ -512,6 +514,9 @@ impl EditorPanel {
         if pide_lsp::registry::spec_for(store.read(cx).specs(), &self.path).is_some() {
             let providers = lsp::Providers::new(&store, self.path.clone());
             let show = lsp::show_document_handler(self.path.clone());
+            self.providers = Some(providers.clone());
+            self._subs
+                .push(cx.subscribe_in(&self.editor, window, Self::on_editor_edits));
             self.editor.update(cx, |e, _| {
                 let l = e.lsp_mut();
                 l.completion_provider = Some(providers.clone());
@@ -522,6 +527,76 @@ impl EditorPanel {
             });
         }
         self.lsp = Some(store);
+    }
+
+    /// A completion was just inserted: add its extra edits (auto-import), which
+    /// GPUI Kit leaves out.
+    fn on_editor_edits(
+        &mut self,
+        editor: &Entity<EditorState>,
+        ev: &InputEditsEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(p) = self.providers.clone() else {
+            return;
+        };
+        let Some(raw) = p.completion_accepted(ev) else {
+            return;
+        };
+        let Some(enc) = p.server_encoding(cx) else {
+            return;
+        };
+        let task = p.extra_edits(raw, cx);
+        let editor = editor.downgrade();
+        cx.spawn_in(window, async move |_, cx| {
+            let edits = task.await;
+            if edits.is_empty() {
+                return;
+            }
+            let _ = cx.update(|window, cx| {
+                let Some(editor) = editor.upgrade() else {
+                    return;
+                };
+                editor.update(cx, |e, cx| {
+                    let text = e.text().clone();
+                    let mut edits: Vec<lsp_types::TextEdit> = edits
+                        .into_iter()
+                        .map(|mut t| {
+                            t.range = pide_lsp::convert::range_from_server(&text, t.range, enc);
+                            t
+                        })
+                        .collect();
+                    // Last first, so earlier positions stay valid.
+                    edits.sort_by(|a, b| {
+                        (b.range.start.line, b.range.start.character)
+                            .cmp(&(a.range.start.line, a.range.start.character))
+                    });
+                    // Keep the caret after the completion: shift it by what
+                    // the edits above it added (GPUI Kit leaves it at the last edit).
+                    use gpui_kit::component::input::RopeExt as _;
+                    let cursor = e.cursor();
+                    let shift: isize = edits
+                        .iter()
+                        .map(|t| {
+                            (
+                                text.position_to_offset(&t.range.start),
+                                text.position_to_offset(&t.range.end),
+                                t.new_text.len(),
+                            )
+                        })
+                        .filter(|(_, end, _)| *end <= cursor)
+                        .map(|(start, end, len)| len as isize - (end - start) as isize)
+                        .sum();
+                    e.apply_lsp_edits(&edits, window, cx);
+                    let at = e
+                        .text()
+                        .offset_to_position((cursor as isize + shift).max(0) as usize);
+                    e.set_cursor_position(at, window, cx);
+                });
+            });
+        })
+        .detach();
     }
 
     /// Show the server's diagnostics for this file (converted to the editor's columns).

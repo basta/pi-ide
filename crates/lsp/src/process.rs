@@ -189,7 +189,10 @@ pub fn initialize_params(root: &Path) -> Value {
                         "snippetSupport": false,
                         "documentationFormat": ["markdown", "plaintext"],
                         "insertReplaceSupport": false,
-                        "labelDetailsSupport": true
+                        "labelDetailsSupport": true,
+                        // Auto-import edits come on resolve (rust-analyzer only offers
+                        // import-on-the-fly completions to clients that resolve them).
+                        "resolveSupport": { "properties": ["additionalTextEdits"] }
                     }
                 },
                 "hover": { "contentFormat": ["markdown", "plaintext"] },

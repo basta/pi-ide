@@ -2,18 +2,20 @@
 //! completion, hover, go to definition (into other files too) and code actions.
 //! Every position crosses `pide_lsp::convert`.
 
+use std::cell::RefCell;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use anyhow::Result;
 use gpui_kit::component::input::{
-    CodeActionProvider, CompletionProvider, DefinitionProvider, EditorState, HoverProvider, Rope,
+    CodeActionProvider, CompletionProvider, DefinitionProvider, EditorState, HoverProvider,
+    InputEditsEvent, Rope, RopeExt as _,
 };
 use gpui_kit::*;
 use lsp_types::{
-    CodeAction, CodeActionOrCommand, CompletionContext, CompletionResponse, CompletionTextEdit,
-    GotoDefinitionResponse, Hover, LocationLink, TextEdit, WorkspaceEdit,
+    CodeAction, CodeActionOrCommand, CompletionContext, CompletionItem, CompletionResponse,
+    CompletionTextEdit, GotoDefinitionResponse, Hover, LocationLink, TextEdit, WorkspaceEdit,
 };
 use pide_lsp::LspStore;
 use pide_lsp::convert::{Encoding, TextLines, offset_to_server, range_from_server};
@@ -23,6 +25,10 @@ use serde_json::{Value, json};
 pub(crate) struct Providers {
     store: WeakEntity<LspStore>,
     path: PathBuf,
+    /// The last completion list: (as given to GPUI Kit, as the server sent it).
+    /// GPUI Kit applies only an item's main edit; we spot the insertion and
+    /// add its `additionalTextEdits` (auto-import) ourselves.
+    last_completions: Rc<RefCell<Vec<(CompletionItem, CompletionItem)>>>,
 }
 
 impl Providers {
@@ -30,6 +36,7 @@ impl Providers {
         Rc::new(Self {
             store: store.downgrade(),
             path,
+            last_completions: Rc::default(),
         })
     }
 
@@ -94,6 +101,70 @@ impl Providers {
     fn doc(&self) -> Value {
         json!({ "uri": file_uri(&self.path) })
     }
+
+    /// The server's form of the completion item whose main edit `ev` just
+    /// applied, if any (GPUI Kit inserts it; we only watch).
+    pub(crate) fn completion_accepted(&self, ev: &InputEditsEvent) -> Option<CompletionItem> {
+        let last = self.last_completions.borrow();
+        let (edit, after) = ev.edits().last()?;
+        let inserted = after.slice(edit.start_byte..edit.new_end_byte).to_string();
+        let found = last.iter().find(|(shown, _)| match &shown.text_edit {
+            Some(CompletionTextEdit::Edit(e)) => {
+                e.new_text == inserted
+                    && after.position_to_offset(&e.range.start) == edit.start_byte
+            }
+            Some(CompletionTextEdit::InsertAndReplace(e)) => {
+                e.new_text == inserted
+                    && after.position_to_offset(&e.replace.start) == edit.start_byte
+            }
+            // No range: the inserted text is all we can match on; skip one-letter items.
+            None => {
+                let t = shown.insert_text.as_deref().unwrap_or(&shown.label);
+                t.chars().count() > 1 && t == inserted
+            }
+        })?;
+        Some(found.1.clone())
+    }
+
+    /// The accepted item's `additionalTextEdits` (asking the server to resolve
+    /// it when the list didn't carry them), in server positions.
+    pub(crate) fn extra_edits(&self, raw: CompletionItem, cx: &mut App) -> Task<Vec<TextEdit>> {
+        if let Some(edits) = raw.additional_text_edits.clone().filter(|e| !e.is_empty()) {
+            return Task::ready(edits);
+        }
+        let resolves = self
+            .store
+            .upgrade()
+            .and_then(|s| {
+                s.read(cx)
+                    .server_for(&self.path)
+                    .and_then(|s| s.capabilities.as_ref())
+                    .and_then(|c| c.completion_provider.as_ref())
+                    .and_then(|c| c.resolve_provider)
+            })
+            .unwrap_or(false);
+        // `data` exists only to be sent back on resolve (rust-analyzer's
+        // import-on-the-fly items carry it even when resolveProvider isn't reported).
+        if !resolves && raw.data.is_none() {
+            return Task::ready(vec![]);
+        }
+        let Ok(params) = serde_json::to_value(&raw) else {
+            return Task::ready(vec![]);
+        };
+        // The editor already has the main edit; the server sees it on the next sync.
+        let task = self.request_with(None, "completionItem/resolve", params, cx);
+        cx.background_executor().spawn(async move {
+            task.await
+                .ok()
+                .and_then(|v| serde_json::from_value::<CompletionItem>(v).ok())
+                .and_then(|i| i.additional_text_edits)
+                .unwrap_or_default()
+        })
+    }
+
+    pub(crate) fn server_encoding(&self, cx: &App) -> Option<Encoding> {
+        self.encoding(cx)
+    }
 }
 
 /// A server error that just means "stale, ask again" is an empty answer, not a failure.
@@ -145,10 +216,11 @@ impl CompletionProvider for Providers {
         });
         let task = self.request(text, "textDocument/completion", params, cx);
         let rope = text.clone();
-        cx.background_executor().spawn(async move {
+        let converted = cx.background_executor().spawn(async move {
+            type Out = (CompletionResponse, Vec<(CompletionItem, CompletionItem)>);
             let v = match quiet(task.await.map(Some)) {
                 Ok(Some(v)) if !v.is_null() => v,
-                Ok(_) => return Ok(CompletionResponse::Array(vec![])),
+                Ok(_) => return Ok((CompletionResponse::Array(vec![]), vec![])),
                 Err(e) => return Err(e),
             };
             let mut resp: CompletionResponse = serde_json::from_value(v)?;
@@ -157,6 +229,7 @@ impl CompletionProvider for Providers {
                 CompletionResponse::List(list) => &mut list.items,
             };
             rank_completions(items, &word);
+            let raw: Vec<CompletionItem> = items.clone();
             for item in items.iter_mut() {
                 match item.text_edit.as_mut() {
                     Some(CompletionTextEdit::Edit(e)) => {
@@ -169,6 +242,18 @@ impl CompletionProvider for Providers {
                     None => {}
                 }
             }
+            let shown = match &resp {
+                CompletionResponse::Array(items) => items.clone(),
+                CompletionResponse::List(list) => list.items.clone(),
+            };
+            Ok::<Out, anyhow::Error>((resp, shown.into_iter().zip(raw).collect()))
+        });
+        let last = self.last_completions.clone();
+        cx.spawn(async move |_| {
+            let (resp, pairs) = converted.await?;
+            // Both forms, so an accepted item can be resolved and its extra
+            // edits applied (`completion_accepted`).
+            *last.borrow_mut() = pairs;
             Ok(resp)
         })
     }
