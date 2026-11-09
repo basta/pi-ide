@@ -3,7 +3,7 @@
 A personal, native code editor in Rust on GPUI + GPUI Kit, with the pi coding agent built in.
 Spec: the claude.ai doc "pi IDE — Implementation Spec". Contributor/agent guide: `AGENTS.md`.
 
-Status: **M3** (language servers), **M3.5** (pi Settings) and **M4** (Go to File, Find in Files, git) built and tested in the app. Next: M5 (previews). M0 results: `docs/SPIKE.md`.
+Status: **M3** (language servers), **M3.5** (pi Settings) **M4** (Go to File, Find in Files, git) and **M5** (Markdown preview, PDF viewer, open in browser) built; see `docs/GAPS.md` for the PDF part that still needs a first run. M0 results: `docs/SPIKE.md`.
 
 ## Run
 
@@ -45,6 +45,12 @@ Override or add bindings in `~/.config/pide/keymap.json` (Find Action → "Prefe
 ## pi Settings
 
 **Settings → pi…** shows and changes pi's setup without editing its files: install, update and remove packages (pi's own commands, output in the tab), switch built-in tools and extensions, skills and prompt templates on and off, add MCP servers, pick the default model and thinking level, and open or create AGENTS.md / SYSTEM.md. Choose **Everyone** (`~/.pi/agent`) or **This project** (`.pi/`). pi reads settings when a session starts; **Restart sessions** applies them (busy sessions restart when their run ends).
+
+## Previews
+
+- **View → Markdown Preview** opens a live preview beside a Markdown file.
+- **PDF files** open in a PDF tab (zoom, fit width, search with highlights). The first time, click **Install pdfium**: pide downloads the pinned pdfium build (about 4 MB) into `~/.local/share/pide/pdfium`.
+- **File → Open in Browser** for HTML and SVG.
 
 ## Language servers
 

@@ -22,6 +22,8 @@ Dependencies only go downward: `app` → panels/`editor`/`agent-pi` → `core`/`
 | `crates/panels/problems` | `pide-problems` | Problems panel (bottom dock, Cmd+6): diagnostics by file, click to jump; error/warning counts for the status bar. |
 | `crates/panels/pi_settings` | `pide-pi-settings` | pi Settings tab (Settings → pi…, M3.5): packages (via `pi install/update/remove`), tools and built-in extensions, skills and prompts, MCP servers, default model and thinking, instruction files; Everyone (`~/.pi/agent`) / This project (`.pi/`); Restart sessions. |
 | `crates/panels/search` | `pide-search` | Find in Files (Cmd+Shift+F, bottom dock): `engine.rs` (pure search/replace, gitignore-aware, open buffers win) and the panel; Replace All goes through `Workspace::replace_text` for open files. |
+| `crates/panels/preview` | `pide-preview` | Markdown preview (GPUI Kit `TextView`), follows the buffer. Opened beside the editor with `DockArea::move_panel` (`split_at` only inserts: it duplicates the panel). |
+| `crates/panels/pdf` | `pide-pdf` | PDF panel: `worker.rs` owns pdfium on its own thread (open/render/search over channels); panel renders pages near the viewport, LRU cache ≤ 256 MB (`window.drop_image` on eviction), Install pdfium button. |
 | `crates/panels/agent_chat` | `pide-agent-chat` | pi panel: session tabs (narrow) / sidebar (≥ 640 px), per-session chat with history, steer/follow-up, extension dialog cards, Changes view, context toggle, `agent.*` commands. |
 | `spike/` | `spike` | M0 throwaway benchmark. Not part of the app. |
 | `reference/` | — | Upstream GPUI Kit examples at the pinned tag. Not built. Read these before writing GPUI code. |
