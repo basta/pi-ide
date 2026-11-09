@@ -2,6 +2,7 @@
 
 mod git_changes;
 mod goto_file;
+mod keymap_ui;
 mod menus;
 mod palette;
 mod projects;
@@ -226,6 +227,11 @@ fn register_app_commands(cx: &mut App) {
         cx,
         CommandSpec::new("file.goto", "Navigate: Go to File…").key("cmd-shift-o"),
         goto_file::open,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("settings.keymap", "Settings: Keymap…"),
+        keymap_ui::open,
     );
     CommandRegistry::register(
         cx,

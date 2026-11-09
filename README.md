@@ -58,7 +58,7 @@ Requires `pi` (`npm i -g @earendil-works/pi-coding-agent`) for the chat panel; i
 | Ctrl+Option+O (editor) | Optimize imports |
 | Cmd+Q | Quit |
 
-Override or add bindings in `~/.config/pide/keymap.json` (Find Action → "Preferences: Open Keymap File"); it reloads on save:
+**Settings → Keymap…** lists every command with its shortcut; pick one and type a new shortcut (`cmd-shift-k`). It's saved to `~/.config/pide/keymap.json`, where you can also override or add bindings by hand (Find Action → "Preferences: Open Keymap File"); it reloads on save:
 
 ```json
 { "cmd-alt-p": "palette.open", "cmd-1": null }
