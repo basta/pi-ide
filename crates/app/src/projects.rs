@@ -54,7 +54,13 @@ pub fn last_project(cx: &App) -> Option<PathBuf> {
 }
 
 /// Open `root` in a new window, or bring its window to the front if it's already open.
+/// Deferred: callers are often inside a window's update (a palette, a menu), and
+/// that window can't be read then (its bounds place the new window).
 pub fn open(root: PathBuf, cx: &mut App) {
+    cx.defer(move |cx| open_now(root, cx));
+}
+
+fn open_now(root: PathBuf, cx: &mut App) {
     let root = std::fs::canonicalize(&root).unwrap_or(root);
     remember(&root, cx);
 
@@ -66,7 +72,7 @@ pub fn open(root: PathBuf, cx: &mut App) {
     log::info!("opening project {}", root.display());
     let title = format!("pide — {}", root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size(px(1400.), px(900.)), cx))),
+        window_bounds: Some(WindowBounds::Windowed(new_window_bounds(cx))),
         titlebar: Some(TitlebarOptions { title: Some(title.into()), ..Default::default() }),
         ..Default::default()
     };
@@ -88,6 +94,27 @@ pub fn open(root: PathBuf, cx: &mut App) {
         log::error!("open window for {shown}: {e:#}");
     }
     cx.activate(true);
+}
+
+/// Centered for the first window; later ones cascade down and right from the
+/// frontmost window, so a new project doesn't open exactly on top of the last one.
+fn new_window_bounds(cx: &mut App) -> Bounds<Pixels> {
+    let default = Bounds::centered(None, size(px(1400.), px(900.)), cx);
+    let Some(front) = cx.active_window().or_else(|| cx.windows().into_iter().last()) else { return default };
+    let Ok((b, screen)) = front.update(cx, |_, window, cx| (window.bounds(), window.display(cx).map(|d| d.visible_bounds())))
+    else {
+        return default;
+    };
+    // Only the position cascades: `bounds()` includes the title bar but a new
+    // window's size doesn't, so reusing it would grow each window by a title bar.
+    let next = Bounds { origin: point(b.origin.x + px(32.), b.origin.y + px(32.)), size: default.size };
+    // Off the bottom or right of the screen (under the Dock): start again at the top left.
+    match screen {
+        Some(screen) if next.bottom() > screen.bottom() || next.right() > screen.right() => {
+            Bounds { origin: screen.origin, size: next.size.min(&screen.size) }
+        }
+        _ => next,
+    }
 }
 
 /// The window that has `root` open, if any.

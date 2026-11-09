@@ -1150,6 +1150,7 @@ impl AgentChat {
         v_flex()
             .flex_1()
             .min_w_0()
+            .h_full() // the wide layout's row centers children vertically otherwise
             .min_h_0()
             .overflow_hidden()
             .when(wide, |this| {
