@@ -456,6 +456,83 @@ fn byte_offset(text: &str, pos: lsp_types::Position) -> usize {
     text.len()
 }
 
+/// Find Usages (Alt+F7): every reference to the symbol at the cursor, listed
+/// in the Usages panel. Line text comes from open buffers or the file on disk.
+pub(crate) fn find_usages(window: &mut Window, cx: &mut App) {
+    use gpui_kit::component::WindowExt as _;
+    use gpui_kit::component::input::RopeExt as _;
+    use gpui_kit::component::notification::Notification;
+    let Some(panel) = crate::active_panel(window, cx) else { return };
+    let (path, editor, store) = {
+        let p = panel.read(cx);
+        (p.path.clone(), p.editor.clone(), p.lsp.clone())
+    };
+    let Some(store) = store else { return };
+    let Some(enc) = store.read(cx).server_for(&path).map(|s| s.encoding) else {
+        window.push_notification(Notification::warning("No language server is running for this file."), cx);
+        return;
+    };
+    let (rope, offset) = {
+        let e = editor.read(cx);
+        (e.text().clone(), e.cursor())
+    };
+    let word = rope.word_range(offset).map(|r| rope.slice(r).to_string()).unwrap_or_default();
+    let params = json!({
+        "textDocument": { "uri": file_uri(&path) },
+        "position": offset_to_server(&rope, offset, enc),
+        "context": { "includeDeclaration": true },
+    });
+    let task = store.update(cx, |s, cx| s.request(&path, Some(&rope), "textDocument/references", params, cx));
+    // Text of open buffers (unsaved edits count), for the lines shown.
+    let open: std::collections::HashMap<PathBuf, String> = pide_core::Services::of(window, cx)
+        .workspace
+        .read(cx)
+        .buffers()
+        .iter()
+        .map(|b| (b.read(cx).path.clone(), b.read(cx).text().to_string()))
+        .collect();
+    window
+        .spawn(cx, async move |cx| {
+            let v = task.await.unwrap_or(Value::Null);
+            let refs: Vec<lsp_types::Location> = serde_json::from_value(v).unwrap_or_default();
+            let found = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut texts: std::collections::HashMap<PathBuf, String> = std::collections::HashMap::new();
+                    let mut out = Vec::new();
+                    for r in refs {
+                        let Some(path) = uri_path(r.uri.as_str()) else { continue };
+                        let text = texts
+                            .entry(path.clone())
+                            .or_insert_with(|| open.get(&path).cloned().or_else(|| std::fs::read_to_string(&path).ok()).unwrap_or_default());
+                        let lines = TextLines::new(text);
+                        let range = range_from_server(&lines, r.range, enc);
+                        let line = text.split('\n').nth(range.start.line as usize).unwrap_or("").trim_end_matches('\r').to_string();
+                        let byte = |ch: u32| line.char_indices().nth(ch as usize).map(|(b, _)| b).unwrap_or(line.len());
+                        let end_ch = if range.end.line == range.start.line { range.end.character } else { line.chars().count() as u32 };
+                        out.push(pide_core::opener::Location {
+                            path,
+                            line: range.start.line,
+                            character: range.start.character,
+                            range: byte(range.start.character)..byte(end_ch),
+                            text: line,
+                        });
+                    }
+                    out.sort_by(|a, b| (&a.path, a.line, a.character).cmp(&(&b.path, b.line, b.character)));
+                    out
+                })
+                .await;
+            let _ = cx.update(|window, cx| {
+                if found.is_empty() {
+                    window.push_notification(Notification::info(format!("No usages of {word} found.")), cx);
+                } else {
+                    pide_core::opener::show_locations(format!("Usages of {word}").into(), found, window, cx);
+                }
+            });
+        })
+        .detach();
+}
+
 /// Optimize Imports (Ctrl+Alt+O): the server's `source.organizeImports` code
 /// action, or failing that its own organize-imports command (pyright's
 /// `pyright.organizeimports`, which sends the edit back with `workspace/applyEdit`).

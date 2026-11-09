@@ -47,6 +47,7 @@ pub struct Shell {
     services: Services,
     /// PDF tabs opened by command, to switch to instead of opening twice.
     pdfs: Vec<(PathBuf, WeakEntity<pide_pdf::PdfPanel>)>,
+    locations: Option<WeakEntity<pide_search::locations::Locations>>,
     /// Current git branch, re-read every few seconds (None outside a repository).
     branch: Option<String>,
     _branch_poll: Task<()>,
@@ -158,6 +159,7 @@ impl Shell {
         });
         let this = Self {
             pdfs: Vec::new(),
+            locations: None,
             branch: None,
             _branch_poll: branch_poll,
             services: services.clone(),
@@ -425,6 +427,34 @@ pub fn open_pdf(path: PathBuf, window: &mut Window, cx: &mut App) {
         shell.pdfs.retain(|(_, w)| w.upgrade().is_some());
         shell.pdfs.push((path, p.downgrade()));
         shell.dock.update(cx, |d, cx| d.add_panel_view(panel_handle(p), DockPlacement::Center, None, window, cx));
+    });
+}
+
+/// Show locations (Find Usages) in the bottom dock, reusing the panel.
+pub fn show_locations(title: SharedString, items: Vec<pide_core::opener::Location>, window: &mut Window, cx: &mut App) {
+    let id = window.window_handle().window_id();
+    let Some(shell) = cx.try_global::<Shells>().and_then(|h| h.0.get(&id)?.upgrade()) else { return };
+    shell.update(cx, |shell, cx| {
+        let existing = shell.locations.as_ref().and_then(|w| w.upgrade()).filter(|p| {
+            shell.dock.read(cx).panel(gpui_kit::component::dock::PanelId::from(p.entity_id())).is_some()
+        });
+        let p = match existing {
+            Some(p) => p,
+            None => {
+                let p = cx.new(|cx| pide_search::locations::Locations::new(window, cx));
+                shell.dock.update(cx, |d, cx| d.add_panel_view(panel_handle(p.clone()), DockPlacement::Bottom, Some(px(240.)), window, cx));
+                shell.locations = Some(p.downgrade());
+                p
+            }
+        };
+        p.update(cx, |p, cx| p.set(title, items, cx));
+        let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
+        shell.dock.update(cx, |d, cx| {
+            if !d.is_dock_open(DockPlacement::Bottom) {
+                d.toggle_dock(DockPlacement::Bottom, window, cx);
+            }
+            d.select_panel(pid, window, cx);
+        });
     });
 }
 

@@ -85,6 +85,7 @@ pub fn init(cx: &mut App) {
             None => window.push_notification(Notification::warning("This file has no language server."), cx),
         }
     });
+    CommandRegistry::register(cx, CommandSpec::new("editor.find_usages", "Navigate: Find Usages").key("alt-f7").in_context(pide_core::commands::EDITOR), lsp::find_usages);
     CommandRegistry::register(cx, CommandSpec::new("editor.organize_imports", "Code: Optimize Imports").key("ctrl-alt-o").in_context(pide_core::commands::EDITOR), lsp::organize_imports);
     CommandRegistry::register(cx, CommandSpec::new("editor.rename", "Refactor: Rename…").key("shift-f6").in_context(pide_core::commands::EDITOR), rename::rename_symbol);
     CommandRegistry::register(cx, CommandSpec::new("editor.quick_fix", "Code: Show Quick Fixes").key("alt-enter").in_context(pide_core::commands::EDITOR), |window, cx| {

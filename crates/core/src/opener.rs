@@ -15,8 +15,23 @@ pub struct DiffRequest {
     pub label: SharedString,
 }
 
+/// A place in a file, with its line's text (usages, symbol search results).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Location {
+    pub path: PathBuf,
+    /// 0-based line and character column.
+    pub line: u32,
+    pub character: u32,
+    /// The whole line, for showing the hit in context.
+    pub text: String,
+    /// Byte range of the hit inside `text`.
+    pub range: std::ops::Range<usize>,
+}
+
 #[derive(Clone)]
 pub struct Openers {
+    /// Show a list of locations under a title ("Usages of greet").
+    pub locations: Rc<dyn Fn(SharedString, Vec<Location>, &mut Window, &mut App)>,
     pub file: Rc<dyn Fn(PathBuf, &mut Window, &mut App)>,
     /// Open and put the cursor at a 0-based line and character column.
     pub file_at: Rc<dyn Fn(PathBuf, u32, u32, &mut Window, &mut App)>,
@@ -34,6 +49,12 @@ pub fn open_file(path: PathBuf, window: &mut Window, cx: &mut App) {
 pub fn open_file_at(path: PathBuf, line: u32, character: u32, window: &mut Window, cx: &mut App) {
     if let Some(o) = cx.try_global::<Openers>().map(|o| o.file_at.clone()) {
         o(path, line, character, window, cx);
+    }
+}
+
+pub fn show_locations(title: SharedString, locations: Vec<Location>, window: &mut Window, cx: &mut App) {
+    if let Some(o) = cx.try_global::<Openers>().map(|o| o.locations.clone()) {
+        o(title, locations, window, cx);
     }
 }
 

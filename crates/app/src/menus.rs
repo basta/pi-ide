@@ -72,6 +72,7 @@ fn menus() -> Vec<Menu> {
             name: "Code".into(),
             items: vec![
                 cmd("Go to Declaration", "editor.go_to_definition"),
+                cmd("Find Usages", "editor.find_usages"),
                 cmd("Show Quick Fixes", "editor.quick_fix"),
                 cmd("Parameter Info", "editor.parameter_info"),
                 MenuItem::separator(),

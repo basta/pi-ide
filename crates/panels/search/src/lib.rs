@@ -4,6 +4,7 @@
 //! buffers are searched as they are in the editor, unsaved edits included.
 
 pub mod engine;
+pub mod locations;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
