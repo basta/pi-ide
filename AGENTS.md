@@ -2,7 +2,7 @@
 
 pide is a personal native code editor in Rust on GPUI + GPUI Kit, with the pi coding agent built in.
 The spec is the claude.ai doc "pi IDE — Implementation Spec" (https://claude.ai/artifact/ES6XEPGZHMPVQ6cWXYMLPE).
-Milestones run in order (M0–M6); don't start the next one until the user signs off the current one.
+Milestones run in order (M0–M6). Since 2026-11-10 the user doesn't need to sign off each one: keep going, test in the app, and report progress (see the progress artifact in memory).
 Primary target: macOS on Apple Silicon. Linux is secondary.
 
 ## Crate layout
@@ -15,11 +15,12 @@ Dependencies only go downward: `app` → panels/`editor`/`agent-pi` → `core`/`
 | `crates/core` | `pide-core` | `CommandRegistry` + `RunCommand`, keymap (`keymap.json`, hot reload), `settings.json` (theme, send-context), `Workspace` + `Buffer` (source of truth for file contents, save/reload/conflicts, file watcher), typed events, `Panel` trait, `Agent` + `AgentBackend` trait, `Sessions` (several agents at once, saved pi sessions on disk), `changes` (what pi changed per session, revert), `context` (editor context block), `opener` (open file / open diff without panel→panel deps), `paths`. |
 | `crates/runtime` | `pide-runtime` | The single tokio runtime on its own thread; the UI-stall monitor (logs anything over 16 ms). |
 | `crates/editor` | `pide-editor` | Editor tabs (`EditorPanel`): GPUI Kit `EditorState` around a workspace buffer, dirty marker, read-only/conflict/deleted bars, `editor.*` commands. The pi diff tab (`diff_panel`). Provides the editor-context source. LSP glue: GPUI Kit providers (`lsp.rs`: completion, hover, definition, code actions, workspace edits, optimize imports), rename dialog (`rename.rs`), signature help popup (`signature.rs`). |
-| `crates/agent-pi` | `pide-agent-pi` | `AgentBackend` over `pi --mode rpc`, one process per running session: lifecycle (lazy start, idle stop after 5 min, resume with `--session`), JSONL connection, wire → `AgentEvent` mapping, before-snapshots for `edit`/`write`, raw log. |
+| `crates/agent-pi` | `pide-agent-pi` | pi's configuration (`config.rs`: read/modify its settings.json and mcp.json per scope keeping unknown keys, tool/extension rules, packages, models, commands via a throwaway `pi --mode rpc --no-session`; never reads auth.json). `AgentBackend` over `pi --mode rpc`, one process per running session: lifecycle (lazy start, idle stop after 5 min, resume with `--session`), JSONL connection, wire → `AgentEvent` mapping, before-snapshots for `edit`/`write`, raw log. |
 | `crates/lsp` | `pide-lsp` | Language servers (M3): registry of known servers + `settings.json` overrides + install detection, JSON-RPC over stdio on the tokio runtime (raw log `lsp-rpc.jsonl`), `LspStore` per workspace (start on demand, document sync, diagnostics, progress, crash restart), position conversion (GPUI Kit columns are characters; servers default to UTF-16), install runner. |
 | `crates/panels/file_tree` | `pide-file-tree` | Project tree panel. |
 | `crates/panels/language_servers` | `pide-language-servers` | Language Servers tab: status, Install (streams output), Restart. |
 | `crates/panels/problems` | `pide-problems` | Problems panel (bottom dock, Cmd+6): diagnostics by file, click to jump; error/warning counts for the status bar. |
+| `crates/panels/pi_settings` | `pide-pi-settings` | pi Settings tab (Settings → pi…, M3.5): packages (via `pi install/update/remove`), tools and built-in extensions, skills and prompts, MCP servers, default model and thinking, instruction files; Everyone (`~/.pi/agent`) / This project (`.pi/`); Restart sessions. |
 | `crates/panels/agent_chat` | `pide-agent-chat` | pi panel: session tabs (narrow) / sidebar (≥ 640 px), per-session chat with history, steer/follow-up, extension dialog cards, Changes view, context toggle, `agent.*` commands. |
 | `spike/` | `spike` | M0 throwaway benchmark. Not part of the app. |
 | `reference/` | — | Upstream GPUI Kit examples at the pinned tag. Not built. Read these before writing GPUI code. |
@@ -44,6 +45,8 @@ Dependencies only go downward: `app` → panels/`editor`/`agent-pi` → `core`/`
 - **Panels reach each other only through `core`:** `opener::open_file` / `open_diff` (installed by the app), `context::current(window, cx)` (installed by the editor), `Services { workspace, sessions }`.
 - **One window per project (M2.5).** `Services` is per window, not a global: get it with `Services::of(window, cx)` (in a panel's `new`, then keep the handles in fields). Anything else that is per project (editor dock host, open-tab lists, the shell) is keyed by `WindowId` and dropped in the app's `on_window_closed`. Never add a project-wide `Global`.
 - **One `Agent` per session.** `Sessions` holds them; `Services::active_agent(window, cx)` is the one the pi panel shows. New `AgentEvent`s go in `core/src/events.rs`, parsing in `agent-pi/src/wire.rs`, with a recorded fixture test.
+- **Testing pi config changes** without touching the user's: `PI_CODING_AGENT_DIR=<copy of ~/.pi/agent>` (pi and pide both honour it).
+- **Driving the app in tests:** screenshots are 2× pixels; click coordinates are points (pixels ÷ 2). `sips --cropOffset` takes Y then X.
 - **Dev hooks:** `PIDE_PI_ARGS` adds flags to every pi process (`PIDE_PI_ARGS="-e dev/pi-ask-test.ts"` loads the dialog test extension: send `/ask-test`). `PIDE_BENCH=<file>` runs the frame benchmark.
 - **Never read an entity inside its own update.** GPUI panics (“cannot read X while it is already being updated”) and, inside a macOS event callback, aborts the app. It has bitten four times: a command run from the shell's listener, a tab switch from inside the panel, a GPUI Kit provider (`perform_code_action` runs inside the editor's update), and a palette that opens a window. Run commands from a plain `on_action` (not `cx.listener`), `cx.defer`/`window.defer` work that touches the caller, and don't read the `EditorState` passed to a provider callback.
 - **Editor-only keys** use `CommandSpec::in_context(pide_core::commands::EDITOR)`; a global key shadows the same key in narrower contexts (Alt+Enter in the pi composer).
