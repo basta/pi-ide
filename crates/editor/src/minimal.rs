@@ -35,19 +35,53 @@ pub(crate) fn line_edits(old: &str, new: &str) -> Vec<(Range<usize>, String)> {
     out
 }
 
-/// Make the editor's text `new`, keeping undo history and the caret's line.
+/// Make the editor's text `new` (diffing off the UI thread), keeping undo
+/// history and the caret's line. `read_only` is the editor's state afterwards.
+/// Skipped if the user edits in the meantime (the buffer then has a conflict).
 pub(crate) fn set_text(
+    editor: &Entity<EditorState>,
+    new: String,
+    read_only: bool,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let old = editor.read(cx).text().to_string();
+    if old == new {
+        editor.update(cx, |e, cx| e.set_readonly(read_only, cx));
+        return;
+    }
+    let editor = editor.downgrade();
+    let diff = cx.background_executor().spawn(async move {
+        let edits = line_edits(&old, &new);
+        (old, edits)
+    });
+    window
+        .spawn(cx, async move |cx| {
+            let (old, edits) = diff.await;
+            let _ = cx.update(|window, cx| {
+                let Some(editor) = editor.upgrade() else {
+                    return;
+                };
+                editor.update(cx, |e, cx| {
+                    if e.text().len() == old.len() && e.text().to_string() == old {
+                        e.set_readonly(false, cx);
+                        apply(e, edits, window, cx);
+                    }
+                    e.set_readonly(read_only, cx);
+                });
+            });
+        })
+        .detach();
+}
+
+fn apply(
     e: &mut EditorState,
-    new: &str,
+    edits: Vec<(Range<usize>, String)>,
     window: &mut Window,
     cx: &mut Context<EditorState>,
 ) {
-    let old = e.text().to_string();
-    if old == new {
-        return;
-    }
     let rope = e.text().clone();
-    let edits: Vec<lsp_types::TextEdit> = line_edits(&old, new)
+    let edits: Vec<lsp_types::TextEdit> = edits
         .into_iter()
         .map(|(r, text)| lsp_types::TextEdit {
             range: lsp_types::Range::new(

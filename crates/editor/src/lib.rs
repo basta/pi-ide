@@ -674,18 +674,17 @@ impl EditorPanel {
                 let read_only = b.read_only.is_some();
                 self.diff = None;
                 self.deleted = false;
-                self.editor.update(cx, |e, cx| {
-                    if read_only {
+                if read_only {
+                    self.editor.update(cx, |e, cx| {
                         let cursor = e.cursor_position();
                         e.set_value(text, window, cx);
+                        e.set_readonly(true, cx);
                         e.set_cursor_position(cursor, window, cx);
-                    } else {
-                        // Undoable: Cmd+Z takes back an outside change (pi's edit).
-                        e.set_readonly(false, cx);
-                        minimal::set_text(e, &text, window, cx);
-                    }
-                    e.set_readonly(read_only, cx);
-                });
+                    });
+                } else {
+                    // Undoable: Cmd+Z takes back an outside change (pi's edit).
+                    minimal::set_text(&self.editor, text, false, window, cx);
+                }
                 self.load_git_base(cx);
                 cx.notify();
             }
@@ -695,8 +694,8 @@ impl EditorPanel {
             }
             WorkspaceEvent::TextReplaced(buffer) if self.is_mine(buffer) => {
                 let text = buffer.read(cx).text().to_string();
-                self.editor
-                    .update(cx, |e, cx| minimal::set_text(e, &text, window, cx));
+                let read_only = buffer.read(cx).read_only.is_some();
+                minimal::set_text(&self.editor, text, read_only, window, cx);
             }
             WorkspaceEvent::FileDeleted(buffer) if self.is_mine(buffer) => {
                 self.deleted = true;
