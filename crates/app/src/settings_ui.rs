@@ -159,10 +159,12 @@ pub fn open(window: &mut Window, cx: &mut App) {
                             Button::new("open-keymap")
                                 .small()
                                 .ghost()
-                                .label("Open keymap.json")
+                                .label("Keyboard shortcuts…")
                                 .on_click(|_, window, cx| {
                                     window.close_dialog(cx);
-                                    CommandRegistry::run("keymap.open", window, cx);
+                                    window.defer(cx, |window, cx| {
+                                        CommandRegistry::run("settings.keymap", window, cx);
+                                    });
                                 }),
                         ),
                 ),
