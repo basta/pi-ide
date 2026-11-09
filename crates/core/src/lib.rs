@@ -4,10 +4,12 @@
 
 pub mod agent;
 pub mod buffer;
+pub mod changes;
 pub mod commands;
 pub mod events;
 pub mod fswatch;
 pub mod keymap;
+pub mod opener;
 pub mod panel;
 pub mod paths;
 pub mod sessions;

@@ -2,11 +2,12 @@
 //! Generic over the byte streams so tests can drive it without a process.
 
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde_json::json;
+use pide_core::AgentEvent;
+use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
@@ -49,14 +50,38 @@ impl RawLog {
     }
 }
 
+/// Tools that change files, and how to find the path in their args (pi 1.5.0, recorded).
+const FILE_TOOLS: &[&str] = &["edit", "write"];
+
+/// For a file-changing tool start, read the file *now* (before pi changes it) and
+/// return the `FileTouched` event. Runs on the runtime thread right as the line
+/// arrives: pi announces a tool call before running it, so this sees the old content.
+fn snapshot_for(ev: &AgentEvent, cwd: &Path) -> Option<AgentEvent> {
+    let AgentEvent::ToolStart { id, name, args } = ev else { return None };
+    if !FILE_TOOLS.contains(&name.as_str()) {
+        return None;
+    }
+    let rel = args.get("path").and_then(Value::as_str)?;
+    let path = cwd.join(rel);
+    let path = std::fs::canonicalize(path.parent()?).map(|p| p.join(path.file_name().unwrap_or_default())).unwrap_or(path);
+    Some(AgentEvent::FileTouched {
+        tool_call_id: id.clone(),
+        tool: name.clone(),
+        before: pide_core::changes::snapshot(&path),
+        path,
+    })
+}
+
 /// Pump commands to pi and records back until either side closes.
 /// Dropping `commands`' senders closes pi's stdin, which asks pi to shut down.
+/// `cwd`: pi's working directory, for before-snapshots of files it changes (`None`: off).
 pub async fn run<R, W>(
     reader: R,
     mut writer: W,
     mut commands: mpsc::UnboundedReceiver<String>,
     inbound: mpsc::UnboundedSender<Inbound>,
     log: Arc<RawLog>,
+    cwd: Option<PathBuf>,
 ) where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -100,6 +125,16 @@ pub async fn run<R, W>(
                         if line.is_empty() { continue; }
                         log.write("in", &line);
                         for rec in parse_line(&line) {
+                            let touched = match (&rec, &cwd) {
+                                (Inbound::Event(ev), Some(cwd)) => snapshot_for(ev, cwd),
+                                _ => None,
+                            };
+                            if let Some(t) = touched {
+                                // Snapshot first, then the start itself.
+                                if inbound.send(Inbound::Event(t)).is_err() {
+                                    return;
+                                }
+                            }
                             if inbound.send(rec).is_err() {
                                 return;
                             }

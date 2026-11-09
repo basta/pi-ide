@@ -1,6 +1,8 @@
 //! Editor tabs. All editing comes from GPUI Kit's editor; this crate is glue:
 //! it shows a workspace [`Buffer`], pushes edits back to the workspace, and
-//! shows the bars around it (read-only, conflict, deleted).
+//! shows the bars around it (read-only, conflict, deleted). Also the pi diff tab.
+
+pub mod diff_panel;
 
 use std::path::{Path, PathBuf};
 
@@ -31,6 +33,7 @@ impl Global for OpenEditors {}
 
 pub fn init(cx: &mut App) {
     cx.set_global(OpenEditors::default());
+    diff_panel::init(cx);
 
     // Rebuild editor tabs from a saved layout.
     register_panel(cx, PANEL_NAME, |ctx, window, cx| {
@@ -87,7 +90,7 @@ fn save_active(window: &mut Window, cx: &mut App) {
 }
 
 /// GPUI Kit language name for a file, by extension.
-fn language_for(path: &Path) -> &'static str {
+pub(crate) fn language_for(path: &Path) -> &'static str {
     match path.extension().and_then(|e| e.to_str()).unwrap_or_default() {
         "rs" => "rust",
         "py" | "pyi" => "python",

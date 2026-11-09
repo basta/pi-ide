@@ -53,7 +53,10 @@ fn main() {
         pide_editor::init(cx);
         pide_file_tree::init(cx);
         pide_agent_chat::init(cx);
-        cx.set_global(pide_file_tree::FileOpener(Rc::new(pide_editor::open_path)));
+        cx.set_global(pide_core::opener::Openers {
+            file: Rc::new(pide_editor::open_path),
+            diff: Rc::new(pide_editor::diff_panel::open_diff),
+        });
         register_app_commands(cx);
         theme::register_commands(cx);
 

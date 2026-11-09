@@ -1,25 +1,21 @@
 //! File tree panel. Walks the project root off the UI thread (respecting
 //! `.gitignore`), refreshes when files are created or removed, and opens a
-//! file by running the `file.open` path through the registered opener.
+//! file through the app's opener (panels never depend on each other). Files
+//! pi changed in any open session get an M / A / D badge.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::time::Duration;
 
 use gpui_kit::component::dock::{PanelEvent, PanelState, register_panel, panel_handle};
 use gpui_kit::component::list::ListItem;
 use gpui_kit::component::tree::{TreeEvent, TreeItem, TreeState, tree};
 use gpui_kit::component::{ActiveTheme, IconName, h_flex};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use pide_core::{DockPosition, Panel, Services, Workspace, WorkspaceEvent};
 
 pub const PANEL_NAME: &str = "file_tree";
-
-/// How a click opens a file. The app installs the editor's opener here, so
-/// this panel never depends on the editor crate (panels stay decoupled).
-pub struct FileOpener(pub Rc<dyn Fn(PathBuf, &mut Window, &mut App)>);
-impl Global for FileOpener {}
 
 pub fn init(cx: &mut App) {
     register_panel(cx, PANEL_NAME, |_, window, cx| panel_handle(cx.new(|cx| FileTree::new(window, cx))));
@@ -107,6 +103,8 @@ impl FileTree {
                     this.expanded.remove(id);
                 }
             }),
+            // Re-render when pi's change lists move (badges).
+            cx.observe(&Services::global(cx).sessions, |_, _, cx| cx.notify()),
             cx.subscribe(&workspace, |this, _, ev: &WorkspaceEvent, cx| {
                 if matches!(ev, WorkspaceEvent::TreeChanged) {
                     this.refresh(Duration::from_millis(300), cx);
@@ -189,9 +187,20 @@ impl Panel for FileTree {
 impl Render for FileTree {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let view = cx.entity();
+        // path -> badge, for files pi changed (and that weren't reverted) in any open session.
+        let mut badges: std::collections::HashMap<String, &'static str> = std::collections::HashMap::new();
+        for agent in Services::global(cx).sessions.read(cx).all() {
+            for c in &agent.read(cx).changes {
+                if !c.reverted {
+                    badges.insert(c.path.to_string_lossy().to_string(), c.badge());
+                }
+            }
+        }
+        let badges = std::rc::Rc::new(badges);
         div().size_full().track_focus(&self.focus).child(
             tree(&self.tree, move |ix, entry, _selected, _window, cx| {
                 let item = entry.item();
+                let badge = badges.get(item.id.as_ref()).copied();
                 let is_dir = view.read(cx).dirs.contains(&item.id);
                 let icon = if !is_dir {
                     IconName::File
@@ -207,14 +216,22 @@ impl Render for FileTree {
                     .py_0p5()
                     .px_2()
                     .pl(px(14.) * entry.depth() + px(8.))
-                    .child(h_flex().gap_2().child(icon).child(item.label.clone()))
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .gap_2()
+                            .child(icon)
+                            .child(div().flex_1().child(item.label.clone()))
+                            .when_some(badge, |this, b| {
+                                let color = if b == "A" { cx.theme().success } else if b == "D" { cx.theme().danger } else { cx.theme().warning };
+                                this.child(div().text_xs().font_weight(FontWeight::BOLD).text_color(color).child(b))
+                            }),
+                    )
                     .on_click(move |_, window, cx| {
                         if is_dir {
                             return;
                         }
-                        if let Some(opener) = cx.try_global::<FileOpener>().map(|o| o.0.clone()) {
-                            opener(PathBuf::from(id.as_ref()), window, cx);
-                        }
+                        pide_core::opener::open_file(PathBuf::from(id.as_ref()), window, cx);
                     })
             })
             .size_full()

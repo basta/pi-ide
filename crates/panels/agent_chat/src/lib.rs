@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::dock::{PanelEvent, PanelInfo, PanelState, panel_handle, register_panel};
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::component::notification::Notification;
@@ -137,6 +137,8 @@ pub struct AgentChat {
     width: Rc<Cell<f32>>,
     /// Narrow mode: the ▾ session list is showing instead of the conversation.
     show_list: bool,
+    /// The active session shows its Changes list instead of the chat.
+    show_changes: bool,
     saved: Vec<SavedSession>,
     _load_saved: Option<Task<()>>,
     /// Text fields for pending `input`/`editor` dialogs, by dialog id.
@@ -270,6 +272,7 @@ impl AgentChat {
             focus: cx.focus_handle(),
             width: Rc::new(Cell::new(0.)),
             show_list: false,
+            show_changes: false,
             saved: Vec::new(),
             _load_saved: None,
             dialog_inputs: HashMap::new(),
@@ -603,6 +606,171 @@ impl AgentChat {
         card.into_any_element()
     }
 
+    /// Revert one file after asking: it overwrites the file, so it also drops later edits
+    /// (yours, or another session's — named in the question).
+    fn confirm_revert(&mut self, agent: Entity<Agent>, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        let root = Services::global(cx).workspace.read(cx).root().to_path_buf();
+        let rel = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
+        let others: Vec<String> = self
+            .sessions
+            .read(cx)
+            .all()
+            .iter()
+            .filter(|a| **a != agent)
+            .filter(|a| a.read(cx).changes.iter().any(|c| c.path == path && !c.reverted))
+            .map(|a| a.read(cx).name.to_string())
+            .collect();
+        let created = agent.read(cx).changes.iter().any(|c| c.path == path && c.before.is_none());
+        let mut text = if created {
+            format!("pi created {rel} in this session. Reverting deletes it.")
+        } else {
+            format!("This puts {rel} back to how it was before pi first touched it in this session. Any later edits to it are lost, including yours.")
+        };
+        if !others.is_empty() {
+            text.push_str(&format!(
+                "\n\nIt was also changed by: {}. Their changes to this file are undone too.",
+                others.join(", ")
+            ));
+        }
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let (agent, path) = (agent.clone(), path.clone());
+            alert
+                .title(format!("Revert {}?", path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()))
+                .description(text.clone())
+                .confirm()
+                .ok_text("Revert")
+                .ok_variant(ButtonVariant::Danger)
+                .on_ok(move |_, window, cx| {
+                    let task = agent.update(cx, |a, cx| a.revert(&path, cx));
+                    window
+                        .spawn(cx, async move |cx| {
+                            if let Err(e) = task.await {
+                                let _ = cx.update(|window, cx| {
+                                    window.push_notification(Notification::error(format!("Revert failed: {e:#}")), cx)
+                                });
+                            }
+                        })
+                        .detach();
+                    true
+                })
+        });
+    }
+
+    fn render_changes(&self, agent: &Entity<Agent>, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme().clone();
+        let root = Services::global(cx).workspace.read(cx).root().to_path_buf();
+        let label: SharedString = agent.read(cx).name.clone();
+        let changes = agent.read(cx).changes.clone();
+        if changes.is_empty() {
+            return div()
+                .p_3()
+                .text_sm()
+                .text_color(theme.muted_foreground)
+                .child("pi hasn't changed any files in this session yet. Files it edits or writes show up here.")
+                .into_any_element();
+        }
+        // Files other open sessions also changed.
+        let shared: Vec<PathBuf> = self
+            .sessions
+            .read(cx)
+            .all()
+            .iter()
+            .filter(|a| *a != agent)
+            .flat_map(|a| a.read(cx).changes.iter().filter(|c| !c.reverted).map(|c| c.path.clone()).collect::<Vec<_>>())
+            .collect();
+        let rows: Vec<AnyElement> = changes
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let rel = c.path.strip_prefix(&root).unwrap_or(&c.path).display().to_string();
+                let badge = c.badge();
+                let badge_color = match badge {
+                    "A" => theme.success,
+                    "D" => theme.danger,
+                    _ => theme.warning,
+                };
+                let flagged = shared.contains(&c.path);
+                let (diff_path, diff_before, diff_label) = (c.path.clone(), c.before.clone(), label.clone());
+                let (agent_r, path_r) = (agent.clone(), c.path.clone());
+                let (agent_v, path_v, reviewed) = (agent.clone(), c.path.clone(), c.reviewed);
+                v_flex()
+                    .id(("change", i))
+                    .w_full()
+                    .px_3()
+                    .py_2()
+                    .gap_1()
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .cursor_pointer()
+                    .hover(|this| this.bg(theme.accent))
+                    .on_click(cx.listener(move |_, _, window, cx| {
+                        pide_core::opener::open_diff(
+                            pide_core::opener::DiffRequest {
+                                path: diff_path.clone(),
+                                before: diff_before.clone(),
+                                label: diff_label.clone(),
+                            },
+                            window,
+                            cx,
+                        );
+                    }))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(div().w(px(12.)).font_weight(FontWeight::BOLD).text_color(badge_color).child(badge))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .whitespace_nowrap()
+                                    .when(c.reverted, |this| this.line_through().text_color(theme.muted_foreground))
+                                    .when(!c.reviewed && !c.reverted, |this| this.font_weight(FontWeight::SEMIBOLD))
+                                    .child(rel),
+                            )
+                            .when_some(c.stats, |this, (a, d)| {
+                                this.child(div().text_xs().text_color(theme.success).child(format!("+{a}")))
+                                    .child(div().text_xs().text_color(theme.danger).child(format!("−{d}")))
+                            }),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .pl(px(20.))
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(div().flex_1().child(if c.reverted { "reverted".into() } else { c.tools_label() }))
+                            .when(flagged, |this| this.child(div().text_color(theme.warning).child("also changed by another session")))
+                            .when(!c.reverted, |this| {
+                                this.child(
+                                    Button::new(("reviewed", i))
+                                        .xsmall()
+                                        .ghost()
+                                        .label(if reviewed { "Reviewed ✓" } else { "Mark reviewed" })
+                                        .on_click(cx.listener(move |_, _, _, cx| {
+                                            cx.stop_propagation();
+                                            agent_v.update(cx, |a, cx| a.set_reviewed(&path_v, !reviewed, cx));
+                                        })),
+                                )
+                                .child(
+                                    Button::new(("revert", i)).xsmall().danger().label("Revert").on_click(cx.listener(
+                                        move |this, _, window, cx| {
+                                            cx.stop_propagation();
+                                            this.confirm_revert(agent_r.clone(), path_r.clone(), window, cx);
+                                        },
+                                    )),
+                                )
+                            }),
+                    )
+                    .into_any_element()
+            })
+            .collect();
+        v_flex().id("changes-list").size_full().overflow_y_scroll().text_sm().children(rows).into_any_element()
+    }
+
     // ---------- rendering ----------
 
     fn dot(agent: &Agent, cx: &App) -> AnyElement {
@@ -910,6 +1078,9 @@ impl AgentChat {
         let status_text = Self::status_text(a);
         let (steering, follow_ups) = a.queue.clone();
         let dialog = a.dialogs.first().cloned();
+        let n_changes = a.changes.len();
+        let unreviewed = a.unreviewed();
+        let show_changes = self.show_changes;
         let id = agent.entity_id();
         let (items, scroll, empty) = match self.views.get(&id) {
             Some(view) => {
@@ -945,6 +1116,35 @@ impl AgentChat {
                 )
             })
             .child(
+                h_flex()
+                    .gap_1()
+                    .px_2()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .child(Button::new("view-chat").xsmall().label("Chat").when(!show_changes, |b| b.primary()).on_click(
+                        cx.listener(|this, _, _, cx| {
+                            this.show_changes = false;
+                            cx.notify();
+                        }),
+                    ))
+                    .child(
+                        Button::new("view-changes")
+                            .xsmall()
+                            .label(match (n_changes, unreviewed) {
+                                (0, _) => "Changes".to_string(),
+                                (_, 0) => format!("Changes · {n_changes}"),
+                                (_, u) => format!("Changes · {u} to review"),
+                            })
+                            .when(show_changes, |b| b.primary())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.show_changes = true;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .when(show_changes, |this| this.child(div().flex_1().min_h_0().child(self.render_changes(&agent, cx))))
+            .when(!show_changes, |this| this.child(
                 div().id(("chat-scroll", id.as_u64())).flex_1().overflow_y_scroll().track_scroll(&scroll).child(
                     v_flex()
                         .p_3()
@@ -959,7 +1159,7 @@ impl AgentChat {
                         })
                         .children(items),
                 ),
-            )
+            ))
             .when_some(dialog.map(|d| self.render_dialog(&agent, &d, cx)), |this, card| this.child(card))
             .when_some(
                 match &status {

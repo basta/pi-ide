@@ -85,6 +85,9 @@ pub enum AgentEvent {
     ToolStart { id: String, name: String, args: Value },
     ToolUpdate { id: String, partial: Value },
     ToolEnd { id: String, name: String, result: Value, is_error: bool, duration_ms: Option<u64> },
+    /// A file-changing tool call (`edit`, `write`) started on `path` (absolute);
+    /// `before` is the file as read right then (`None` = it didn't exist).
+    FileTouched { tool_call_id: String, tool: String, path: PathBuf, before: Option<String> },
     /// pi's pending messages changed: steering (delivered after the current tool
     /// calls) and follow-ups (delivered when the run ends). Complete lists.
     Queue { steering: Vec<String>, follow_up: Vec<String> },

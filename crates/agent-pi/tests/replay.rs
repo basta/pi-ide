@@ -32,7 +32,7 @@ fn start(extra: Vec<String>, log: RawLog) -> Harness {
     let (in_tx, in_rx) = mpsc::unbounded_channel();
     let (rec_tx, rec_rx) = mpsc::unbounded_channel();
 
-    tokio::spawn(run(client_read, client_write, cmd_rx, in_tx, Arc::new(log)));
+    tokio::spawn(run(client_read, client_write, cmd_rx, in_tx, Arc::new(log), None));
     tokio::spawn(async move {
         let mut lines = BufReader::new(pi_read).lines();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -203,4 +203,47 @@ fn recorded_dialogs_parse() {
     assert_eq!(dialogs[2].placeholder.as_deref(), Some("e.g. crlf-save-fix"));
     assert!(dialogs[3].prefill.as_deref().unwrap().starts_with("Keep CRLF"));
     assert!(dialogs.iter().all(|d| !d.id.is_empty()));
+}
+
+#[tokio::test]
+async fn file_tools_get_a_before_snapshot() {
+    // Shapes recorded from pi 1.5.0 (edit + write); the fake pi writes the file
+    // only after announcing the call, as real pi does.
+    let dir = std::env::temp_dir().join(format!("pide-snap-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("a.txt"), "alpha\nbeta\n").unwrap();
+    let _ = std::fs::remove_file(dir.join("new.txt"));
+
+    let (client_io, pi_io) = tokio::io::duplex(64 * 1024);
+    let (client_read, client_write) = tokio::io::split(client_io);
+    let (_pi_read, mut pi_write) = tokio::io::split(pi_io);
+    let (_cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+    let (in_tx, mut in_rx) = mpsc::unbounded_channel();
+    tokio::spawn(run(client_read, client_write, cmd_rx, in_tx, Arc::new(RawLog::disabled()), Some(dir.clone())));
+
+    let lines = [
+        r#"{"type":"tool_execution_start","toolCallId":"functions.edit:1","toolName":"edit","args":{"path":"a.txt","edits":[{"oldText":"beta","newText":"BETA"}]}}"#,
+        r#"{"type":"tool_execution_start","toolCallId":"functions.write:2","toolName":"write","args":{"path":"new.txt","content":"hello"}}"#,
+        r#"{"type":"tool_execution_start","toolCallId":"functions.read:3","toolName":"read","args":{"path":"a.txt"}}"#,
+    ];
+    for (i, l) in lines.iter().enumerate() {
+        pi_write.write_all(format!("{l}\n").as_bytes()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        // "pi" now runs that tool:
+        match i {
+            0 => std::fs::write(dir.join("a.txt"), "alpha\nBETA\n").unwrap(),
+            1 => std::fs::write(dir.join("new.txt"), "hello").unwrap(),
+            _ => {}
+        }
+    }
+    let mut touched = Vec::new();
+    while let Ok(Some(rec)) = tokio::time::timeout(Duration::from_millis(300), in_rx.recv()).await {
+        if let Inbound::Event(AgentEvent::FileTouched { tool, path, before, .. }) = rec {
+            touched.push((tool, path.file_name().unwrap().to_string_lossy().to_string(), before));
+        }
+    }
+    assert_eq!(touched.len(), 2, "only edit and write are file tools: {touched:?}");
+    assert_eq!(touched[0], ("edit".into(), "a.txt".into(), Some("alpha\nbeta\n".into())));
+    assert_eq!(touched[1], ("write".into(), "new.txt".into(), None));
+    let _ = std::fs::remove_dir_all(dir);
 }

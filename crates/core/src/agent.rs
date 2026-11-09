@@ -3,6 +3,7 @@
 
 use gpui_kit::*;
 
+use crate::changes::{FileChange, Touch};
 use crate::events::{AgentEvent, DialogAnswer, DialogRequest};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +50,10 @@ pub struct Agent {
     pub session_file: Option<std::path::PathBuf>,
     /// Messages waiting to be delivered: (steering, follow-ups).
     pub queue: (Vec<String>, Vec<String>),
+    /// Files pi changed in this session, in first-touched order.
+    pub changes: Vec<FileChange>,
+    /// Tool call id -> path, for file-changing calls still running.
+    pending_touches: Vec<(String, std::path::PathBuf)>,
     /// Extension dialogs waiting for an answer, oldest first. `waiting` mirrors `!is_empty()`.
     pub dialogs: Vec<DialogRequest>,
     _dialog_timers: Vec<Task<()>>,
@@ -71,6 +76,8 @@ impl Agent {
             queue: (Vec::new(), Vec::new()),
             dialogs: Vec::new(),
             _dialog_timers: Vec::new(),
+            changes: Vec::new(),
+            pending_touches: Vec::new(),
         }
     }
 
@@ -104,6 +111,64 @@ impl Agent {
         }
         self.with_backend(cx, |b, a, cx| b.prompt(text, a, cx));
     }
+    pub fn unreviewed(&self) -> usize {
+        self.changes.iter().filter(|c| !c.reviewed && !c.reverted).count()
+    }
+
+    pub fn set_reviewed(&mut self, path: &std::path::Path, reviewed: bool, cx: &mut Context<Self>) {
+        if let Some(c) = self.changes.iter_mut().find(|c| c.path == path) {
+            c.reviewed = reviewed;
+            cx.notify();
+        }
+    }
+
+    /// Write the before-snapshot back (or delete a file pi created).
+    pub fn revert(&mut self, path: &std::path::Path, cx: &mut Context<Self>) -> Task<anyhow::Result<()>> {
+        let Some(change) = self.changes.iter().find(|c| c.path == path) else {
+            return Task::ready(Ok(()));
+        };
+        let (path, before) = (change.path.clone(), change.before.clone());
+        let write = cx.background_executor().spawn({
+            let path = path.clone();
+            async move { crate::changes::revert(&path, before.as_deref()) }
+        });
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            write.await?;
+            this.update(cx, |this, cx| {
+                if let Some(c) = this.changes.iter_mut().find(|c| c.path == path) {
+                    c.reverted = true;
+                    c.stats = Some((0, 0));
+                }
+                cx.notify();
+            })
+        })
+    }
+
+    /// Recompute +/− for a changed file against the disk (off the UI thread).
+    fn refresh_stats(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
+        let Some(change) = self.changes.iter().find(|c| c.path == path) else { return };
+        let before = change.before.clone();
+        let work = cx.background_executor().spawn({
+            let path = path.clone();
+            async move {
+                let now = crate::changes::snapshot(&path);
+                let stats = crate::changes::line_stats(before.as_deref().unwrap_or(""), now.as_deref().unwrap_or(""));
+                (stats, now.is_none())
+            }
+        });
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let (stats, gone) = work.await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(c) = this.changes.iter_mut().find(|c| c.path == path) {
+                    c.stats = Some(stats);
+                    c.deleted_now = gone && c.before.is_some();
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// Answer the dialog `id` and drop its card.
     pub fn answer_dialog(&mut self, id: &str, answer: DialogAnswer, cx: &mut Context<Self>) {
         if !self.dialogs.iter().any(|d| d.id == id) {
@@ -143,6 +208,37 @@ impl Agent {
             AgentEvent::AssistantStart | AgentEvent::ToolStart { .. } => {
                 if !matches!(self.status, AgentStatus::Aborting) {
                     self.set_status(AgentStatus::Busy, cx)
+                }
+            }
+            AgentEvent::FileTouched { tool_call_id, tool, path, before } => {
+                let touch = Touch { tool_call_id: tool_call_id.clone(), tool: tool.clone() };
+                match self.changes.iter_mut().find(|c| &c.path == path) {
+                    Some(c) => {
+                        c.touches.push(touch);
+                        c.reviewed = false;
+                        if c.reverted {
+                            // Reverted, then touched again: the new baseline is what was on disk now.
+                            c.reverted = false;
+                            c.before = before.clone();
+                        }
+                    }
+                    None => self.changes.push(FileChange {
+                        path: path.clone(),
+                        before: before.clone(),
+                        touches: vec![touch],
+                        stats: None,
+                        deleted_now: false,
+                        reviewed: false,
+                        reverted: false,
+                    }),
+                }
+                self.pending_touches.push((tool_call_id.clone(), path.clone()));
+                cx.notify();
+            }
+            AgentEvent::ToolEnd { id, .. } => {
+                if let Some(i) = self.pending_touches.iter().position(|(t, _)| t == id) {
+                    let (_, path) = self.pending_touches.remove(i);
+                    self.refresh_stats(path, cx);
                 }
             }
             AgentEvent::Dialog(req) => {

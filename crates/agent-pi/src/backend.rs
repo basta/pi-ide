@@ -425,7 +425,7 @@ async fn supervise(
     };
 
     let log = Arc::new(RawLog::open(paths::state_dir().join("pi-rpc.jsonl")).tagged(tag));
-    let connection = conn::run(stdout, stdin, commands, inbound, log);
+    let connection = conn::run(stdout, stdin, commands, inbound, log, Some(cwd.clone()));
     tokio::select! {
         _ = connection => {}
         _ = kill => {

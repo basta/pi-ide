@@ -12,4 +12,5 @@ log.workspace = true
 notify-debouncer-full.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+similar.workspace = true
 tokio = { workspace = true }
