@@ -1067,7 +1067,17 @@ impl Render for PiSettings {
                                         .p_2()
                                         .rounded(theme.radius)
                                         .bg(theme.secondary)
-                                        .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(run.title.clone()))
+                                        .child(
+                                            h_flex()
+                                                .justify_between()
+                                                .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(run.title.clone()))
+                                                .when(run.done.is_some(), |t| {
+                                                    t.child(Button::new("run-close").xsmall().ghost().label("Close").on_click(cx.listener(|this, _, _, cx| {
+                                                        this.run = None;
+                                                        cx.notify();
+                                                    })))
+                                                }),
+                                        )
                                         .child(mono(tail.join("\n"), cx))
                                         .when_some(run.done.clone(), |t, (ok, msg)| {
                                             t.child(div().text_sm().text_color(if ok { theme.success } else { theme.danger }).child(msg))
