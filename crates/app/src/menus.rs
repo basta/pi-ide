@@ -24,6 +24,8 @@ fn menus() -> Vec<Menu> {
                 cmd("Save", "editor.save"),
                 cmd("Open in Browser", "file.open_in_browser"),
                 cmd("Close Tab", "editor.close"),
+                cmd("Close Other Tabs", "editor.close_others"),
+                cmd("Reopen Closed Tab", "editor.reopen_closed"),
                 MenuItem::separator(),
                 cmd("Quit pide", "app.quit"),
             ],

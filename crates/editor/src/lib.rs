@@ -45,6 +45,9 @@ pub fn set_host(window: WindowId, dock: WeakEntity<DockArea>, cx: &mut App) {
 pub fn remove_host(window: WindowId, cx: &mut App) {
     cx.default_global::<EditorHosts>().0.remove(&window);
     nav::forget(window, cx);
+    if cx.has_global::<ClosedTabs>() {
+        cx.global_mut::<ClosedTabs>().0.remove(&window);
+    }
 }
 
 pub(crate) fn host(window: &Window, cx: &App) -> Option<Entity<DockArea>> {
@@ -285,6 +288,21 @@ pub fn init(cx: &mut App) {
         CommandSpec::new("editor.close", "File: Close Tab").key("cmd-w"),
         |window, cx| window.dispatch_action(Box::new(ClosePanel), cx),
     );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("editor.reopen_closed", "File: Reopen Closed Tab").key("cmd-shift-t"),
+        reopen_closed,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("editor.close_others", "File: Close Other Tabs"),
+        |window, cx| window.defer(cx, |window, cx| close_tabs(true, window, cx)),
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("editor.close_all", "File: Close All Tabs"),
+        |window, cx| window.defer(cx, |window, cx| close_tabs(false, window, cx)),
+    );
     // Back to the code (Esc in the pi box runs this).
     CommandRegistry::register(
         cx,
@@ -302,6 +320,57 @@ pub fn init(cx: &mut App) {
 pub fn open_path(path: PathBuf, window: &mut Window, cx: &mut App) {
     nav::record(window, cx);
     open_panel(path, window, cx);
+}
+
+/// Recently closed editor tabs per window (newest last), for Reopen Closed Tab.
+#[derive(Default)]
+struct ClosedTabs(std::collections::HashMap<WindowId, Vec<PathBuf>>);
+impl Global for ClosedTabs {}
+
+/// File: Reopen Closed Tab (Cmd+Shift+T).
+fn reopen_closed(window: &mut Window, cx: &mut App) {
+    let id = window.window_handle().window_id();
+    let open: Vec<PathBuf> = cx
+        .global::<OpenEditors>()
+        .0
+        .iter()
+        .filter_map(|w| w.upgrade())
+        .filter(|p| p.read(cx).window_id == id)
+        .map(|p| p.read(cx).path.clone())
+        .collect();
+    let next = {
+        let list = cx.default_global::<ClosedTabs>().0.entry(id).or_default();
+        // Skip files open again since, and files gone from disk.
+        loop {
+            match list.pop() {
+                Some(p) if open.contains(&p) || !p.exists() => continue,
+                other => break other,
+            }
+        }
+    };
+    if let Some(p) = next {
+        open_path(p, window, cx);
+    }
+}
+
+/// File: Close Other Tabs / Close All Tabs.
+fn close_tabs(keep_active: bool, window: &mut Window, cx: &mut App) {
+    let id = window.window_handle().window_id();
+    let Some(dock) = host(window, cx) else { return };
+    let active = keep_active
+        .then(|| active_panel(window, cx))
+        .flatten()
+        .map(|p| p.entity_id());
+    let panels: Vec<Entity<EditorPanel>> = cx
+        .global::<OpenEditors>()
+        .0
+        .iter()
+        .filter_map(|w| w.upgrade())
+        .filter(|p| p.read(cx).window_id == id && Some(p.entity_id()) != active)
+        .collect();
+    for p in panels {
+        dock.update(cx, |d, cx| d.remove_panel(p, window, cx));
+    }
 }
 
 /// Close this window's tabs for `path`, or for everything under it (a folder).
@@ -1015,6 +1084,17 @@ impl gpui_kit::component::dock::BasePanel for EditorPanel {
 
     fn on_removed(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         let me = cx.entity_id();
+        // For Reopen Closed Tab.
+        let closed = cx
+            .default_global::<ClosedTabs>()
+            .0
+            .entry(self.window_id)
+            .or_default();
+        closed.retain(|p| *p != self.path);
+        closed.push(self.path.clone());
+        if closed.len() > 30 {
+            closed.remove(0);
+        }
         cx.global_mut::<OpenEditors>()
             .0
             .retain(|w| w.upgrade().is_some_and(|p| p.entity_id() != me));
