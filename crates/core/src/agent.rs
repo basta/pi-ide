@@ -88,6 +88,8 @@ pub struct Agent {
     pub queue: (Vec<String>, Vec<String>),
     /// Files pi changed in this session, in first-touched order.
     pub changes: Vec<FileChange>,
+    /// Pending write of `changes` to disk (debounced; dropping cancels).
+    persist: Option<Task<()>>,
     /// Tool call id -> path, for file-changing calls still running.
     pending_touches: Vec<(String, std::path::PathBuf)>,
     /// Extension dialogs waiting for an answer, oldest first. `waiting` mirrors `!is_empty()`.
@@ -117,6 +119,7 @@ impl Agent {
             dialogs: Vec::new(),
             _dialog_timers: Vec::new(),
             changes: Vec::new(),
+            persist: None,
             pending_touches: Vec::new(),
         }
     }
@@ -168,8 +171,49 @@ impl Agent {
     pub fn set_reviewed(&mut self, path: &std::path::Path, reviewed: bool, cx: &mut Context<Self>) {
         if let Some(c) = self.changes.iter_mut().find(|c| c.path == path) {
             c.reviewed = reviewed;
+            self.persist_changes(cx);
             cx.notify();
         }
+    }
+
+    /// Save the change list next to pi's session, so it survives a restart.
+    fn persist_changes(&mut self, cx: &mut Context<Self>) {
+        let Some(session) = self.session_file.clone() else {
+            return;
+        };
+        let changes = self.changes.clone();
+        let bg = cx.background_executor().clone();
+        self.persist = Some(cx.background_executor().spawn(async move {
+            bg.timer(std::time::Duration::from_millis(300)).await;
+            if let Err(e) = crate::changes::save(&session, &changes) {
+                log::warn!("save change list: {e}");
+            }
+        }));
+    }
+
+    /// A resumed session: bring back its saved change list.
+    pub fn load_changes(&mut self, cx: &mut Context<Self>) {
+        let Some(session) = self.session_file.clone() else {
+            return;
+        };
+        let load = cx
+            .background_executor()
+            .spawn(async move { crate::changes::load(&session) });
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let loaded = load.await;
+            let _ = this.update(cx, |this, cx| {
+                if !this.changes.is_empty() || loaded.is_empty() {
+                    return;
+                }
+                let paths: Vec<_> = loaded.iter().map(|c| c.path.clone()).collect();
+                this.changes = loaded;
+                for p in paths {
+                    this.refresh_stats(p, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Write the before-snapshot back (or delete a file pi created).
@@ -193,6 +237,7 @@ impl Agent {
                     c.reverted = true;
                     c.stats = Some((0, 0));
                 }
+                this.persist_changes(cx);
                 cx.notify();
             })
         })
@@ -323,6 +368,7 @@ impl Agent {
                 }
                 self.pending_touches
                     .push((tool_call_id.clone(), path.clone()));
+                self.persist_changes(cx);
                 cx.notify();
             }
             AgentEvent::ToolEnd { id, .. } => {

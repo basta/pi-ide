@@ -83,6 +83,87 @@ pub fn revert(path: &Path, before: Option<&str>) -> std::io::Result<()> {
     }
 }
 
+/// Where a pi session's change list is kept, so it survives a restart.
+fn store_file(session_file: &Path) -> PathBuf {
+    let key = crate::buffer::hash_bytes(session_file.to_string_lossy().as_bytes());
+    crate::paths::state_dir()
+        .join("changes")
+        .join(format!("{key:016x}.json"))
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Stored {
+    path: PathBuf,
+    before: Option<String>,
+    touches: Vec<(String, String)>,
+    reviewed: bool,
+    reverted: bool,
+}
+
+/// Write a session's change list (blocking: call off the UI thread).
+pub fn save(session_file: &Path, changes: &[FileChange]) -> std::io::Result<()> {
+    save_at(&store_file(session_file), changes)
+}
+
+fn save_at(file: &Path, changes: &[FileChange]) -> std::io::Result<()> {
+    let file = file.to_path_buf();
+    if changes.is_empty() {
+        return match std::fs::remove_file(&file) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        };
+    }
+    let stored: Vec<Stored> = changes
+        .iter()
+        .map(|c| Stored {
+            path: c.path.clone(),
+            before: c.before.clone(),
+            touches: c
+                .touches
+                .iter()
+                .map(|t| (t.tool_call_id.clone(), t.tool.clone()))
+                .collect(),
+            reviewed: c.reviewed,
+            reverted: c.reverted,
+        })
+        .collect();
+    std::fs::create_dir_all(file.parent().unwrap_or(Path::new(".")))?;
+    let tmp = file.with_extension("json.tmp");
+    std::fs::write(
+        &tmp,
+        serde_json::to_vec(&stored).map_err(std::io::Error::other)?,
+    )?;
+    std::fs::rename(tmp, file)
+}
+
+/// A saved session's change list (empty if none); stats are left to compute.
+pub fn load(session_file: &Path) -> Vec<FileChange> {
+    load_at(&store_file(session_file))
+}
+
+fn load_at(file: &Path) -> Vec<FileChange> {
+    let Ok(bytes) = std::fs::read(file) else {
+        return Vec::new();
+    };
+    let stored: Vec<Stored> = serde_json::from_slice(&bytes).unwrap_or_default();
+    stored
+        .into_iter()
+        .map(|s| FileChange {
+            path: s.path,
+            before: s.before,
+            touches: s
+                .touches
+                .into_iter()
+                .map(|(tool_call_id, tool)| Touch { tool_call_id, tool })
+                .collect(),
+            stats: None,
+            deleted_now: false,
+            reviewed: s.reviewed,
+            reverted: s.reverted,
+        })
+        .collect()
+}
+
 /// One changed region: line ranges (0-based, end exclusive) in before and after.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hunk {
@@ -126,6 +207,39 @@ pub fn revert_hunk(before: &str, after: &str, hunk: &Hunk) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn change_list_round_trips() {
+        let file = std::env::temp_dir().join(format!("pide-changes-{}/x.json", std::process::id()));
+        let c = FileChange {
+            path: "/p/a.rs".into(),
+            before: Some("old\n".into()),
+            touches: vec![Touch {
+                tool_call_id: "t1".into(),
+                tool: "edit".into(),
+            }],
+            stats: Some((1, 1)),
+            deleted_now: false,
+            reviewed: true,
+            reverted: false,
+        };
+        save_at(&file, &[c.clone()]).unwrap();
+        let back = load_at(&file);
+        assert_eq!(back.len(), 1);
+        assert_eq!(
+            (
+                back[0].path.clone(),
+                back[0].before.clone(),
+                back[0].touches.clone(),
+                back[0].reviewed
+            ),
+            (c.path, c.before, c.touches, true)
+        );
+        assert_eq!(back[0].stats, None);
+        save_at(&file, &[]).unwrap();
+        assert!(load_at(&file).is_empty());
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
 
     #[::core::prelude::v1::test]
     fn hunks_revert_one_at_a_time() {

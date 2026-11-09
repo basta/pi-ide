@@ -97,6 +97,7 @@ impl Sessions {
                 }
             }));
         self._subs.push(cx.observe(&agent, |_, _, cx| cx.notify()));
+        agent.update(cx, |a, cx| a.load_changes(cx));
         self.list.push(agent.clone());
         self.active = self.list.len() - 1;
         cx.emit(SessionsEvent::Changed);
