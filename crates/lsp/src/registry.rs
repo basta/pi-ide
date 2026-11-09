@@ -71,6 +71,26 @@ fn builtin() -> Vec<ServerSpec> {
             version_command: Some(vec!["pyright".into(), "--version".into()]),
             organize_imports_command: Some("pyright.organizeimports"),
         },
+        ServerSpec {
+            id: "typescript-language-server",
+            language: "TypeScript",
+            language_id: "typescript",
+            // One languageId per server: .js / .tsx would need their own.
+            extensions: &["ts", "mts", "cts"],
+            command: "typescript-language-server".into(),
+            args: vec!["--stdio".into()],
+            install: Some(vec![
+                "npm".into(),
+                "install".into(),
+                "-g".into(),
+                "typescript-language-server".into(),
+                "typescript".into(),
+            ]),
+            source: "npm package",
+            overridden: false,
+            version_command: None,
+            organize_imports_command: None,
+        },
     ]
 }
 
