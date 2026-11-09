@@ -138,8 +138,10 @@ impl Workspace {
             }
         }
         buffer.update(cx, |b, cx| {
+            // Undoing back to the saved text makes it clean again.
+            // (Not while in conflict: the disk no longer has the saved text.)
+            b.dirty = b.conflict || !(text.len() == b.saved_text.len() && text == b.saved_text);
             b.text = text;
-            b.dirty = true;
             cx.notify();
         });
         cx.emit(WorkspaceEvent::BufferChanged(buffer.clone()));
@@ -167,6 +169,7 @@ impl Workspace {
             return Task::ready(Err(anyhow::anyhow!("{reason}")));
         }
         let path = b.path.clone();
+        let snapshot = b.text.clone();
         let bytes = b.encoded();
         let hash = hash_bytes(&bytes);
         let buffer = buffer.clone();
@@ -178,7 +181,9 @@ impl Workspace {
             this.update(cx, |_, cx| {
                 buffer.update(cx, |b, cx| {
                     b.disk_hash = hash;
-                    b.dirty = false;
+                    // Typed while saving: still dirty.
+                    b.dirty = b.text != snapshot;
+                    b.saved_text = snapshot;
                     b.conflict = false;
                     b.notice = None;
                     cx.notify();
@@ -229,6 +234,7 @@ impl Workspace {
         let fresh = Buffer::from_bytes(path, bytes);
         buffer.update(cx, |b, cx| {
             b.text = fresh.text;
+            b.saved_text = fresh.saved_text;
             b.line_ending = fresh.line_ending;
             b.bom = fresh.bom;
             b.read_only = fresh.read_only;

@@ -106,6 +106,8 @@ pub fn hash_bytes(bytes: &[u8]) -> u64 {
 pub struct Buffer {
     pub path: PathBuf,
     pub(crate) text: Rope,
+    /// The text as last loaded or saved: editing back to it makes the buffer clean.
+    pub(crate) saved_text: Rope,
     pub line_ending: LineEnding,
     pub bom: bool,
     pub(crate) dirty: bool,
@@ -128,6 +130,7 @@ impl Buffer {
             Ok(d) => Self {
                 path,
                 text: Rope::from(d.text.as_str()),
+                saved_text: Rope::from(d.text.as_str()),
                 line_ending: d.line_ending,
                 bom: d.bom,
                 dirty: false,
@@ -146,6 +149,7 @@ impl Buffer {
             Err(reason) => Self {
                 path,
                 text: Rope::from(String::from_utf8_lossy(bytes).as_ref()),
+                saved_text: Rope::from(String::from_utf8_lossy(bytes).as_ref()),
                 line_ending: LineEnding::Lf,
                 bom: false,
                 dirty: false,
