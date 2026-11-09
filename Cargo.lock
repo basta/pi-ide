@@ -4868,6 +4868,7 @@ dependencies = [
  "anyhow",
  "env_logger",
  "gpui-kit",
+ "ignore",
  "log",
  "nucleo-matcher",
  "pide-agent-chat",

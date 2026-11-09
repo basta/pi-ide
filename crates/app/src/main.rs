@@ -1,5 +1,6 @@
 //! pide: windows (one per project), dock layout, keymap, wiring. `pide [dir]`.
 
+mod goto_file;
 mod menus;
 mod palette;
 mod projects;
@@ -118,6 +119,7 @@ fn watch_keymap(cx: &mut App) {
 
 fn register_app_commands(cx: &mut App) {
     CommandRegistry::register(cx, CommandSpec::new("palette.open", "Find Action…").key("cmd-shift-a"), palette::open);
+    CommandRegistry::register(cx, CommandSpec::new("file.goto", "Navigate: Go to File…").key("cmd-shift-o"), goto_file::open);
     CommandRegistry::register(cx, CommandSpec::new("app.quit", "Quit pide").key("cmd-q"), |_, cx| cx.quit());
     CommandRegistry::register(cx, CommandSpec::new("keymap.open", "Preferences: Open Keymap File"), |window, cx| {
         let path = paths::keymap_file();

@@ -47,6 +47,7 @@ fn menus() -> Vec<Menu> {
             name: "View".into(),
             items: vec![
                 cmd("Find Action…", "palette.open"),
+                cmd("Go to File…", "file.goto"),
                 MenuItem::separator(),
                 cmd("Project Panel", "view.toggle_project"),
                 cmd("pi Panel", "view.toggle_agent"),
