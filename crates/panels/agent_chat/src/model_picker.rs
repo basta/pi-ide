@@ -29,9 +29,12 @@ pub(crate) fn filter(models: &[ModelInfo], current: Option<&ModelInfo>, query: &
 
 /// Short label for the header button.
 pub(crate) fn short_label(m: &ModelInfo) -> String {
-    let name = if m.name.is_empty() { &m.id } else { &m.name };
+    if m.name.is_empty() {
+        // Only the id is known (from the session file): "moonshotai/kimi-k2.6" -> "kimi-k2.6".
+        return m.id.rsplit('/').next().unwrap_or(&m.id).to_string();
+    }
     // "MoonshotAI: Kimi K2.6" -> "Kimi K2.6"
-    name.rsplit(": ").next().unwrap_or(name).to_string()
+    m.name.rsplit(": ").next().unwrap_or(&m.name).to_string()
 }
 
 pub(crate) fn open(agent: Entity<Agent>, window: &mut Window, cx: &mut App) {

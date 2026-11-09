@@ -152,6 +152,12 @@ enum HistItem {
         output: String,
         failed: bool,
     },
+    /// The session's model / thinking level as last recorded (shown before pi starts).
+    Model {
+        provider: String,
+        id: String,
+    },
+    Thinking(String),
 }
 
 pub struct AgentChat {
@@ -236,8 +242,24 @@ fn parse_history(path: &std::path::Path) -> Vec<HistItem> {
         let Ok(v) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        if v.get("type").and_then(Value::as_str) != Some("message") {
-            continue;
+        match v.get("type").and_then(Value::as_str) {
+            Some("message") => {}
+            Some("model_change") => {
+                if let (Some(p), Some(m)) = (v["provider"].as_str(), v["modelId"].as_str()) {
+                    out.push(HistItem::Model {
+                        provider: p.into(),
+                        id: m.into(),
+                    });
+                }
+                continue;
+            }
+            Some("thinking_level_change") => {
+                if let Some(t) = v["thinkingLevel"].as_str() {
+                    out.push(HistItem::Thinking(t.into()));
+                }
+                continue;
+            }
+            _ => continue,
         }
         let m = &v["message"];
         match m.get("role").and_then(Value::as_str) {
@@ -404,20 +426,52 @@ impl AgentChat {
             if !view.history_requested {
                 if let Some(file) = agent.read(cx).session_file.clone() {
                     view.history_requested = true;
-                    self.load_history(id, file, cx);
+                    self.load_history(id, agent.downgrade(), file, cx);
                 }
             }
         }
         cx.notify();
     }
 
-    fn load_history(&mut self, id: EntityId, file: PathBuf, cx: &mut Context<Self>) {
+    fn load_history(
+        &mut self,
+        id: EntityId,
+        agent: WeakEntity<Agent>,
+        file: PathBuf,
+        cx: &mut Context<Self>,
+    ) {
         let parse = cx
             .background_executor()
             .spawn(async move { parse_history(&file) });
         cx.spawn(async move |this, cx| {
-            let hist = parse.await;
+            let mut hist = parse.await;
             let _ = this.update(cx, |this, cx| {
+                // Model and thinking level as last recorded, until pi reports its own.
+                let mut model = None;
+                let mut thinking = None;
+                hist.retain(|h| match h {
+                    HistItem::Model { provider, id } => {
+                        model = Some((provider.clone(), id.clone()));
+                        false
+                    }
+                    HistItem::Thinking(t) => {
+                        thinking = Some(t.clone());
+                        false
+                    }
+                    _ => true,
+                });
+                let _ = agent.update(cx, |a, cx| {
+                    if a.model.is_none() {
+                        a.model = model.map(|(provider, id)| pide_core::ModelInfo {
+                            provider,
+                            id,
+                            name: String::new(),
+                            reasoning: thinking.as_deref().is_some_and(|t| t != "off"),
+                        });
+                        a.thinking = thinking;
+                        cx.notify();
+                    }
+                });
                 let mut items: Vec<Item> = hist
                     .into_iter()
                     .map(|h| match h {
@@ -451,6 +505,9 @@ impl AgentChat {
                             output,
                             duration_ms: None,
                         },
+                        HistItem::Model { .. } | HistItem::Thinking(_) => {
+                            unreachable!("filtered above")
+                        }
                     })
                     .collect();
                 if let Some(view) = this.views.get_mut(&id) {
