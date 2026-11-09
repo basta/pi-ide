@@ -3,6 +3,7 @@
 //! shows the bars around it (read-only, conflict, deleted). Also the pi diff tab.
 
 pub mod diff_panel;
+mod follow;
 mod git_gutter;
 mod lsp;
 mod rename;
@@ -347,6 +348,8 @@ pub struct EditorPanel {
     /// The project's language servers (set once the file is attached).
     lsp: Option<Entity<pide_lsp::LspStore>>,
     providers: Option<std::rc::Rc<lsp::Providers>>,
+    /// Line changes since the server last published diagnostics for this file.
+    diag_edits: Vec<follow::LineEdit>,
     /// Where to put the cursor once the file has loaded (go to definition, problems).
     pending_cursor: Option<(u32, u32)>,
     /// Signature help being shown, and the line it was asked for on.
@@ -416,6 +419,7 @@ impl EditorPanel {
             diff: None,
             lsp: None,
             providers: None,
+            diag_edits: Vec::new(),
             pending_cursor: None,
             signature: None,
             signature_line: 0,
@@ -506,6 +510,7 @@ impl EditorPanel {
             .push(cx.subscribe_in(&store, window, |this, store, ev, _, cx| {
                 if let pide_lsp::LspEvent::Diagnostics { path } = ev {
                     if *path == this.path {
+                        this.diag_edits.clear();
                         this.apply_diagnostics(store, cx);
                     }
                 }
@@ -538,6 +543,23 @@ impl EditorPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let lines: Vec<follow::LineEdit> = ev
+            .edits()
+            .iter()
+            .map(|(e, _)| follow::LineEdit {
+                start: e.start_position.row as u32,
+                old_end: e.old_end_position.row as u32,
+                new_end: e.new_end_position.row as u32,
+                at_line_start: e.start_position.column == 0 && e.old_end_byte == e.start_byte,
+            })
+            .filter(|l| l.old_end != l.new_end)
+            .collect();
+        if !lines.is_empty() {
+            self.diag_edits.extend(lines);
+            if let Some(store) = self.lsp.clone() {
+                self.apply_diagnostics(&store, cx);
+            }
+        }
         let Some(p) = self.providers.clone() else {
             return;
         };
@@ -602,6 +624,7 @@ impl EditorPanel {
     /// Show the server's diagnostics for this file (converted to the editor's columns).
     fn apply_diagnostics(&mut self, store: &Entity<pide_lsp::LspStore>, cx: &mut Context<Self>) {
         let diags = store.read(cx).diagnostics_for(&self.path).cloned();
+        let shifts = self.diag_edits.clone();
         self.editor.update(cx, |e, cx| {
             let text = e.text().clone();
             let Some(set) = e.diagnostics_mut() else {
@@ -612,6 +635,8 @@ impl EditorPanel {
                 .into_iter()
                 .flat_map(|f| f.items.into_iter().map(move |i| (f.encoding, i)))
                 .map(|(enc, mut i)| {
+                    i.range.start.line = follow::shift_line(i.range.start.line, &shifts);
+                    i.range.end.line = follow::shift_line(i.range.end.line, &shifts);
                     i.range = pide_lsp::convert::range_from_server(&text, i.range, enc);
                     i
                 })
