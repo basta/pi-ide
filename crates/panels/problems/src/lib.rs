@@ -230,7 +230,7 @@ impl Render for Problems {
                 let enc = encodings.get(path.as_path()).copied().unwrap_or_default();
                 let rel = path
                     .strip_prefix(&self.root)
-                    .unwrap_or(&path)
+                    .unwrap_or(path)
                     .display()
                     .to_string();
                 let draft = format!(

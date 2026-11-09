@@ -83,10 +83,10 @@ fn git_dirty(root: &Path) -> Option<Vec<PathBuf>> {
             continue;
         }
         let (xy, path) = entry.split_at(3);
-        if xy.starts_with('R') || xy.chars().nth(1) == Some('R') {
-            if let Some(old) = items.next() {
-                paths.push(root.join(old));
-            }
+        if (xy.starts_with('R') || xy.chars().nth(1) == Some('R'))
+            && let Some(old) = items.next()
+        {
+            paths.push(root.join(old));
         }
         paths.push(root.join(path));
     }

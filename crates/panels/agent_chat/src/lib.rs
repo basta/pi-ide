@@ -488,14 +488,13 @@ impl AgentChat {
         for agent in agents {
             let id = agent.entity_id();
             self.agent_subs.entry(id).or_insert_with(|| {
-                let sub = cx.subscribe_in(
+                cx.subscribe_in(
                     &agent,
                     window,
                     |this, agent, ev: &AgentEvent, window, cx| {
                         this.on_agent_event(agent.clone(), ev, window, cx)
                     },
-                );
-                sub
+                )
             });
             let view = self.views.entry(id).or_default();
             if !view.history_requested
@@ -672,7 +671,7 @@ impl AgentChat {
                     log::warn!("save before sending to pi: {e:#}");
                 }
             }
-            let _ = cx.update(deliver);
+            cx.update(deliver);
         })
         .detach();
         cx.notify();

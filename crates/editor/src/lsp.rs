@@ -1037,7 +1037,7 @@ pub(crate) fn reformat(window: &mut Window, cx: &mut App) {
                 }
                 // The edits are against the text sent; skip if it changed meanwhile.
                 let now = editor.read(cx).text().clone();
-                if now.len() != rope.len() || now.to_string() != rope.to_string() {
+                if now.len() != rope.len() || now != rope {
                     return;
                 }
                 let new = apply_text_edits(&rope.to_string(), edits, enc);
