@@ -125,8 +125,34 @@ fn watch_keymap(cx: &mut App) {
     match fswatch::watch(&dir, false) {
         Ok((watcher, mut rx)) => {
             let file = paths::keymap_file();
+            let settings_file = pide_core::settings::settings_file();
             let task = cx.spawn(async move |cx| {
                 while let Some(changes) = rx.recv().await {
+                    // settings.json: apply without a restart.
+                    if changes
+                        .paths
+                        .iter()
+                        .any(|p| p.file_name() == settings_file.file_name())
+                    {
+                        let fresh = cx
+                            .background_executor()
+                            .spawn(async { pide_core::settings::load() })
+                            .await;
+                        cx.update(|cx| {
+                            let theme_changed = cx
+                                .try_global::<pide_core::settings::Settings>()
+                                .is_none_or(|old| old.theme != fresh.theme);
+                            let theme = fresh.theme;
+                            cx.set_global(fresh);
+                            if theme_changed {
+                                for w in cx.windows() {
+                                    let _ = w.update(cx, |_, window, cx| {
+                                        theme::apply(theme, Some(window), cx)
+                                    });
+                                }
+                            }
+                        });
+                    }
                     if !changes
                         .paths
                         .iter()
