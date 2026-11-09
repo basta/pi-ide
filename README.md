@@ -3,7 +3,7 @@
 A personal, native code editor in Rust on GPUI + GPUI Kit, with the pi coding agent built in.
 Spec: the claude.ai doc "pi IDE — Implementation Spec". Contributor/agent guide: `AGENTS.md`.
 
-Status: milestones **M0–M5** built (M6 scripted panels: options written up in `docs/M6-SCRIPTED-PANELS.md`, waiting on a decision). `docs/GAPS.md` lists what GPUI Kit or pi can't do yet and the PDF part that still needs a first run; `docs/IDEAS.md` what's deliberately not built. M0 results: `docs/SPIKE.md`.
+Status: milestones **M0–M5** built (M6 scripted panels: options written up in `docs/M6-SCRIPTED-PANELS.md`, waiting on a decision). `docs/GAPS.md` lists what GPUI Kit or pi can't do yet and the PDF part that still needs a first run; `docs/IDEAS.md` what's deliberately not built. M0 results: `docs/SPIKE.md`. New here (or back after a while)? `docs/TRY-IT.md` is a 10-minute tour.
 
 ## Run
 
