@@ -84,6 +84,7 @@ fn menus() -> Vec<Menu> {
                 cmd("Parameter Info", "editor.parameter_info"),
                 MenuItem::separator(),
                 cmd("Rename…", "editor.rename"),
+                cmd("Reformat File", "editor.reformat"),
                 cmd("Optimize Imports", "editor.organize_imports"),
                 MenuItem::separator(),
                 cmd("Next Change", "git.next_change"),

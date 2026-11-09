@@ -915,3 +915,75 @@ mod tests {
         assert_eq!(out, "fn sum(a: i32) {}\nlet s = \"😀\"; sum(1);\n");
     }
 }
+
+/// Code: Reformat File (Cmd+Alt+L): the server's `textDocument/formatting`,
+/// applied as one undoable change.
+pub(crate) fn reformat(window: &mut Window, cx: &mut App) {
+    use gpui_kit::component::WindowExt as _;
+    use gpui_kit::component::notification::Notification;
+    let Some(panel) = crate::active_panel(window, cx) else {
+        return;
+    };
+    let (path, editor, store) = {
+        let p = panel.read(cx);
+        (p.path.clone(), p.editor.clone(), p.lsp.clone())
+    };
+    let Some(store) = store else { return };
+    let Some((enc, can)) = store.read(cx).server_for(&path).map(|s| {
+        let can = s
+            .capabilities
+            .as_ref()
+            .and_then(|c| c.document_formatting_provider.as_ref())
+            .is_some_and(|p| !matches!(p, lsp_types::OneOf::Left(false)));
+        (s.encoding, can)
+    }) else {
+        window.push_notification(
+            Notification::warning("No language server is running for this file."),
+            cx,
+        );
+        return;
+    };
+    if !can {
+        window.push_notification(
+            Notification::warning("This file's language server can't format."),
+            cx,
+        );
+        return;
+    }
+    let rope = editor.read(cx).text().clone();
+    let params = json!({
+        "textDocument": { "uri": file_uri(&path) },
+        "options": { "tabSize": 4, "insertSpaces": true, "trimTrailingWhitespace": true, "insertFinalNewline": true },
+    });
+    let task = store.update(cx, |s, cx| {
+        s.request(&path, Some(&rope), "textDocument/formatting", params, cx)
+    });
+    window
+        .spawn(cx, async move |cx| {
+            let result = task.await;
+            let _ = cx.update(|window, cx| {
+                let edits: Vec<TextEdit> = match result {
+                    Ok(v) => serde_json::from_value(v).unwrap_or_default(),
+                    Err(e) => {
+                        window.push_notification(
+                            Notification::error(format!("Reformat failed: {e:#}")),
+                            cx,
+                        );
+                        return;
+                    }
+                };
+                if edits.is_empty() {
+                    window.push_notification(Notification::info("Already formatted."), cx);
+                    return;
+                }
+                // The edits are against the text sent; skip if it changed meanwhile.
+                let now = editor.read(cx).text().clone();
+                if now.len() != rope.len() || now.to_string() != rope.to_string() {
+                    return;
+                }
+                let new = apply_text_edits(&rope.to_string(), edits, enc);
+                crate::minimal::set_text(&editor, new, false, window, cx);
+            });
+        })
+        .detach();
+}

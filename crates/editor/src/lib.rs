@@ -134,6 +134,13 @@ pub fn init(cx: &mut App) {
     )]);
     CommandRegistry::register(
         cx,
+        CommandSpec::new("editor.reformat", "Code: Reformat File")
+            .key("cmd-alt-l")
+            .in_context(pide_core::commands::EDITOR),
+        lsp::reformat,
+    );
+    CommandRegistry::register(
+        cx,
         CommandSpec::new("editor.goto_line", "Navigate: Go to Line…")
             .key("cmd-l")
             .in_context(pide_core::commands::EDITOR),
