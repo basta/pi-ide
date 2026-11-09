@@ -174,6 +174,8 @@ impl PiBackend {
 
         // UI side: apply everything pi sends, then handle its exit.
         let shared = self.shared.clone();
+        let stats_tx = cmd_tx.clone();
+        let tag = self.tag;
         let inbound = cx.spawn(async move |agent: WeakEntity<Agent>, cx| {
             while let Some(rec) = in_rx.recv().await {
                 let ok = agent.update(cx, |agent, cx| match rec {
@@ -188,6 +190,11 @@ impl PiBackend {
                     }
                     Inbound::Event(e @ AgentEvent::Settled { .. }) => {
                         agent.handle_event(e, cx);
+                        // Cost and context use after each run.
+                        let _ = stats_tx.send(
+                            json!({"type": "get_session_stats", "id": format!("pide-{tag}-stats")})
+                                .to_string(),
+                        );
                         schedule_idle_stop(&shared, cx);
                     }
                     Inbound::Event(e) => agent.handle_event(e, cx),
@@ -246,6 +253,7 @@ impl PiBackend {
         });
         agent.set_status(AgentStatus::Starting, cx);
         self.send(json!({"type": "get_state"}));
+        self.send(json!({"type": "get_session_stats"}));
     }
 }
 
@@ -295,6 +303,10 @@ fn handle_response(
         },
         "set_model" => {
             agent.model = crate::wire::model_info(&data);
+            cx.notify();
+        }
+        "get_session_stats" => {
+            agent.stats = Some(crate::wire::session_stats(&data));
             cx.notify();
         }
         "get_commands" => {

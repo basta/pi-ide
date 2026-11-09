@@ -1685,6 +1685,7 @@ impl AgentChat {
             (Some(m), _) => model_picker::short_label(m),
             (None, _) => "Model".to_string(),
         };
+        let stats = a.stats.clone().filter(|s| s.tokens_total > 0);
         let model_tip = a.model.as_ref().map(|m| format!("{}/{}", m.provider, m.id));
         let agent_model = agent.clone();
         let id = agent.entity_id();
@@ -1753,6 +1754,26 @@ impl AgentChat {
                             })),
                     )
                     .child(div().flex_1())
+                    .when_some(stats, |this, st| {
+                        let cost = if st.cost < 0.01 { format!("${:.3}", st.cost) } else { format!("${:.2}", st.cost) };
+                        let label = match st.context_percent {
+                            Some(p) => format!("{cost} · {}% ctx", p.round() as i64),
+                            None => cost,
+                        };
+                        let k = |n: u64| if n >= 1000 { format!("{:.1}k", n as f64 / 1000.0) } else { n.to_string() };
+                        let tip = format!(
+                            "Tokens: {} in, {} out, {} cache read ({} total){}",
+                            k(st.tokens_input),
+                            k(st.tokens_output),
+                            k(st.tokens_cache_read),
+                            k(st.tokens_total),
+                            match (st.context_tokens, st.context_window) {
+                                (Some(t), Some(w)) => format!(" · context {} of {}", k(t), k(w)),
+                                _ => String::new(),
+                            }
+                        );
+                        this.child(Button::new("session-stats").xsmall().ghost().label(label).tooltip(tip))
+                    })
                     .child(
                         Button::new("pick-model")
                             .xsmall()

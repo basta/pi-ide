@@ -300,3 +300,20 @@ pub fn slash_commands(data: &Value) -> Vec<pide_core::SlashCommand> {
         })
         .unwrap_or_default()
 }
+
+/// `get_session_stats`' data (recorded: tests/fixtures/session_stats_response.json).
+pub fn session_stats(data: &Value) -> pide_core::SessionStats {
+    let t = &data["tokens"];
+    let u = |v: &Value| v.as_u64().or_else(|| v.as_f64().map(|f| f as u64));
+    let c = &data["contextUsage"];
+    pide_core::SessionStats {
+        cost: data["cost"].as_f64().unwrap_or(0.0),
+        tokens_total: u(&t["total"]).unwrap_or(0),
+        tokens_input: u(&t["input"]).unwrap_or(0),
+        tokens_output: u(&t["output"]).unwrap_or(0),
+        tokens_cache_read: u(&t["cacheRead"]).unwrap_or(0),
+        context_percent: c["percent"].as_f64(),
+        context_tokens: u(&c["tokens"]),
+        context_window: u(&c["contextWindow"]),
+    }
+}

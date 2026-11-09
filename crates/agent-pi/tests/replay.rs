@@ -438,3 +438,15 @@ fn slash_commands_parse() {
     );
     assert!(!cmds[0].description.is_empty());
 }
+
+#[test]
+fn session_stats_parse() {
+    let v: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/session_stats_response.json").trim()).unwrap();
+    let s = pide_agent_pi::wire::session_stats(&v["data"]);
+    assert_eq!(s.tokens_total, 33965);
+    assert!((s.cost - 0.0073).abs() < 0.0001);
+    assert_eq!(s.context_window, Some(262144));
+    assert_eq!(s.context_tokens, Some(3499));
+    assert!(s.context_percent.unwrap() > 1.0);
+}

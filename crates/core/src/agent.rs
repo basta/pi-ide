@@ -67,6 +67,20 @@ pub struct SlashCommand {
     pub source: String,
 }
 
+/// Token use and cost of a session, and how full the context window is.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct SessionStats {
+    pub cost: f64,
+    pub tokens_total: u64,
+    pub tokens_input: u64,
+    pub tokens_output: u64,
+    pub tokens_cache_read: u64,
+    /// Context window use (percent, tokens, window); `None` right after compaction.
+    pub context_percent: Option<f64>,
+    pub context_tokens: Option<u64>,
+    pub context_window: Option<u64>,
+}
+
 /// A model as the agent reports it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModelInfo {
@@ -94,6 +108,8 @@ pub struct Agent {
     pub thinking: Option<String>,
     /// Models to pick from (filled by `request_models`).
     pub models: Vec<ModelInfo>,
+    /// Cost and context use, refreshed after each run (backend permitting).
+    pub stats: Option<SessionStats>,
     /// Slash commands (filled by `request_commands`).
     pub commands: Vec<SlashCommand>,
     /// The backend has answered `request_commands` (the list may be empty).
@@ -132,6 +148,7 @@ impl Agent {
             thinking: None,
             models: Vec::new(),
             commands: Vec::new(),
+            stats: None,
             commands_loaded: false,
             commands_requested: false,
             session_file: None,
