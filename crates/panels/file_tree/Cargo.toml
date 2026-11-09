@@ -1,7 +1,12 @@
 [package]
 name = "pide-file-tree"
+description = "File tree panel: the project root, respecting .gitignore."
 edition.workspace = true
 version.workspace = true
 publish.workspace = true
 
 [dependencies]
+gpui-kit.workspace = true
+pide-core.workspace = true
+ignore.workspace = true
+log.workspace = true

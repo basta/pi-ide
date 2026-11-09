@@ -1,11 +1,24 @@
 [package]
 name = "pide"
-description = "pide: the app binary."
+description = "pide: a personal native code editor with the pi coding agent built in."
 edition.workspace = true
 version.workspace = true
 publish.workspace = true
+
+[[bin]]
+name = "pide"
+path = "src/main.rs"
 
 [dependencies]
 gpui-kit.workspace = true
 pide-core.workspace = true
 pide-runtime.workspace = true
+pide-editor.workspace = true
+pide-agent-pi.workspace = true
+pide-file-tree.workspace = true
+pide-agent-chat.workspace = true
+anyhow.workspace = true
+env_logger.workspace = true
+log.workspace = true
+nucleo-matcher.workspace = true
+serde_json.workspace = true
