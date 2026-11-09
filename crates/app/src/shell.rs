@@ -494,7 +494,17 @@ impl Shell {
             .child(
                 h_flex()
                     .gap_3()
-                    .when_some(self.branch.clone(), |this, b| this.child(format!("⎇ {b}")))
+                    .when_some(self.branch.clone(), |this, b| {
+                        this.child(
+                            div()
+                                .id("branch")
+                                .cursor_pointer()
+                                .child(format!("⎇ {b}"))
+                                .on_click(|_, window, cx| {
+                                    CommandRegistry::run("git.changes", window, cx);
+                                }),
+                        )
+                    })
                     .when(errors + warnings > 0, |this| {
                         this.child(
                             div()
@@ -518,7 +528,15 @@ impl Shell {
                     .gap_3()
                     .children(server_label)
                     .children(items)
-                    .child(agent_label),
+                    .child(
+                        div()
+                            .id("agent-status")
+                            .cursor_pointer()
+                            .child(agent_label)
+                            .on_click(|_, window, cx| {
+                                CommandRegistry::run("agent.ask", window, cx);
+                            }),
+                    ),
             )
     }
 }
