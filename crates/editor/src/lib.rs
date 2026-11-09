@@ -125,6 +125,13 @@ pub fn init(cx: &mut App) {
             }
         },
     );
+    // Cmd+Shift+F is Find in Files (JetBrains); GPUI Kit's in-file replace moves to
+    // JetBrains' Cmd+R. Bound before keymap::init, so it survives keymap reloads.
+    cx.bind_keys([KeyBinding::new(
+        "cmd-r",
+        gpui_kit::component::input::Replace,
+        Some(pide_core::commands::EDITOR),
+    )]);
     CommandRegistry::register(
         cx,
         CommandSpec::new("editor.goto_line", "Navigate: Go to Line…")
