@@ -4975,6 +4975,7 @@ dependencies = [
  "gpui-kit",
  "log",
  "lsp-types",
+ "nucleo-matcher",
  "pide-core",
  "pide-lsp",
  "serde_json",

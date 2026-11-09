@@ -7,6 +7,7 @@ mod git_gutter;
 mod lsp;
 mod rename;
 mod signature;
+mod symbols;
 pub use lsp::apply_workspace_edit;
 
 use std::path::{Path, PathBuf};
@@ -86,6 +87,8 @@ pub fn init(cx: &mut App) {
         }
     });
     CommandRegistry::register(cx, CommandSpec::new("editor.find_usages", "Navigate: Find Usages").key("alt-f7").in_context(pide_core::commands::EDITOR), lsp::find_usages);
+    CommandRegistry::register(cx, CommandSpec::new("editor.file_structure", "Navigate: File Structure").key("cmd-f12").in_context(pide_core::commands::EDITOR), symbols::file_structure);
+    CommandRegistry::register(cx, CommandSpec::new("editor.go_to_symbol", "Navigate: Go to Symbol…").key("cmd-alt-o"), symbols::go_to_symbol);
     CommandRegistry::register(cx, CommandSpec::new("editor.organize_imports", "Code: Optimize Imports").key("ctrl-alt-o").in_context(pide_core::commands::EDITOR), lsp::organize_imports);
     CommandRegistry::register(cx, CommandSpec::new("editor.rename", "Refactor: Rename…").key("shift-f6").in_context(pide_core::commands::EDITOR), rename::rename_symbol);
     CommandRegistry::register(cx, CommandSpec::new("editor.quick_fix", "Code: Show Quick Fixes").key("alt-enter").in_context(pide_core::commands::EDITOR), |window, cx| {

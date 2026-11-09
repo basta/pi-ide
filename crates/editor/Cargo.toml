@@ -14,3 +14,4 @@ log.workspace = true
 lsp-types.workspace = true
 serde_json.workspace = true
 similar.workspace = true
+nucleo-matcher.workspace = true
