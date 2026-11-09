@@ -123,7 +123,12 @@ impl Providers {
                 t.chars().count() > 1 && t == inserted
             }
         })?;
-        Some(found.1.clone())
+        let raw = found.1.clone();
+        drop(last);
+        // One acceptance per list: a later undo/redo or reload that inserts the
+        // same text must not add the import again.
+        self.last_completions.borrow_mut().clear();
+        Some(raw)
     }
 
     /// The accepted item's `additionalTextEdits` (asking the server to resolve
