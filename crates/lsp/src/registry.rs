@@ -25,6 +25,9 @@ pub struct ServerSpec {
     pub source: &'static str,
     /// From `settings.json` rather than the built-in default.
     pub overridden: bool,
+    /// How to read the version. `None`: `<command> --version`.
+    /// pyright's server refuses `--version` (it wants `--stdio`); its CLI answers.
+    pub version_command: Option<Vec<String>>,
 }
 
 fn builtin() -> Vec<ServerSpec> {
@@ -39,6 +42,7 @@ fn builtin() -> Vec<ServerSpec> {
             install: Some(vec!["rustup".into(), "component".into(), "add".into(), "rust-analyzer".into()]),
             source: "rustup component",
             overridden: false,
+            version_command: None,
         },
         ServerSpec {
             id: "pyright",
@@ -50,6 +54,7 @@ fn builtin() -> Vec<ServerSpec> {
             install: Some(vec!["npm".into(), "install".into(), "-g".into(), "pyright".into()]),
             source: "npm package",
             overridden: false,
+            version_command: Some(vec!["pyright".into(), "--version".into()]),
         },
     ]
 }
@@ -63,6 +68,7 @@ pub fn specs(lsp_settings: Option<&Value>) -> Vec<ServerSpec> {
         if let Some(cmd) = o.get("command").and_then(Value::as_str) {
             spec.command = cmd.to_string();
             spec.overridden = true;
+            spec.version_command = None; // the built-in check is for the built-in command
         }
         if let Some(args) = o.get("args").and_then(Value::as_array) {
             spec.args = args.iter().filter_map(|a| a.as_str().map(str::to_string)).collect();
@@ -116,8 +122,19 @@ pub fn detect(spec: &ServerSpec) -> Installed {
     let Some(path) = find_command(&spec.command) else {
         return Installed::No { reason: format!("`{}` not found", spec.command) };
     };
-    let mut child = match std::process::Command::new(&path)
-        .arg("--version")
+    // A custom command from settings.json: we don't know how to ask its version.
+    if spec.overridden {
+        return Installed::Yes { path, version: "custom command".into() };
+    }
+    let (program, args) = match &spec.version_command {
+        Some(v) => match find_command(&v[0]) {
+            Some(p) => (p, v[1..].to_vec()),
+            None => return Installed::No { reason: format!("`{}` not found", v[0]) },
+        },
+        None => (path.clone(), vec!["--version".to_string()]),
+    };
+    let mut child = match std::process::Command::new(&program)
+        .args(&args)
         .env("PATH", std::env::join_paths(search_path()).unwrap_or_default())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -164,6 +181,19 @@ mod tests {
         let py = spec_for(&specs, Path::new("a/b.pyi")).unwrap();
         assert_eq!((py.id, py.overridden), ("pyright", false));
         assert!(spec_for(&specs, Path::new("README.md")).is_none());
+    }
+
+    /// pyright's server rejects `--version`; detection asks its CLI instead.
+    #[test]
+    fn installed_pyright_is_detected() {
+        let py = specs(None).into_iter().find(|s| s.id == "pyright").unwrap();
+        if find_command(&py.command).is_none() {
+            return; // not installed on this machine
+        }
+        match detect(&py) {
+            Installed::Yes { version, .. } => assert!(version.starts_with("pyright"), "{version}"),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
