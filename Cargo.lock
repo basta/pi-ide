@@ -4936,6 +4936,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "gpui-kit",
+ "ignore",
  "log",
  "pide-core",
  "pide-runtime",

@@ -201,8 +201,11 @@ pub struct AgentChat {
     attachments: Vec<(pide_core::ImageAttachment, std::sync::Arc<Image>)>,
     /// Image counts to note under the next prompt each session echoes.
     image_notes: HashMap<EntityId, usize>,
-    /// Slash suggestions were showing at the last keystroke.
+    /// Suggestions were showing at the last keystroke.
     slash_open: bool,
+    /// Project files for `@` mentions, listed on the first `@`.
+    files: Option<Rc<Vec<String>>>,
+    files_loading: bool,
     focus: FocusHandle,
     /// Last laid-out width, measured each frame (tabs vs sidebar).
     width: Rc<Cell<f32>>,
@@ -387,10 +390,16 @@ impl AgentChat {
                         // Typing `/`: fetch the session's commands for the suggestions.
                         // Redraw only for the suggestions: a redraw per keystroke
                         // re-renders the whole conversation.
-                        let slash = slash::typed(&this.input.read(cx).value()).is_some();
-                        if slash {
+                        let value = this.input.read(cx).value();
+                        let is_slash = slash::typed(&value).is_some();
+                        let is_mention = slash::mention(&value).is_some();
+                        if is_slash {
                             this.active(cx).update(cx, |a, cx| a.request_commands(cx));
                         }
+                        if is_mention {
+                            this.load_files(cx);
+                        }
+                        let slash = is_slash || is_mention;
                         if slash || std::mem::replace(&mut this.slash_open, slash) {
                             this.slash_open = slash;
                             cx.notify();
@@ -443,6 +452,8 @@ impl AgentChat {
             attachments: Vec::new(),
             image_notes: HashMap::new(),
             slash_open: false,
+            files: None,
+            files_loading: false,
             focus: cx.focus_handle(),
             width: Rc::new(Cell::new(0.)),
             show_list: false,
@@ -714,28 +725,85 @@ impl AgentChat {
         true
     }
 
-    /// Slash commands matching what's typed in the composer.
-    fn slash_suggestions(&self, cx: &App) -> Vec<pide_core::SlashCommand> {
-        let text = self.input.read(cx).value();
-        let Some(q) = slash::typed(&text) else {
-            return Vec::new();
-        };
-        let agent = self.active(cx);
-        let commands = &agent.read(cx).commands;
-        slash::matches(commands, q)
-            .into_iter()
-            .map(|i| commands[i].clone())
-            .collect()
+    /// What's suggested under the composer: slash commands while typing `/name`,
+    /// project files while typing `@path`.
+    fn suggestions(&self, cx: &App) -> Vec<slash::Suggestion> {
+        let text = self.input.read(cx).value().to_string();
+        if let Some(q) = slash::typed(&text) {
+            let agent = self.active(cx);
+            let commands = &agent.read(cx).commands;
+            return slash::matches(commands, q)
+                .into_iter()
+                .map(|i| {
+                    let c = &commands[i];
+                    slash::Suggestion {
+                        label: format!("/{}", c.name),
+                        detail: c.description.clone(),
+                        tag: c.source.clone(),
+                        replace_with: format!("/{} ", c.name),
+                    }
+                })
+                .collect();
+        }
+        if let (Some((start, q)), Some(files)) = (slash::mention(&text), self.files.as_ref()) {
+            return slash::file_matches(files, q, 8)
+                .into_iter()
+                .map(|i| slash::Suggestion {
+                    label: format!("@{}", files[i]),
+                    detail: String::new(),
+                    tag: "file".into(),
+                    replace_with: format!("{}@{} ", &text[..start], files[i]),
+                })
+                .collect();
+        }
+        Vec::new()
     }
 
-    /// Put `/name ` in the composer.
-    fn complete_slash(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let text = format!("/{name} ");
+    /// Take a suggestion: the composer gets its text.
+    fn complete(&mut self, s: &slash::Suggestion, window: &mut Window, cx: &mut Context<Self>) {
+        let text = s.replace_with.clone();
         self.input.update(cx, |i, cx| {
             i.set_value(text, window, cx);
             i.focus(window, cx);
         });
         cx.notify();
+    }
+
+    /// List the project's files (gitignore-aware) for `@` mentions, once.
+    fn load_files(&mut self, cx: &mut Context<Self>) {
+        if self.files.is_some() || self.files_loading {
+            return;
+        }
+        self.files_loading = true;
+        let root = self.workspace.read(cx).root().to_path_buf();
+        let list = cx.background_executor().spawn(async move {
+            let mut out = Vec::new();
+            let walker = ignore::WalkBuilder::new(&root)
+                .hidden(false)
+                .filter_entry(|e| e.file_name() != ".git" && e.file_name() != ".DS_Store")
+                .build();
+            for e in walker.flatten() {
+                if e.file_type().is_some_and(|t| t.is_file())
+                    && let Ok(rel) = e.path().strip_prefix(&root)
+                {
+                    out.push(rel.display().to_string());
+                    if out.len() >= 50_000 {
+                        break;
+                    }
+                }
+            }
+            out.sort_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+            out
+        });
+        cx.spawn(async move |this, cx| {
+            let files = list.await;
+            let _ = this.update(cx, |this, cx| {
+                this.files = Some(Rc::new(files));
+                this.files_loading = false;
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// A desktop notification, only while pide isn't the active app.
@@ -1839,7 +1907,7 @@ impl AgentChat {
         let n_changes = a.changes.len();
         let unreviewed = a.unreviewed();
         let show_changes = self.show_changes;
-        let slash_rows = self.slash_suggestions(cx);
+        let slash_rows = self.suggestions(cx);
         // `/` typed but the commands haven't arrived yet.
         let slash_rows_empty_hint = slash_rows.is_empty()
             && !a.commands_loaded
@@ -2044,7 +2112,7 @@ impl AgentChat {
                                 .py_1()
                                 .text_sm()
                                 .children(slash_rows.into_iter().enumerate().map(|(i, c)| {
-                                    let name = c.name.clone();
+                                    let pick = c.clone();
                                     h_flex()
                                         .id(("slash", i))
                                         .gap_2()
@@ -2053,8 +2121,8 @@ impl AgentChat {
                                         .cursor_pointer()
                                         .when(i == 0, |r| r.bg(theme.list_hover))
                                         .hover(|r| r.bg(theme.list_hover))
-                                        .on_click(cx.listener(move |this, _, window, cx| this.complete_slash(&name, window, cx)))
-                                        .child(div().flex_none().font_family(theme.mono_font_family.clone()).child(format!("/{}", c.name)))
+                                        .on_click(cx.listener(move |this, _, window, cx| this.complete(&pick, window, cx)))
+                                        .child(div().flex_none().font_family(theme.mono_font_family.clone()).child(c.label.clone()))
                                         .child(
                                             div()
                                                 .min_w_0()
@@ -2063,10 +2131,10 @@ impl AgentChat {
                                                 .whitespace_nowrap()
                                                 .text_xs()
                                                 .text_color(theme.muted_foreground)
-                                                .child(c.description.clone()),
+                                                .child(c.detail.clone()),
                                         )
                                         .child(div().flex_1())
-                                        .child(div().flex_none().text_xs().text_color(theme.muted_foreground).child(c.source.clone()))
+                                        .child(div().flex_none().text_xs().text_color(theme.muted_foreground).child(c.tag.clone()))
                                 })),
                         )
                     })
@@ -2105,8 +2173,8 @@ impl AgentChat {
                                 CommandRegistry::run("editor.focus", window, cx);
                             })
                             .on_action(cx.listener(|this, _: &CompleteSlash, window, cx| {
-                                match this.slash_suggestions(cx).into_iter().next() {
-                                    Some(first) => this.complete_slash(&first.name, window, cx),
+                                match this.suggestions(cx).into_iter().next() {
+                                    Some(first) => this.complete(&first, window, cx),
                                     None => window.focus_next(cx),
                                 }
                             }))
