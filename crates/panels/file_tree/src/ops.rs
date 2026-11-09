@@ -282,6 +282,30 @@ pub(crate) fn delete(path: PathBuf, window: &mut Window, cx: &mut App) {
     });
 }
 
+/// Show the file in Finder (selected), or open its folder elsewhere.
+pub(crate) fn reveal(path: &Path) {
+    let r = if cfg!(target_os = "macos") {
+        std::process::Command::new("/usr/bin/open")
+            .arg("-R")
+            .arg(path)
+            .spawn()
+    } else {
+        let dir = if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or(path)
+        };
+        std::process::Command::new("xdg-open").arg(dir).spawn()
+    };
+    match r {
+        // Reap the child so it doesn't linger as a zombie.
+        Ok(mut child) => {
+            std::thread::spawn(move || child.wait());
+        }
+        Err(e) => log::warn!("reveal {}: {e}", path.display()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

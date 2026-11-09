@@ -220,6 +220,7 @@ impl Render for FileTree {
             }
         }
         let badges = std::rc::Rc::new(badges);
+        let root = std::rc::Rc::new(self.workspace.read(cx).root().to_path_buf());
         div().size_full().track_focus(&self.focus).child(
             tree(&self.tree, move |ix, entry, _selected, _window, cx| {
                 let item = entry.item();
@@ -269,7 +270,7 @@ impl Render for FileTree {
                         pide_core::opener::open_file(PathBuf::from(id.as_ref()), window, cx);
                     })
             })
-            .context_menu(|_ix, entry, menu, _window, _cx| {
+            .context_menu(move |_ix, entry, menu, _window, _cx| {
                 let path = PathBuf::from(entry.item().id.as_ref());
                 let is_dir = entry.is_folder();
                 // New things go inside a folder, or next to a file.
@@ -278,7 +279,11 @@ impl Render for FileTree {
                 } else {
                     path.parent().map(Path::to_path_buf).unwrap_or_default()
                 };
-                let (d1, d2, p1, p2) = (dir.clone(), dir, path.clone(), path);
+                let rel = path
+                    .strip_prefix(root.as_path())
+                    .map(|r| r.display().to_string())
+                    .unwrap_or_else(|_| path.display().to_string());
+                let (d1, d2, p1, p2, p3) = (dir.clone(), dir, path.clone(), path.clone(), path);
                 menu.item(
                     PopupMenuItem::new("New File…").on_click(move |_, window, cx| {
                         ops::new_entry(d1.clone(), false, window, cx)
@@ -297,6 +302,18 @@ impl Render for FileTree {
                 .item(
                     PopupMenuItem::new("Move to Trash…")
                         .on_click(move |_, window, cx| ops::delete(p2.clone(), window, cx)),
+                )
+                .separator()
+                .item(PopupMenuItem::new("Copy Path").on_click(move |_, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(rel.clone()))
+                }))
+                .item(
+                    PopupMenuItem::new(if cfg!(target_os = "macos") {
+                        "Reveal in Finder"
+                    } else {
+                        "Show in Folder"
+                    })
+                    .on_click(move |_, _, _| ops::reveal(&p3)),
                 )
             })
             .size_full()
