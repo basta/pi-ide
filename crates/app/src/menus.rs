@@ -131,6 +131,7 @@ fn menus() -> Vec<Menu> {
         Menu {
             name: "Settings".into(),
             items: vec![
+                cmd("pide…", "settings.pide"),
                 cmd("pi…", "pi.settings"),
                 cmd("Language Servers…", "lsp.servers"),
                 MenuItem::separator(),

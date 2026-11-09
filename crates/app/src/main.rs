@@ -6,6 +6,7 @@ mod menus;
 mod palette;
 mod projects;
 mod recent_files;
+mod settings_ui;
 mod shell;
 mod theme;
 mod unsaved;
@@ -225,6 +226,11 @@ fn register_app_commands(cx: &mut App) {
         cx,
         CommandSpec::new("file.goto", "Navigate: Go to File…").key("cmd-shift-o"),
         goto_file::open,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("settings.pide", "Settings: pide…").key("cmd-,"),
+        settings_ui::open,
     );
     CommandRegistry::register(
         cx,
