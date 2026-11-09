@@ -78,6 +78,11 @@ pub fn init(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
+        CommandSpec::new("agent.export", "Agent: Export Session as HTML"),
+        move |window, cx| active(window, cx).update(cx, |a, cx| a.export_html(cx)),
+    );
+    CommandRegistry::register(
+        cx,
         CommandSpec::new("agent.compact", "Agent: Compact Session"),
         move |window, cx| active(window, cx).update(cx, |a, cx| a.compact(cx)),
     );

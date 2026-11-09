@@ -50,6 +50,8 @@ pub trait AgentBackend: 'static {
     fn set_thinking(&mut self, _level: String, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
     /// The session got a new name (already in `agent.name`); save it with the session.
     fn renamed(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
+    /// Write the session as an HTML page and open it in the browser.
+    fn export_html(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
     /// Summarize the conversation so far to free context (pi's `compact`).
     fn compact(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
     /// Ask for the session's slash commands; they arrive in `agent.commands`.
@@ -390,6 +392,10 @@ impl Agent {
         self.name = name.into();
         cx.notify();
         self.with_backend(cx, |b, a, cx| b.renamed(a, cx));
+    }
+
+    pub fn export_html(&mut self, cx: &mut Context<Self>) {
+        self.with_backend(cx, |b, a, cx| b.export_html(a, cx));
     }
 
     pub fn compact(&mut self, cx: &mut Context<Self>) {

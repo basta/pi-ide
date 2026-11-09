@@ -121,6 +121,7 @@ fn menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 cmd("Stop", "agent.abort"),
                 cmd("Compact Session", "agent.compact"),
+                cmd("Export Session as HTML", "agent.export"),
                 cmd("Restart pi", "agent.restart"),
                 MenuItem::separator(),
                 cmd("pi Settings…", "pi.settings"),

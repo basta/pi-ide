@@ -310,6 +310,28 @@ fn handle_response(
             agent.thinking_levels = crate::wire::thinking_levels(&data);
             cx.notify();
         }
+        "export_html" => {
+            if let Some(p) = data.get("path").and_then(Value::as_str) {
+                let opener = if cfg!(target_os = "macos") {
+                    "/usr/bin/open"
+                } else {
+                    "xdg-open"
+                };
+                match std::process::Command::new(opener).arg(p).spawn() {
+                    Ok(mut child) => {
+                        std::thread::spawn(move || child.wait());
+                    }
+                    Err(e) => log::warn!("open {p}: {e}"),
+                }
+                agent.handle_event(
+                    AgentEvent::Notify {
+                        message: format!("Exported to {p}"),
+                        error: false,
+                    },
+                    cx,
+                );
+            }
+        }
         "compact" => {
             let n = |k: &str| {
                 data[k]
@@ -390,6 +412,47 @@ impl AgentBackend for PiBackend {
             let name = agent.name.to_string();
             self.send_started(json!({"type": "set_session_name", "name": name}), agent, cx);
         }
+    }
+
+    fn export_html(&mut self, agent: &mut Agent, cx: &mut Context<Agent>) {
+        if agent.session_file.is_none() && self.process.is_none() {
+            agent.handle_event(
+                AgentEvent::Notify {
+                    message: "Nothing to export yet.".into(),
+                    error: false,
+                },
+                cx,
+            );
+            return;
+        }
+        // Into pide's state folder, not the project.
+        let name: String = agent
+            .name
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .take(60)
+            .collect();
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let path = pide_core::paths::state_dir()
+            .join("exports")
+            .join(format!("{name}-{stamp}.html"));
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        self.send_started(
+            json!({"type": "export_html", "outputPath": path}),
+            agent,
+            cx,
+        );
     }
 
     fn compact(&mut self, agent: &mut Agent, cx: &mut Context<Agent>) {
