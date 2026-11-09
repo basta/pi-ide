@@ -5,6 +5,7 @@
 pub mod diff_panel;
 mod lsp;
 mod rename;
+mod signature;
 pub use lsp::apply_workspace_edit;
 
 use std::path::{Path, PathBuf};
@@ -64,6 +65,11 @@ pub fn init(cx: &mut App) {
     // JetBrains keys for GPUI Kit's editor actions (which have no default binding, or a VS Code one).
     CommandRegistry::register(cx, CommandSpec::new("editor.go_to_definition", "Navigate: Go to Declaration").key("cmd-b"), |window, cx| {
         window.dispatch_action(Box::new(gpui_kit::component::input::GoToDefinition), cx)
+    });
+    CommandRegistry::register(cx, CommandSpec::new("editor.parameter_info", "Code: Parameter Info").key("cmd-p"), |window, cx| {
+        if let Some(panel) = active_panel(window, cx) {
+            panel.update(cx, |p, cx| p.request_signature(signature::Trigger::Invoked, cx));
+        }
     });
     CommandRegistry::register(cx, CommandSpec::new("editor.rename", "Refactor: Rename…").key("shift-f6"), rename::rename_symbol);
     CommandRegistry::register(cx, CommandSpec::new("editor.quick_fix", "Code: Show Quick Fixes").key("alt-enter"), |window, cx| {
@@ -212,6 +218,10 @@ pub struct EditorPanel {
     lsp: Option<Entity<pide_lsp::LspStore>>,
     /// Where to put the cursor once the file has loaded (go to definition, problems).
     pending_cursor: Option<(u32, u32)>,
+    /// Signature help being shown, and the line it was asked for on.
+    signature: Option<lsp_types::SignatureHelp>,
+    signature_line: u32,
+    _signature_task: Option<Task<()>>,
     _subs: Vec<Subscription>,
     _load: Option<Task<()>>,
 }
@@ -234,13 +244,16 @@ impl EditorPanel {
         let focus = editor.focus_handle(cx);
 
         let mut subs = vec![
-            cx.subscribe(&editor, |this, editor, ev: &InputEvent, cx| {
-                if matches!(ev, InputEvent::Change) {
+            cx.subscribe(&editor, |this, editor, ev: &InputEvent, cx| match ev {
+                InputEvent::Change => {
                     if let Some(buffer) = this.buffer.clone() {
                         let text = editor.read(cx).text().clone();
                         this.workspace.update(cx, |w, cx| w.edited(&buffer, text, cx));
                     }
+                    this.signature_after_edit(cx);
                 }
+                InputEvent::Blur => this.hide_signature(cx),
+                _ => {}
             }),
             cx.subscribe_in(&workspace, window, Self::on_workspace_event),
         ];
@@ -262,6 +275,9 @@ impl EditorPanel {
             diff: None,
             lsp: None,
             pending_cursor: None,
+            signature: None,
+            signature_line: 0,
+            _signature_task: None,
             _subs: Vec::new(),
             _load: None,
         };
@@ -539,6 +555,12 @@ impl Render for EditorPanel {
 
         v_flex()
             .size_full()
+            // Escape closes signature help (seen before the editor handles it; not consumed).
+            .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
+                if ev.keystroke.key == "escape" {
+                    this.hide_signature(cx);
+                }
+            }))
             .when_some(read_only, |this, r| this.child(self.bar(cx, false, r)))
             .when_some(notice, |this, n| this.child(self.bar(cx, false, n)))
             .when(deleted, |this| {
@@ -568,6 +590,7 @@ impl Render for EditorPanel {
                         .child(Diff::new(&diff).line_number(true).syntax_highlight(true)),
                 )
             })
+            .children(self.render_signature(cx))
             .child(
                 div().flex_1().w_full().overflow_hidden().child(
                     Editor::new(&self.editor)
