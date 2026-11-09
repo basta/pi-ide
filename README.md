@@ -26,6 +26,8 @@ Requires `pi` (`npm i -g @earendil-works/pi-coding-agent`) for the chat panel; i
 | Cmd+W | Close tab |
 | Cmd+1 | Toggle project panel |
 | Cmd+Shift+I | Ask pi: show the pi panel, cursor in its message box (with the editor context) |
+| Cmd+Alt+Z | Git: roll back the change under the cursor to HEAD (undoable) |
+| Ctrl+Alt+Shift+↓ / ↑ | Git: next / previous change |
 | Esc (in the pi box) | Back to the editor |
 | Cmd+F2 | Stop pi (active session) |
 | Ctrl+Tab / Ctrl+Shift+Tab | Next / previous pi session |

@@ -4,8 +4,8 @@
 
 use std::time::Duration;
 
-use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::input::{GutterDecoration, Position, Rope, RopeExt as _};
+use gpui_kit::component::{ActiveTheme, WindowExt as _};
 use gpui_kit::*;
 use pide_core::git::{self, ChangeKind, LineChange};
 
@@ -122,5 +122,118 @@ mod tests {
         assert_eq!(byte_range(&rope, &(0..3)), 0..8);
         assert_eq!(byte_range(&rope, &(1..1)), 3..3);
         assert_eq!(byte_range(&rope, &(9..9)), 8..8);
+    }
+}
+
+/// The change (vs HEAD) at `line`: its hunk, if the line is in one (a deletion
+/// counts on the line where text was removed, or the one before).
+fn hunk_at(base: &str, current: &str, line: usize) -> Option<pide_core::changes::Hunk> {
+    pide_core::changes::hunks(base, current)
+        .into_iter()
+        .find(|h| {
+            if h.after.is_empty() {
+                line == h.after.start || line + 1 == h.after.start
+            } else {
+                h.after.contains(&line)
+            }
+        })
+}
+
+/// Git: Rollback Lines — put the change under the cursor back the way it is at HEAD (undoable).
+pub(crate) fn rollback(window: &mut Window, cx: &mut App) {
+    let Some(panel) = crate::active_panel(window, cx) else {
+        return;
+    };
+    let (editor, base) = {
+        let p = panel.read(cx);
+        let Base::Loaded(Some(base)) = &p.git_base else {
+            window.push_notification(
+                gpui_kit::component::notification::Notification::warning(
+                    "This file isn't tracked by git.",
+                ),
+                cx,
+            );
+            return;
+        };
+        (p.editor.clone(), base.clone())
+    };
+    let (current, line) = {
+        let e = editor.read(cx);
+        (e.text().to_string(), e.cursor_position().line as usize)
+    };
+    let Some(hunk) = hunk_at(&base, &current, line) else {
+        window.push_notification(
+            gpui_kit::component::notification::Notification::info(
+                "No change from git at the cursor.",
+            ),
+            cx,
+        );
+        return;
+    };
+    let text = pide_core::changes::revert_hunk(&base, &current, &hunk);
+    crate::minimal::set_text(&editor, text, false, window, cx);
+}
+
+/// Git: Next / Previous Change — move the cursor to the next (or previous) changed block.
+pub(crate) fn jump_change(forward: bool, window: &mut Window, cx: &mut App) {
+    let Some(panel) = crate::active_panel(window, cx) else {
+        return;
+    };
+    let (editor, base) = {
+        let p = panel.read(cx);
+        let Base::Loaded(Some(base)) = &p.git_base else {
+            return;
+        };
+        (p.editor.clone(), base.clone())
+    };
+    let (current, line) = {
+        let e = editor.read(cx);
+        (e.text().to_string(), e.cursor_position().line as usize)
+    };
+    let starts: Vec<usize> = pide_core::changes::hunks(&base, &current)
+        .iter()
+        .map(|h| h.after.start)
+        .collect();
+    let target = if forward {
+        starts
+            .iter()
+            .copied()
+            .find(|&s| s > line)
+            .or(starts.first().copied())
+    } else {
+        starts
+            .iter()
+            .rev()
+            .copied()
+            .find(|&s| s < line)
+            .or(starts.last().copied())
+    };
+    if let Some(t) = target {
+        editor.update(cx, |e, cx| {
+            e.set_cursor_position(Position::new(t as u32, 0), window, cx)
+        });
+    }
+}
+
+#[cfg(test)]
+mod rollback_tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn finds_the_change_at_a_line() {
+        let base = "a\nb\nc\nd\n";
+        let current = "a\nB\nc\n";
+        let h = hunk_at(base, current, 1).unwrap();
+        assert_eq!(
+            pide_core::changes::revert_hunk(base, current, &h),
+            "a\nb\nc\n"
+        );
+        assert!(hunk_at(base, current, 0).is_none());
+        // The deleted "d" counts on the last line.
+        let h = hunk_at(base, current, 2).unwrap();
+        assert_eq!(
+            pide_core::changes::revert_hunk(base, current, &h),
+            "a\nB\nc\nd\n"
+        );
     }
 }

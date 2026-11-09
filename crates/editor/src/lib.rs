@@ -124,6 +124,27 @@ pub fn init(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
+        CommandSpec::new("git.rollback", "Git: Rollback Lines")
+            .key("cmd-alt-z")
+            .in_context(pide_core::commands::EDITOR),
+        git_gutter::rollback,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("git.next_change", "Git: Next Change")
+            .key("ctrl-alt-shift-down")
+            .in_context(pide_core::commands::EDITOR),
+        |window, cx| git_gutter::jump_change(true, window, cx),
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("git.prev_change", "Git: Previous Change")
+            .key("ctrl-alt-shift-up")
+            .in_context(pide_core::commands::EDITOR),
+        |window, cx| git_gutter::jump_change(false, window, cx),
+    );
+    CommandRegistry::register(
+        cx,
         CommandSpec::new("editor.find_usages", "Navigate: Find Usages")
             .key("alt-f7")
             .in_context(pide_core::commands::EDITOR),
