@@ -22,6 +22,15 @@ fn init_logging() {
         builder.target(env_logger::Target::Pipe(Box::new(file)));
     }
     builder.init();
+
+    // Panics in GPUI's macOS event callbacks abort the process, and the message
+    // only reaches stderr. Put it (with a backtrace) in pide.log too.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log::error!("panic: {info}\n{}", std::backtrace::Backtrace::force_capture());
+        log::logger().flush();
+        default_hook(info);
+    }));
 }
 
 /// Process start, for the "cold start to interactive window" measurement (M1: < 1 s).
