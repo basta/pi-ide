@@ -3,7 +3,7 @@
 //! file through the app's opener (panels never depend on each other). Files
 //! pi changed in any open session get an M / A / D badge.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -41,7 +41,7 @@ fn walk(root: &Path) -> Node {
     };
     let walker = ignore::WalkBuilder::new(root)
         .hidden(false)
-        .filter_entry(|e| e.file_name() != ".git")
+        .filter_entry(|e| e.file_name() != ".git" && e.file_name() != ".DS_Store")
         .sort_by_file_name(|a, b| a.cmp(b))
         .build();
     for entry in walker.flatten() {
@@ -95,6 +95,21 @@ fn to_items(
         .collect()
 }
 
+#[derive(Default)]
+struct Instances(HashMap<WindowId, WeakEntity<FileTree>>);
+impl Global for Instances {}
+
+/// Expand to `path` in this window's tree, select it and scroll it into view.
+pub fn reveal(path: PathBuf, window: &mut Window, cx: &mut App) {
+    let tree = cx
+        .try_global::<Instances>()
+        .and_then(|i| i.0.get(&window.window_handle().window_id()))
+        .and_then(|w| w.upgrade());
+    if let Some(tree) = tree {
+        tree.update(cx, |t, cx| t.reveal(path, cx));
+    }
+}
+
 pub struct FileTree {
     workspace: Entity<Workspace>,
     tree: Entity<TreeState>,
@@ -103,6 +118,8 @@ pub struct FileTree {
     dirs: HashSet<SharedString>,
     _subs: Vec<Subscription>,
     _refresh: Option<Task<()>>,
+    /// Select this item once the next refresh has built the tree.
+    pending_reveal: Option<SharedString>,
 }
 
 impl EventEmitter<PanelEvent> for FileTree {}
@@ -139,10 +156,33 @@ impl FileTree {
             dirs: HashSet::new(),
             _subs: subs,
             _refresh: None,
+            pending_reveal: None,
         };
+        let me = cx.entity().downgrade();
+        cx.default_global::<Instances>()
+            .0
+            .insert(window.window_handle().window_id(), me);
         let _ = window;
         this.refresh(Duration::ZERO, cx);
         this
+    }
+
+    fn reveal(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        let root = self.workspace.read(cx).root().to_path_buf();
+        if !path.starts_with(&root) {
+            return;
+        }
+        // Open every folder between the root and the file.
+        let mut dir = path.parent();
+        while let Some(d) = dir {
+            if d == root || !d.starts_with(&root) {
+                break;
+            }
+            self.expanded.insert(d.to_string_lossy().to_string().into());
+            dir = d.parent();
+        }
+        self.pending_reveal = Some(path.to_string_lossy().to_string().into());
+        self.refresh(Duration::ZERO, cx);
     }
 
     /// Re-walk the root after `delay` (debounces bursts like `cargo build`).
@@ -161,6 +201,14 @@ impl FileTree {
                 let items = to_items(node, &this.expanded, &mut dirs);
                 this.dirs = dirs;
                 this.tree.update(cx, |t, cx| t.set_items(items, cx));
+                if let Some(id) = this.pending_reveal.take() {
+                    this.tree.update(cx, |t, cx| {
+                        if let Some(ix) = t.index_of(&id) {
+                            t.set_selected_index(Some(ix), cx);
+                            t.scroll_to_item(ix, ScrollStrategy::Center);
+                        }
+                    });
+                }
                 cx.notify();
             });
         }));

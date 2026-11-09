@@ -35,7 +35,7 @@ pub fn list_files(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
     let walker = ignore::WalkBuilder::new(root)
         .hidden(false)
-        .filter_entry(|e| e.file_name() != ".git")
+        .filter_entry(|e| e.file_name() != ".git" && e.file_name() != ".DS_Store")
         .build();
     for entry in walker.flatten() {
         if out.len() >= MAX_FILES {

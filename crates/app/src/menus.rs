@@ -52,6 +52,7 @@ fn menus() -> Vec<Menu> {
                 cmd("Go to File…", "file.goto"),
                 cmd("Recent Files…", "file.recent"),
                 cmd("Go to Line…", "editor.goto_line"),
+                cmd("Select Opened File", "project.select_opened"),
                 cmd("Back", "nav.back"),
                 cmd("Forward", "nav.forward"),
                 MenuItem::separator(),

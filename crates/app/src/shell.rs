@@ -42,6 +42,34 @@ pub fn toggle_dock(placement: DockPlacement, window: &mut Window, cx: &mut App) 
     }
 }
 
+/// Navigate: Select Opened File — show the active file in the project tree.
+pub fn select_opened_file(window: &mut Window, cx: &mut App) {
+    let id = window.window_handle().window_id();
+    let Some(shell) = cx
+        .try_global::<Shells>()
+        .and_then(|h| h.0.get(&id)?.upgrade())
+    else {
+        return;
+    };
+    let (dock, path) = {
+        let s = shell.read(cx);
+        let path = s
+            .services
+            .workspace
+            .read(cx)
+            .active()
+            .map(|b| b.read(cx).path.clone());
+        (s.dock.clone(), path)
+    };
+    let Some(path) = path else { return };
+    dock.update(cx, |d, cx| {
+        if !d.is_dock_open(DockPlacement::Left) {
+            d.toggle_dock(DockPlacement::Left, window, cx);
+        }
+    });
+    pide_file_tree::reveal(path, window, cx);
+}
+
 /// pi: Ask pi — show the pi panel and put the cursor in its message box.
 pub fn ask_pi(window: &mut Window, cx: &mut App) {
     let id = window.window_handle().window_id();

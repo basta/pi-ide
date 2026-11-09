@@ -34,6 +34,7 @@ Requires `pi` (`npm i -g @earendil-works/pi-coding-agent`) for the chat panel; i
 | Enter / Option+Enter (pi input, while pi works) | Steer / queue a follow-up |
 | Cmd+Shift+O | Go to File |
 | Cmd+E | Recent files (Enter flips to the previous file) |
+| Option+F1 | Select the open file in the project tree |
 | Cmd+L | Go to line (`12` or `12:5`) |
 | Cmd+F / Cmd+R | Find / replace in the file |
 | Cmd+[ / Cmd+] | Navigate back / forward (after Go to File, Find Usages, a declaration in another file…) |

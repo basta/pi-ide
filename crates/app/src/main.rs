@@ -199,6 +199,11 @@ fn register_app_commands(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
+        CommandSpec::new("project.select_opened", "Navigate: Select Opened File").key("alt-f1"),
+        shell::select_opened_file,
+    );
+    CommandRegistry::register(
+        cx,
         CommandSpec::new("file.recent", "Navigate: Recent Files…").key("cmd-e"),
         recent_files::open,
     );
