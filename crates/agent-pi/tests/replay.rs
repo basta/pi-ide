@@ -425,3 +425,16 @@ fn model_responses_parse() {
         .count();
     assert_eq!(models, 3);
 }
+
+#[test]
+fn slash_commands_parse() {
+    let v: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/get_commands_response.json").trim()).unwrap();
+    let cmds = pide_agent_pi::wire::slash_commands(&v["data"]);
+    assert_eq!(cmds.len(), 4);
+    assert_eq!(
+        (cmds[0].name.as_str(), cmds[0].source.as_str()),
+        ("search-setup", "extension")
+    );
+    assert!(!cmds[0].description.is_empty());
+}

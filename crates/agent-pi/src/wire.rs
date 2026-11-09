@@ -274,3 +274,29 @@ pub fn model_info(v: &Value) -> Option<pide_core::ModelInfo> {
         reasoning: v.get("reasoning").and_then(Value::as_bool).unwrap_or(false),
     })
 }
+
+/// `get_commands`' data (recorded: tests/fixtures/get_commands_response.json).
+pub fn slash_commands(data: &Value) -> Vec<pide_core::SlashCommand> {
+    data.get("commands")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|c| {
+                    Some(pide_core::SlashCommand {
+                        name: c.get("name")?.as_str()?.to_string(),
+                        description: c
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        source: c
+                            .get("source")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}

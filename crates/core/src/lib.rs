@@ -19,7 +19,7 @@ pub mod sessions;
 pub mod settings;
 pub mod workspace;
 
-pub use agent::{Agent, AgentBackend, AgentStatus, ModelInfo};
+pub use agent::{Agent, AgentBackend, AgentStatus, ModelInfo, SlashCommand};
 pub use buffer::{Buffer, LineEnding};
 pub use commands::{CommandRegistry, CommandSpec, RunCommand};
 pub use events::{

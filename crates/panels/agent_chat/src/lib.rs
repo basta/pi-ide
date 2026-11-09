@@ -23,20 +23,21 @@ use pide_core::{
 use serde_json::{Value, json};
 
 mod model_picker;
+mod slash;
 
 pub const PANEL_NAME: &str = "agent_chat";
 
-actions!(pide_chat, [QueueFollowUp]);
+actions!(pide_chat, [QueueFollowUp, CompleteSlash]);
 /// At this width or more the panel shows the session sidebar instead of tabs.
 const SIDEBAR_MIN_WIDTH: f32 = 640.;
 
 pub fn init(cx: &mut App) {
     // Option+Enter in the pi input queues a follow-up (Enter steers while pi works).
-    cx.bind_keys([KeyBinding::new(
-        "alt-enter",
-        QueueFollowUp,
-        Some("AgentInput"),
-    )]);
+    cx.bind_keys([
+        KeyBinding::new("alt-enter", QueueFollowUp, Some("AgentInput")),
+        // Tab completes a suggested slash command (otherwise moves focus on).
+        KeyBinding::new("tab", CompleteSlash, Some("AgentInput")),
+    ]);
     register_panel(cx, PANEL_NAME, |ctx, window, cx| {
         // Reopen the sessions that were open when the layout was saved.
         if let PanelInfo::Panel(v) = ctx.info() {
@@ -345,8 +346,16 @@ impl AgentChat {
         });
         let subs = vec![
             cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { shift: false, .. } = ev {
-                    this.send(false, window, cx);
+                match ev {
+                    InputEvent::PressEnter { shift: false, .. } => this.send(false, window, cx),
+                    InputEvent::Change => {
+                        // Typing `/`: fetch the session's commands for the suggestions.
+                        if slash::typed(&this.input.read(cx).value()).is_some() {
+                            this.active(cx).update(cx, |a, cx| a.request_commands(cx));
+                        }
+                        cx.notify();
+                    }
+                    _ => {}
                 }
             }),
             cx.subscribe_in(
@@ -570,6 +579,30 @@ impl AgentChat {
             };
             agent.update(cx, |a, cx| a.prompt(text, cx));
         }
+    }
+
+    /// Slash commands matching what's typed in the composer.
+    fn slash_suggestions(&self, cx: &App) -> Vec<pide_core::SlashCommand> {
+        let text = self.input.read(cx).value();
+        let Some(q) = slash::typed(&text) else {
+            return Vec::new();
+        };
+        let agent = self.active(cx);
+        let commands = &agent.read(cx).commands;
+        slash::matches(commands, q)
+            .into_iter()
+            .map(|i| commands[i].clone())
+            .collect()
+    }
+
+    /// Put `/name ` in the composer.
+    fn complete_slash(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let text = format!("/{name} ");
+        self.input.update(cx, |i, cx| {
+            i.set_value(text, window, cx);
+            i.focus(window, cx);
+        });
+        cx.notify();
     }
 
     /// A desktop notification, only while pide isn't the active app.
@@ -1640,6 +1673,11 @@ impl AgentChat {
         let n_changes = a.changes.len();
         let unreviewed = a.unreviewed();
         let show_changes = self.show_changes;
+        let slash_rows = self.slash_suggestions(cx);
+        // `/` typed but the commands haven't arrived yet.
+        let slash_rows_empty_hint = slash_rows.is_empty()
+            && !a.commands_loaded
+            && slash::typed(&self.input.read(cx).value()).is_some();
         let model_label = match (&a.model, &a.thinking) {
             (Some(m), Some(t)) if m.reasoning && t != "off" => {
                 format!("{} · {t}", model_picker::short_label(m))
@@ -1793,9 +1831,53 @@ impl AgentChat {
                                 .child(format!("{status_text}  Enter steers · ⌥Enter queues a follow-up")),
                         )
                     })
+                    .when(!slash_rows.is_empty(), |this| {
+                        this.child(
+                            v_flex()
+                                .border_1()
+                                .border_color(theme.border)
+                                .rounded(theme.radius)
+                                .py_1()
+                                .text_sm()
+                                .children(slash_rows.into_iter().enumerate().map(|(i, c)| {
+                                    let name = c.name.clone();
+                                    h_flex()
+                                        .id(("slash", i))
+                                        .gap_2()
+                                        .px_2()
+                                        .py_0p5()
+                                        .cursor_pointer()
+                                        .when(i == 0, |r| r.bg(theme.list_hover))
+                                        .hover(|r| r.bg(theme.list_hover))
+                                        .on_click(cx.listener(move |this, _, window, cx| this.complete_slash(&name, window, cx)))
+                                        .child(div().flex_none().font_family(theme.mono_font_family.clone()).child(format!("/{}", c.name)))
+                                        .child(
+                                            div()
+                                                .min_w_0()
+                                                .overflow_hidden()
+                                                .text_ellipsis()
+                                                .whitespace_nowrap()
+                                                .text_xs()
+                                                .text_color(theme.muted_foreground)
+                                                .child(c.description.clone()),
+                                        )
+                                        .child(div().flex_1())
+                                        .child(div().flex_none().text_xs().text_color(theme.muted_foreground).child(c.source.clone()))
+                                })),
+                        )
+                    })
+                    .when(slash_rows_empty_hint, |this| {
+                        this.child(div().text_xs().text_color(theme.muted_foreground).child("Loading pi's commands…"))
+                    })
                     .child(
                         div()
                             .key_context("AgentInput")
+                            .on_action(cx.listener(|this, _: &CompleteSlash, window, cx| {
+                                match this.slash_suggestions(cx).into_iter().next() {
+                                    Some(first) => this.complete_slash(&first.name, window, cx),
+                                    None => window.focus_next(cx),
+                                }
+                            }))
                             .on_action(cx.listener(|this, _: &QueueFollowUp, window, cx| this.send(true, window, cx)))
                             .child(Textarea::new(&self.input)),
                     )

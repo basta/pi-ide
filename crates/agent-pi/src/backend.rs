@@ -297,6 +297,11 @@ fn handle_response(
             agent.model = crate::wire::model_info(&data);
             cx.notify();
         }
+        "get_commands" => {
+            agent.commands = crate::wire::slash_commands(&data);
+            agent.commands_loaded = true;
+            cx.notify();
+        }
         "get_available_models" => {
             agent.models = data
                 .get("models")
@@ -325,6 +330,10 @@ impl PiBackend {
 }
 
 impl AgentBackend for PiBackend {
+    fn request_commands(&mut self, agent: &mut Agent, cx: &mut Context<Agent>) {
+        self.send_started(json!({"type": "get_commands"}), agent, cx);
+    }
+
     fn request_models(&mut self, agent: &mut Agent, cx: &mut Context<Agent>) {
         self.send_started(json!({"type": "get_available_models"}), agent, cx);
     }

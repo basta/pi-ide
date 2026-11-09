@@ -44,6 +44,8 @@ pub trait AgentBackend: 'static {
     fn restart(&mut self, agent: &mut Agent, cx: &mut Context<Agent>);
     /// Ask for the models this session can use; they arrive in `agent.models`.
     fn request_models(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
+    /// Ask for the session's slash commands; they arrive in `agent.commands`.
+    fn request_commands(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
     /// Switch this session's model; `agent.model` updates when the backend confirms.
     fn set_model(
         &mut self,
@@ -53,6 +55,16 @@ pub trait AgentBackend: 'static {
         _cx: &mut Context<Agent>,
     ) {
     }
+}
+
+/// A slash command the agent offers (`/name`): extension commands, prompt
+/// templates, skills (`skill:name`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct SlashCommand {
+    pub name: String,
+    pub description: String,
+    /// `extension`, `prompt` or `skill`.
+    pub source: String,
 }
 
 /// A model as the agent reports it.
@@ -82,6 +94,11 @@ pub struct Agent {
     pub thinking: Option<String>,
     /// Models to pick from (filled by `request_models`).
     pub models: Vec<ModelInfo>,
+    /// Slash commands (filled by `request_commands`).
+    pub commands: Vec<SlashCommand>,
+    /// The backend has answered `request_commands` (the list may be empty).
+    pub commands_loaded: bool,
+    commands_requested: bool,
     /// pi's session file, once known; used to resume after the process stops.
     pub session_file: Option<std::path::PathBuf>,
     /// Messages waiting to be delivered: (steering, follow-ups).
@@ -114,6 +131,9 @@ impl Agent {
             model: None,
             thinking: None,
             models: Vec::new(),
+            commands: Vec::new(),
+            commands_loaded: false,
+            commands_requested: false,
             session_file: None,
             queue: (Vec::new(), Vec::new()),
             dialogs: Vec::new(),
@@ -302,6 +322,14 @@ impl Agent {
 
     pub fn request_models(&mut self, cx: &mut Context<Self>) {
         self.with_backend(cx, |b, a, cx| b.request_models(a, cx));
+    }
+
+    /// Fetch the slash commands once (starts the agent if needed).
+    pub fn request_commands(&mut self, cx: &mut Context<Self>) {
+        if std::mem::replace(&mut self.commands_requested, true) {
+            return;
+        }
+        self.with_backend(cx, |b, a, cx| b.request_commands(a, cx));
     }
 
     pub fn set_model(&mut self, provider: String, id: String, cx: &mut Context<Self>) {
