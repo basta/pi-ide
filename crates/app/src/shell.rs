@@ -45,6 +45,9 @@ fn layout_file(root: &Path) -> PathBuf {
 
 pub struct Shell {
     services: Services,
+    /// Current git branch, re-read every few seconds (None outside a repository).
+    branch: Option<String>,
+    _branch_poll: Task<()>,
     lsp: Entity<pide_lsp::LspStore>,
 
     menu_bar: Entity<gpui_kit::component::menu::AppMenuBar>,
@@ -134,7 +137,26 @@ impl Shell {
                 window.push_notification(note, cx);
             }
         }));
+        let branch_root = root.clone();
+        let branch_poll = cx.spawn(async move |this, cx| loop {
+            let r = branch_root.clone();
+            let b = cx.background_executor().spawn(async move { pide_core::git::branch(&r) }).await;
+            if this
+                .update(cx, |this, cx| {
+                    if this.branch != b {
+                        this.branch = b;
+                        cx.notify();
+                    }
+                })
+                .is_err()
+            {
+                break;
+            }
+            cx.background_executor().timer(Duration::from_secs(3)).await;
+        });
         let this = Self {
+            branch: None,
+            _branch_poll: branch_poll,
             services: services.clone(),
             lsp,
 
@@ -253,7 +275,7 @@ impl Shell {
             .border_t_1()
             .border_color(theme.border)
             .text_color(theme.muted_foreground)
-            .child(h_flex().gap_3().when(errors + warnings > 0, |this| {
+            .child(h_flex().gap_3().when_some(self.branch.clone(), |this, b| this.child(format!("⎇ {b}"))).when(errors + warnings > 0, |this| {
                 this.child(
                     div()
                         .id("problems-count")

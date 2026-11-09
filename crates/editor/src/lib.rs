@@ -3,6 +3,7 @@
 //! shows the bars around it (read-only, conflict, deleted). Also the pi diff tab.
 
 pub mod diff_panel;
+mod git_gutter;
 mod lsp;
 mod rename;
 mod signature;
@@ -236,6 +237,11 @@ pub struct EditorPanel {
     signature: Option<lsp_types::SignatureHelp>,
     signature_line: u32,
     _signature_task: Option<Task<()>>,
+    /// Git: the file's text at HEAD, and the gutter marks against it.
+    git_base: git_gutter::Base,
+    gutter: Option<gpui_kit::component::input::GutterDecorationCollection>,
+    _git_task: Option<Task<()>>,
+    _git_marks: Option<Task<()>>,
     _subs: Vec<Subscription>,
     _load: Option<Task<()>>,
 }
@@ -265,6 +271,7 @@ impl EditorPanel {
                         this.workspace.update(cx, |w, cx| w.edited(&buffer, text, cx));
                     }
                     this.signature_after_edit(cx);
+                    this.refresh_git_marks(std::time::Duration::from_millis(250), cx);
                 }
                 InputEvent::Blur => this.hide_signature(cx),
                 _ => {}
@@ -292,6 +299,10 @@ impl EditorPanel {
             signature: None,
             signature_line: 0,
             _signature_task: None,
+            git_base: Default::default(),
+            gutter: None,
+            _git_task: None,
+            _git_marks: None,
             _subs: Vec::new(),
             _load: None,
         };
@@ -333,6 +344,7 @@ impl EditorPanel {
             self.workspace.update(cx, |w, cx| w.set_active(Some(buffer), cx));
         }
         self.attach_lsp(window, cx);
+        self.load_git_base(cx);
         if let Some((line, character)) = self.pending_cursor.take() {
             self.go_to(line, character, window, cx);
         }
@@ -422,7 +434,12 @@ impl EditorPanel {
                     e.set_readonly(read_only, cx);
                     e.set_cursor_position(cursor, window, cx);
                 });
+                self.load_git_base(cx);
                 cx.notify();
+            }
+            WorkspaceEvent::BufferSaved(buffer) if self.is_mine(buffer) => {
+                // A commit may have happened since the file was opened.
+                self.load_git_base(cx);
             }
             WorkspaceEvent::TextReplaced(buffer) if self.is_mine(buffer) => {
                 let text = buffer.read(cx).text().to_string();

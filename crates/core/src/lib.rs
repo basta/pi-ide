@@ -9,6 +9,7 @@ pub mod commands;
 pub mod context;
 pub mod events;
 pub mod fswatch;
+pub mod git;
 pub mod keymap;
 pub mod opener;
 pub mod panel;
