@@ -290,6 +290,11 @@ pub fn init(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
+        CommandSpec::new("editor.split_right", "View: Move Tab to Right Split"),
+        |window, cx| window.defer(cx, move_to_split),
+    );
+    CommandRegistry::register(
+        cx,
         CommandSpec::new("editor.reopen_closed", "File: Reopen Closed Tab").key("cmd-shift-t"),
         reopen_closed,
     );
@@ -351,6 +356,29 @@ fn reopen_closed(window: &mut Window, cx: &mut App) {
     if let Some(p) = next {
         open_path(p, window, cx);
     }
+}
+
+/// View: Move Tab to Right Split — the active editor tab moves into a new
+/// split to the right of its group (two files side by side).
+fn move_to_split(window: &mut Window, cx: &mut App) {
+    let Some(panel) = active_panel(window, cx) else {
+        return;
+    };
+    let Some(dock) = host(window, cx) else { return };
+    let pid = gpui_kit::component::dock::PanelId::from(panel.entity_id());
+    dock.update(cx, |d, cx| {
+        let node = d
+            .layout(DockPlacement::Center)
+            .and_then(|t| t.find_panel_node(pid));
+        if let Some(node) = node {
+            let target = gpui_kit::component::dock::InsertTarget::Split {
+                node,
+                placement: gpui_kit::component::Placement::Right,
+                size: None,
+            };
+            d.move_panel(pid, target, window, cx);
+        }
+    });
 }
 
 /// File: Close Other Tabs / Close All Tabs.

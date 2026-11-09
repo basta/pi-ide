@@ -47,6 +47,7 @@ Requires `pi` (`npm i -g @earendil-works/pi-coding-agent`) for the chat panel; i
 | F1 / Ctrl+J | Quick documentation (the hover, from the keyboard) |
 | F2 / Shift+F2 | Next / previous error in the file (warnings when there are no errors) |
 | Cmd+Shift+T | Reopen the last closed tab (also File: Close Other Tabs / Close All Tabs in Find Action) |
+| View → Move Tab to Right Split | Two files side by side |
 | Option+F7 (editor) | Find usages |
 | Cmd+F12 (editor) | File structure |
 | Cmd+Option+O | Go to symbol (project) |

@@ -64,6 +64,7 @@ fn menus() -> Vec<Menu> {
                 cmd("Previous Problem", "nav.prev_problem"),
                 cmd("Problems", "view.problems"),
                 cmd("Markdown Preview", "view.markdown_preview"),
+                cmd("Move Tab to Right Split", "editor.split_right"),
                 MenuItem::separator(),
                 MenuItem::Submenu(Menu {
                     name: "Theme".into(),
