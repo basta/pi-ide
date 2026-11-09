@@ -1297,6 +1297,45 @@ impl AgentChat {
         });
     }
 
+    /// Revert every file this session changed (after asking).
+    fn confirm_revert_all(
+        &mut self,
+        agent: Entity<Agent>,
+        paths: Vec<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let n = paths.len();
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let (agent, paths) = (agent.clone(), paths.clone());
+            alert
+                .title(format!("Revert all {n} file{}?", if n == 1 { "" } else { "s" }))
+                .description("Every file goes back to how it was before pi first touched it in this session. Later edits to them are lost, including yours.")
+                .confirm()
+                .ok_text("Revert all")
+                .ok_variant(ButtonVariant::Danger)
+                .on_ok(move |_, window, cx| {
+                    let tasks: Vec<_> = paths.iter().map(|p| agent.update(cx, |a, cx| a.revert(p, cx))).collect();
+                    window
+                        .spawn(cx, async move |cx| {
+                            let mut failed = Vec::new();
+                            for t in tasks {
+                                if let Err(e) = t.await {
+                                    failed.push(format!("{e:#}"));
+                                }
+                            }
+                            if !failed.is_empty() {
+                                let _ = cx.update(|window, cx| {
+                                    window.push_notification(Notification::error(format!("Some files weren't reverted: {}", failed.join("; "))), cx)
+                                });
+                            }
+                        })
+                        .detach();
+                    true
+                })
+        });
+    }
+
     fn render_changes(&self, agent: &Entity<Agent>, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let root = self.workspace.read(cx).root().to_path_buf();
@@ -1466,11 +1505,67 @@ impl AgentChat {
                     .into_any_element()
             })
             .collect();
+        let open: Vec<PathBuf> = changes
+            .iter()
+            .filter(|c| !c.reverted)
+            .map(|c| c.path.clone())
+            .collect();
+        let unreviewed = changes
+            .iter()
+            .filter(|c| !c.reviewed && !c.reverted)
+            .count();
+        let (agent_all, agent_rev) = (agent.clone(), agent.clone());
+        let header = h_flex()
+            .gap_2()
+            .px_3()
+            .py_1p5()
+            .border_b_1()
+            .border_color(theme.border)
+            .text_xs()
+            .text_color(theme.muted_foreground)
+            .child(div().flex_1().child(format!(
+                "{} file{} · {} to review",
+                changes.len(),
+                if changes.len() == 1 { "" } else { "s" },
+                unreviewed
+            )))
+            .when(unreviewed > 0, |this| {
+                this.child(
+                    Button::new("review-all")
+                        .xsmall()
+                        .label("Mark all reviewed")
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            let paths: Vec<PathBuf> = agent_all
+                                .read(cx)
+                                .changes
+                                .iter()
+                                .map(|c| c.path.clone())
+                                .collect();
+                            agent_all.update(cx, |a, cx| {
+                                for p in &paths {
+                                    a.set_reviewed(p, true, cx);
+                                }
+                            });
+                        })),
+                )
+            })
+            .when(!open.is_empty(), |this| {
+                this.child(
+                    Button::new("revert-all")
+                        .xsmall()
+                        .danger()
+                        .label("Revert all…")
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.confirm_revert_all(agent_rev.clone(), open.clone(), window, cx)
+                        })),
+                )
+            });
         v_flex()
             .id("changes-list")
             .size_full()
             .overflow_y_scroll()
             .text_sm()
+            .child(header)
             .children(rows)
             .into_any_element()
     }
