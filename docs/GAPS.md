@@ -15,3 +15,5 @@ Each needs the user's call before anyone works around it.
 | Session history | pi sessions are trees (branches). | A resumed session shows its messages in file order, branches flattened. | M2 |
 | Diff tabs after restart | Diffs compare against in-memory before-snapshots. | A diff tab restored from the saved layout says it's no longer available. | M2 |
 | Context chip in the composer | The editor doesn't notify the chat when the selection moves. | The composer chip names only the file; the exact lines appear on the sent message. | M2 |
+| Inlay hints | GPUI Kit's editor can't draw virtual text inside a line (its inline tokens are real characters in the document), and we don't write editor rendering code. | No inlay hints (user's call, 2026-11-10). Revisit if GPUI Kit adds virtual text. | M3 |
+| rust-analyzer type errors | rust-analyzer reports type mismatches through `cargo check`, which it runs on save. | Errors from `cargo check` appear after saving, not while typing; syntax errors appear at once. | M3 |

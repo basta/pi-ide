@@ -117,11 +117,13 @@ impl Shell {
                 let note = Notification::warning(format!(
                     "{server} isn't installed, so these files get no errors, completion or go to definition."
                 ))
-                .action(|_, _, _| {
+                .action(|_, _, cx| {
+                    let note = cx.entity().downgrade();
                     gpui_kit::component::button::Button::new("open-language-servers")
                         .label("Language Servers…")
-                        .on_click(|_, window, cx| {
+                        .on_click(move |_, window, cx| {
                             CommandRegistry::run("lsp.servers", window, cx);
+                            let _ = note.update(cx, |n, cx| n.dismiss(window, cx));
                         })
                 });
                 window.push_notification(note, cx);
