@@ -74,6 +74,7 @@ impl Shell {
                 }
             }),
             cx.observe(&services.agent, |_, _, cx| cx.notify()),
+            cx.observe_window_appearance(window, |_, window, cx| crate::theme::on_system_appearance_changed(window, cx)),
             cx.subscribe(&services.workspace, |_, _, ev: &WorkspaceEvent, cx| {
                 if !matches!(ev, WorkspaceEvent::TreeChanged) {
                     cx.notify();

@@ -446,7 +446,7 @@ pub fn run_benchmark(path: PathBuf, window: &mut Window, cx: &mut App) {
             };
             set_trace_enabled(true);
             let mut collector = FrameTimingCollector::new();
-            let mut report = |name: &str, collector: &mut FrameTimingCollector| {
+            let report = |name: &str, collector: &mut FrameTimingCollector| {
                 let mut draws: Vec<f64> = collector
                     .collect_unseen()
                     .into_iter()

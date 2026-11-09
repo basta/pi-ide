@@ -2,6 +2,7 @@
 
 mod palette;
 mod shell;
+mod theme;
 
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -40,6 +41,7 @@ fn main() {
 
     gpui_kit::application().with_assets(Assets).run(move |cx| {
         gpui_kit::init(cx);
+        theme::apply(pide_core::settings::load().theme, None, cx);
 
         let workspace = cx.new(|cx| Workspace::new(root.clone(), cx));
         let agent = cx.new(|_| Agent::new(Box::new(PiBackend::new(root.clone()))));
@@ -50,6 +52,7 @@ fn main() {
         pide_agent_chat::init(cx);
         cx.set_global(pide_file_tree::FileOpener(Rc::new(pide_editor::open_path)));
         register_app_commands(cx);
+        theme::register_commands(cx);
 
         let keymap_errors = keymap::init(cx);
         pide_runtime::monitor::start(cx).detach();

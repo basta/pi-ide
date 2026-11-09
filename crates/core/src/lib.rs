@@ -10,6 +10,7 @@ pub mod fswatch;
 pub mod keymap;
 pub mod panel;
 pub mod paths;
+pub mod settings;
 pub mod workspace;
 
 pub use agent::{Agent, AgentBackend, AgentStatus};
