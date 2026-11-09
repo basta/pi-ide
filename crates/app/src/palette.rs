@@ -10,6 +10,59 @@ use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher};
 use pide_core::{CommandRegistry, CommandSpec, keymap};
 
+/// Recently run actions (ids, newest first), shown first with an empty query.
+#[derive(Default)]
+struct RecentActions(Vec<String>);
+impl Global for RecentActions {}
+
+const RECENT_KEEP: usize = 8;
+
+fn recent_file() -> std::path::PathBuf {
+    pide_core::paths::state_dir().join("recent-actions.json")
+}
+
+/// Load the recent actions (off the UI thread). Call once at startup.
+pub fn init(cx: &mut App) {
+    let load = cx.background_executor().spawn(async {
+        std::fs::read_to_string(recent_file())
+            .ok()
+            .and_then(|t| serde_json::from_str::<Vec<String>>(&t).ok())
+            .unwrap_or_default()
+    });
+    cx.spawn(async move |cx| {
+        let list = load.await;
+        let _ = cx.update(|cx| cx.set_global(RecentActions(list)));
+    })
+    .detach();
+}
+
+fn remember(id: &str, cx: &mut App) {
+    let list = &mut cx.default_global::<RecentActions>().0;
+    list.retain(|x| x != id);
+    list.insert(0, id.to_string());
+    list.truncate(RECENT_KEEP);
+    let snapshot = list.clone();
+    cx.background_executor()
+        .spawn(async move {
+            let _ = std::fs::create_dir_all(pide_core::paths::state_dir());
+            if let Ok(text) = serde_json::to_string(&snapshot) {
+                let _ = std::fs::write(recent_file(), text);
+            }
+        })
+        .detach();
+}
+
+/// Empty query: recent actions first, then the rest in list order.
+fn initial_order(rows: &[Row], recent: &[String]) -> Vec<usize> {
+    let mut order: Vec<usize> = recent
+        .iter()
+        .filter_map(|id| rows.iter().position(|r| r.id == id))
+        .collect();
+    let rest: Vec<usize> = (0..rows.len()).filter(|i| !order.contains(i)).collect();
+    order.extend(rest);
+    order
+}
+
 struct Row {
     id: &'static str,
     title: SharedString,
@@ -60,11 +113,17 @@ pub fn open(window: &mut Window, cx: &mut App) {
             })
             .collect(),
     );
-    let order = Rc::new(RefCell::new(rank(&rows, "")));
+    let recent: Rc<Vec<String>> = Rc::new(
+        cx.try_global::<RecentActions>()
+            .map(|r| r.0.clone())
+            .unwrap_or_default(),
+    );
+    let order = Rc::new(RefCell::new(initial_order(&rows, &recent)));
     let state = cx.new(|cx| CommandState::new(window, cx));
     let focus_once = Rc::new(std::cell::Cell::new(true));
 
     window.open_dialog(cx, move |dialog, _, _| {
+        let recent = recent.clone();
         let rows = rows.clone();
         let order = order.clone();
         let state = state.clone();
@@ -100,7 +159,7 @@ pub fn open(window: &mut Window, cx: &mut App) {
                         })
                     })
                     .collect();
-                let (rows_q, order_q) = (rows.clone(), order.clone());
+                let (rows_q, order_q, recent_q) = (rows.clone(), order.clone(), recent.clone());
                 let (rows_c, order_c) = (rows.clone(), order.clone());
                 content.child(
                     Command::new(&state)
@@ -111,13 +170,18 @@ pub fn open(window: &mut Window, cx: &mut App) {
                         .filterable(false)
                         .items(items)
                         .on_query(move |q, window, _| {
-                            *order_q.borrow_mut() = rank(&rows_q, q);
+                            *order_q.borrow_mut() = if q.trim().is_empty() {
+                                initial_order(&rows_q, &recent_q)
+                            } else {
+                                rank(&rows_q, q)
+                            };
                             window.refresh();
                         })
                         .on_confirm(move |ix, window, cx| {
                             let id = order_c.borrow().get(ix.row).map(|&i| rows_c[i].id);
                             window.close_dialog(cx);
                             if let Some(id) = id {
+                                remember(id, cx);
                                 CommandRegistry::run(id, window, cx);
                             }
                         }),
@@ -129,6 +193,23 @@ pub fn open(window: &mut Window, cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn recent_actions_come_first() {
+        let rows: Vec<Row> = ["a.one", "b.two", "c.three"]
+            .into_iter()
+            .map(|id| Row {
+                id,
+                title: id.into(),
+                keys: None,
+            })
+            .collect();
+        assert_eq!(
+            initial_order(&rows, &["c.three".into(), "gone".into()]),
+            vec![2, 0, 1]
+        );
+        assert_eq!(initial_order(&rows, &[]), vec![0, 1, 2]);
+    }
 
     #[::core::prelude::v1::test]
     fn fuzzy_ranks_best_match_first() {

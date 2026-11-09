@@ -75,6 +75,7 @@ fn main() {
         pide_editor::init(cx);
         pide_file_tree::init(cx);
         pide_run::init(cx);
+        palette::init(cx);
         pide_agent_chat::init(cx);
         pide_language_servers::init(cx);
         pide_problems::init(cx);
