@@ -28,7 +28,7 @@ mod slash;
 
 pub const PANEL_NAME: &str = "agent_chat";
 
-actions!(pide_chat, [QueueFollowUp, CompleteSlash]);
+actions!(pide_chat, [QueueFollowUp, CompleteSlash, BackToEditor]);
 /// At this width or more the panel shows the session sidebar instead of tabs.
 const SIDEBAR_MIN_WIDTH: f32 = 640.;
 
@@ -38,6 +38,8 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("alt-enter", QueueFollowUp, Some("AgentInput")),
         // Tab completes a suggested slash command (otherwise moves focus on).
         KeyBinding::new("tab", CompleteSlash, Some("AgentInput")),
+        // Esc goes back to the code (JetBrains tool-window habit).
+        KeyBinding::new("escape", BackToEditor, Some("AgentInput")),
     ]);
     register_panel(cx, PANEL_NAME, |ctx, window, cx| {
         // Reopen the sessions that were open when the layout was saved.
@@ -2030,6 +2032,9 @@ impl AgentChat {
                                     cx.stop_propagation();
                                 }
                             }))
+                            .on_action(|_: &BackToEditor, window, cx| {
+                                CommandRegistry::run("editor.focus", window, cx);
+                            })
                             .on_action(cx.listener(|this, _: &CompleteSlash, window, cx| {
                                 match this.slash_suggestions(cx).into_iter().next() {
                                     Some(first) => this.complete_slash(&first.name, window, cx),

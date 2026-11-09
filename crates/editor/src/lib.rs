@@ -169,6 +169,17 @@ pub fn init(cx: &mut App) {
         CommandSpec::new("editor.close", "File: Close Tab").key("cmd-w"),
         |window, cx| window.dispatch_action(Box::new(ClosePanel), cx),
     );
+    // Back to the code (Esc in the pi box runs this).
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("editor.focus", "Navigate: Focus Editor"),
+        |window, cx| {
+            if let Some(p) = active_panel(window, cx) {
+                let handle = p.read(cx).editor.focus_handle(cx);
+                window.defer(cx, move |window, cx| handle.focus(window, cx));
+            }
+        },
+    );
 }
 
 /// Open `path` in a tab (or switch to its existing tab) and focus it.
