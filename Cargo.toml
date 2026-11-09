@@ -35,6 +35,13 @@ gpui-kit = { version = "=0.9.0", features = [
     "tree-sitter-markdown",
     "tree-sitter-markdown-inline",
     "tree-sitter-toml",
+    "tree-sitter-typescript",
+    "tree-sitter-tsx",
+    "tree-sitter-javascript",
+    "tree-sitter-bash",
+    "tree-sitter-yaml",
+    "tree-sitter-html",
+    "tree-sitter-css",
 ] }
 
 pide-core = { path = "crates/core" }

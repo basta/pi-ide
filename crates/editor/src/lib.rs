@@ -616,6 +616,13 @@ pub(crate) fn language_for(path: &Path) -> &'static str {
         "md" | "markdown" => "markdown",
         "toml" => "toml",
         "json" | "jsonc" => "json",
+        "ts" | "mts" | "cts" => "typescript",
+        "tsx" => "tsx",
+        "js" | "mjs" | "cjs" | "jsx" => "javascript",
+        "sh" | "bash" | "zsh" => "bash",
+        "yml" | "yaml" => "yaml",
+        "html" | "htm" => "html",
+        "css" | "scss" => "css",
         _ => "text",
     }
 }
