@@ -1,4 +1,4 @@
-//! The in-window menu bar (File, Edit, View, pi, Help), Linux/Windows style,
+//! The in-window menu bar (File, Edit, View, pi, Settings), Linux/Windows style,
 //! on every platform. Items run registered commands, so they behave exactly
 //! like the keybindings and Find Action; shortcuts shown are the live keymap's.
 
@@ -78,8 +78,14 @@ fn menus() -> Vec<Menu> {
             disabled: false,
         },
         Menu {
-            name: "Help".into(),
-            items: vec![cmd("Open Keymap File", "keymap.open"), cmd("Reload Keymap", "keymap.reload")],
+            name: "Settings".into(),
+            items: vec![
+                cmd("Language Servers…", "lsp.servers"),
+                MenuItem::separator(),
+                cmd("Open settings.json", "settings.open"),
+                cmd("Open Keymap File", "keymap.open"),
+                cmd("Reload Keymap", "keymap.reload"),
+            ],
             disabled: false,
         },
     ]

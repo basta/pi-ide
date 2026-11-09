@@ -1,0 +1,12 @@
+[package]
+name = "pide-language-servers"
+description = "Language Servers tab: what's installed, install commands with live output, restart."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+pide-core.workspace = true
+pide-lsp.workspace = true
+log.workspace = true

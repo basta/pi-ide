@@ -18,6 +18,7 @@ pide-editor.workspace = true
 pide-agent-pi.workspace = true
 pide-file-tree.workspace = true
 pide-agent-chat.workspace = true
+pide-language-servers.workspace = true
 anyhow.workspace = true
 env_logger.workspace = true
 log.workspace = true

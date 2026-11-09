@@ -4875,6 +4875,7 @@ dependencies = [
  "pide-core",
  "pide-editor",
  "pide-file-tree",
+ "pide-language-servers",
  "pide-lsp",
  "pide-runtime",
  "serde_json",
@@ -4939,6 +4940,16 @@ dependencies = [
  "ignore",
  "log",
  "pide-core",
+]
+
+[[package]]
+name = "pide-language-servers"
+version = "0.1.0"
+dependencies = [
+ "gpui-kit",
+ "log",
+ "pide-core",
+ "pide-lsp",
 ]
 
 [[package]]

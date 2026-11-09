@@ -57,6 +57,7 @@ fn main() {
         pide_editor::init(cx);
         pide_file_tree::init(cx);
         pide_agent_chat::init(cx);
+        pide_language_servers::init(cx);
         cx.set_global(pide_core::opener::Openers {
             file: Rc::new(pide_editor::open_path),
             diff: Rc::new(pide_editor::diff_panel::open_diff),
@@ -135,6 +136,10 @@ fn register_app_commands(cx: &mut App) {
                 let _ = cx.update(|window, cx| pide_editor::open_path(path, window, cx));
             })
             .detach();
+    });
+    CommandRegistry::register(cx, CommandSpec::new("lsp.servers", "Settings: Language Servers…"), shell::show_language_servers);
+    CommandRegistry::register(cx, CommandSpec::new("settings.open", "Settings: Open settings.json"), |window, cx| {
+        pide_editor::open_path(pide_core::settings::settings_file(), window, cx)
     });
     CommandRegistry::register(cx, CommandSpec::new("keymap.reload", "Preferences: Reload Keymap"), |_, cx| {
         keymap::apply(cx);

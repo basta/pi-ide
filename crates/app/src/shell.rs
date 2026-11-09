@@ -45,6 +45,8 @@ fn layout_file(root: &Path) -> PathBuf {
 
 pub struct Shell {
     services: Services,
+    lsp: Entity<pide_lsp::LspStore>,
+    language_servers: Option<WeakEntity<pide_language_servers::LanguageServers>>,
     menu_bar: Entity<gpui_kit::component::menu::AppMenuBar>,
     dock: Entity<DockArea>,
     _skin: Rc<DockSkin>,
@@ -107,8 +109,28 @@ impl Shell {
         })
         .detach();
 
+        let lsp = pide_lsp::LspStore::for_workspace(&services.workspace, cx);
+        let mut subs = subs;
+        subs.push(cx.observe(&lsp, |_, _, cx| cx.notify()));
+        subs.push(cx.subscribe_in(&lsp, window, |_, _, ev, window, cx| {
+            if let pide_lsp::LspEvent::MissingServer { server } = ev {
+                let note = Notification::warning(format!(
+                    "{server} isn't installed, so these files get no errors, completion or go to definition."
+                ))
+                .action(|_, _, _| {
+                    gpui_kit::component::button::Button::new("open-language-servers")
+                        .label("Language Servers…")
+                        .on_click(|_, window, cx| {
+                            CommandRegistry::run("lsp.servers", window, cx);
+                        })
+                });
+                window.push_notification(note, cx);
+            }
+        }));
         let this = Self {
             services: services.clone(),
+            lsp,
+            language_servers: None,
             menu_bar: crate::menus::bar(cx),
             dock,
             _skin: skin,
@@ -184,6 +206,10 @@ impl Shell {
             let rel = b.path.strip_prefix(&root).unwrap_or(&b.path).display().to_string();
             (rel, b.line_ending.label(), b.is_dirty(), b.read_only.is_some())
         });
+        let server_label = ws.active().and_then(|b| {
+            let path = b.read(cx).path.clone();
+            self.lsp.read(cx).server_of(&path).map(|s| format!("{}: {}", s.spec.id, s.status_text()))
+        });
         let sessions = services.sessions.read(cx);
         let (mut working, mut waiting, mut crashed) = (0, 0, 0);
         for a in sessions.all() {
@@ -223,7 +249,7 @@ impl Shell {
                     .child(le)
                     .when(ro, |this| this.child("read-only"))
             }))
-            .child(h_flex().gap_3().children(items).child(agent_label))
+            .child(h_flex().gap_3().children(server_label).children(items).child(agent_label))
     }
 }
 
@@ -236,6 +262,24 @@ fn save_state(path: &Path, state: &DockAreaState) {
     if let Err(e) = result {
         log::error!("save layout {}: {e:#}", path.display());
     }
+}
+
+/// Open (or focus) the Language Servers tab in `window`.
+pub fn show_language_servers(window: &mut Window, cx: &mut App) {
+    let id = window.window_handle().window_id();
+    let Some(shell) = cx.try_global::<Shells>().and_then(|h| h.0.get(&id)?.upgrade()) else { return };
+    shell.update(cx, |shell, cx| {
+        if let Some(p) = shell.language_servers.as_ref().and_then(|w| w.upgrade()) {
+            let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
+            if shell.dock.read(cx).panel(pid).is_some() {
+                shell.dock.update(cx, |d, cx| d.select_panel(pid, window, cx));
+                return;
+            }
+        }
+        let p = cx.new(|cx| pide_language_servers::LanguageServers::new(window, cx));
+        shell.dock.update(cx, |d, cx| d.add_panel_view(panel_handle(p.clone()), DockPlacement::Center, None, window, cx));
+        shell.language_servers = Some(p.downgrade());
+    });
 }
 
 impl Render for Shell {

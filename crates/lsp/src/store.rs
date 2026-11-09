@@ -158,6 +158,12 @@ impl LspStore {
         self.servers.values()
     }
 
+    /// The server for a file in whatever state it's in (status bar).
+    pub fn server_of(&self, path: &Path) -> Option<&Server> {
+        let spec = registry::spec_for(&self.specs, path)?;
+        self.servers.get(spec.id)
+    }
+
     /// The running server for a file, if any.
     pub fn server_for(&self, path: &Path) -> Option<&Server> {
         let spec = registry::spec_for(&self.specs, path)?;
