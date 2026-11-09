@@ -26,6 +26,7 @@ use engine::{Query, Results};
 pub const PANEL_NAME: &str = "find_in_files";
 
 pub fn init(cx: &mut App) {
+    locations::init(cx);
     register_panel(cx, PANEL_NAME, |_, window, cx| {
         panel_handle(cx.new(|cx| FindInFiles::new(window, cx)))
     });

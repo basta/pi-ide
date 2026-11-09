@@ -4,7 +4,6 @@ Things that came up while building, deliberately not built yet (spec rule 8).
 
 - **Per-hunk revert** in the pi diff tab (M2 reverts whole files).
 - **Attribute `bash` file changes** to the session whose `bash` call was running (see GAPS.md).
-- **Show the model** (and thinking level) per session in the pi panel header; pick it with `set_model` (spec: later).
 - **macOS notifications** for background sessions once pide ships as an app bundle.
 - **Use `edit`'s `details.patch`** to double-check or repair a before-snapshot.
 - **Find usages** (Alt+F7) and **go to symbol** (Cmd+Alt+O) through `textDocument/references` and `workspace/symbol`, results in a bottom panel. Not in the M3 spec; JetBrains users will miss them.

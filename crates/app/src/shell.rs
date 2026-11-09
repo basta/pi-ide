@@ -54,7 +54,6 @@ pub struct Shell {
     services: Services,
     /// PDF tabs opened by command, to switch to instead of opening twice.
     pdfs: Vec<(PathBuf, WeakEntity<pide_pdf::PdfPanel>)>,
-    locations: Option<WeakEntity<pide_search::locations::Locations>>,
     /// Current git branch, re-read every few seconds (None outside a repository).
     branch: Option<String>,
     _branch_poll: Task<()>,
@@ -177,7 +176,6 @@ impl Shell {
         });
         let this = Self {
             pdfs: Vec::new(),
-            locations: None,
             branch: None,
             _branch_poll: branch_poll,
             services: services.clone(),
@@ -579,17 +577,13 @@ pub fn show_locations(
         return;
     };
     shell.update(cx, |shell, cx| {
-        let existing = shell
-            .locations
-            .as_ref()
-            .and_then(|w| w.upgrade())
-            .filter(|p| {
-                shell
-                    .dock
-                    .read(cx)
-                    .panel(gpui_kit::component::dock::PanelId::from(p.entity_id()))
-                    .is_some()
-            });
+        let existing = pide_search::locations::existing(window, cx).filter(|p| {
+            shell
+                .dock
+                .read(cx)
+                .panel(gpui_kit::component::dock::PanelId::from(p.entity_id()))
+                .is_some()
+        });
         let p = match existing {
             Some(p) => p,
             None => {
@@ -603,7 +597,6 @@ pub fn show_locations(
                         cx,
                     )
                 });
-                shell.locations = Some(p.downgrade());
                 p
             }
         };

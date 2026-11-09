@@ -1,15 +1,34 @@
 //! A list of places in files under a title ("Usages of greet"), in the bottom
 //! dock. Filled through `pide_core::opener::show_locations`.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
-use gpui_kit::component::dock::{PanelEvent, PanelState};
+use gpui_kit::component::dock::{PanelEvent, PanelState, panel_handle, register_panel};
 use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
 use gpui_kit::*;
 use pide_core::opener::Location;
 use pide_core::{DockPosition, Panel, Services};
 
 pub const PANEL_NAME: &str = "locations";
+
+pub fn init(cx: &mut App) {
+    register_panel(cx, PANEL_NAME, |_, window, cx| {
+        panel_handle(cx.new(|cx| Locations::new(window, cx)))
+    });
+}
+
+#[derive(Default)]
+struct Instances(HashMap<WindowId, WeakEntity<Locations>>);
+impl Global for Instances {}
+
+/// This window's Usages panel, if one exists (it may be restored from the layout).
+pub fn existing(window: &Window, cx: &App) -> Option<Entity<Locations>> {
+    cx.try_global::<Instances>()?
+        .0
+        .get(&window.window_handle().window_id())?
+        .upgrade()
+}
 
 pub struct Locations {
     root: PathBuf,
@@ -27,6 +46,10 @@ impl Locations {
             .read(cx)
             .root()
             .to_path_buf();
+        let me = cx.entity().downgrade();
+        cx.default_global::<Instances>()
+            .0
+            .insert(window.window_handle().window_id(), me);
         Self {
             root,
             title: "Usages".into(),
@@ -162,12 +185,17 @@ impl Render for Locations {
                     .border_color(theme.border)
                     .text_xs()
                     .text_color(theme.muted_foreground)
-                    .child(format!(
-                        "{} in {} file{}",
-                        self.items.len(),
-                        files,
-                        if files == 1 { "" } else { "s" }
-                    )),
+                    .child(if self.items.is_empty() {
+                        "Put the cursor on a symbol and use Code → Find Usages (Option+F7)."
+                            .to_string()
+                    } else {
+                        format!(
+                            "{} in {} file{}",
+                            self.items.len(),
+                            files,
+                            if files == 1 { "" } else { "s" }
+                        )
+                    }),
             )
             .child(
                 div()

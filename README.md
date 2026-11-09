@@ -49,6 +49,8 @@ Override or add bindings in `~/.config/pide/keymap.json` (Find Action → "Prefe
 
 **Settings → pi…** shows and changes pi's setup without editing its files: install, update and remove packages (pi's own commands, output in the tab), switch built-in tools and extensions, skills and prompt templates on and off, add MCP servers, pick the default model and thinking level, and open or create AGENTS.md / SYSTEM.md. Choose **Everyone** (`~/.pi/agent`) or **This project** (`.pi/`). pi reads settings when a session starts; **Restart sessions** applies them (busy sessions restart when their run ends).
 
+Each pi session shows its model (and thinking level) at the top right of the chat; click it to switch that session to another model.
+
 ## Previews
 
 - **View → Markdown Preview** opens a live preview beside a Markdown file.
