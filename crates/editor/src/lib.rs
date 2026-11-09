@@ -738,7 +738,15 @@ impl EditorPanel {
                 let _ = this.update_in(cx, |this, window, cx| match result {
                     Ok(buffer) => this.attach(buffer, window, cx),
                     Err(e) => {
-                        this.load_error = Some(format!("Can't open: {e:#}").into());
+                        let gone = e.chain().any(|c| {
+                            c.downcast_ref::<std::io::Error>()
+                                .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
+                        });
+                        this.load_error = Some(if gone {
+                            "This file no longer exists. Close this tab.".into()
+                        } else {
+                            format!("Can't open: {e:#}").into()
+                        });
                         cx.notify();
                     }
                 });
