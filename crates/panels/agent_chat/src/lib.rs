@@ -133,6 +133,9 @@ pub struct AgentChat {
     workspace: Entity<pide_core::Workspace>,
     /// What "send editor context" would send now; refreshed each render.
     context_now: Option<pide_core::context::EditorContext>,
+    /// Re-checks the editor context twice a second (the editor has no
+    /// selection-changed event), redrawing only when it changed.
+    _context_poll: Task<()>,
     views: HashMap<EntityId, SessionView>,
     agent_subs: HashMap<EntityId, Subscription>,
     input: Entity<TextareaState>,
@@ -277,6 +280,19 @@ impl AgentChat {
             sessions,
             workspace,
             context_now: None,
+            _context_poll: cx.spawn_in(window, async move |this, cx| loop {
+                cx.background_executor().timer(std::time::Duration::from_millis(500)).await;
+                let changed = this.update_in(cx, |this, window, cx| {
+                    let now = pide_core::context::current(window, cx);
+                    let changed = now != this.context_now;
+                    if changed {
+                        cx.notify();
+                    }
+                });
+                if changed.is_err() {
+                    break;
+                }
+            }),
             views: HashMap::new(),
             agent_subs: HashMap::new(),
             input,
@@ -1275,10 +1291,8 @@ impl AgentChat {
                         let on = self.send_context(cx);
                         let label = match (on, self.context_now.clone()) {
                             (false, _) => "No editor context".to_string(),
-                            (true, Some(c)) => format!(
-                                "⌁ Context: {} + selection",
-                                c.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
-                            ),
+                            // `main.rs:12` for a cursor, `main.rs 5–7` for a selection.
+                            (true, Some(c)) => format!("⌁ Context: {}", c.label()),
                             (true, None) => "⌁ Context: no file open".to_string(),
                         };
                         Button::new("context-toggle")
