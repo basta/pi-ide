@@ -8,6 +8,7 @@ use std::future::Future;
 use std::sync::OnceLock;
 
 pub mod monitor;
+pub mod process;
 
 pub use tokio;
 

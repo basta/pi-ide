@@ -89,30 +89,7 @@ pub fn spec_for<'a>(specs: &'a [ServerSpec], path: &Path) -> Option<&'a ServerSp
     specs.iter().find(|s| s.extensions.contains(&ext))
 }
 
-/// Directories searched for commands: PATH, plus where rustup and npm put things
-/// (an app started from Finder doesn't get the shell's PATH).
-pub fn search_path() -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
-    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-        for extra in [".cargo/bin", ".local/bin", ".npm-global/bin"] {
-            dirs.push(home.join(extra));
-        }
-    }
-    for extra in ["/opt/homebrew/bin", "/usr/local/bin"] {
-        dirs.push(PathBuf::from(extra));
-    }
-    dirs.dedup();
-    dirs
-}
-
-/// `command` as an absolute path, if it exists (a path, or a name on the search path).
-pub fn find_command(command: &str) -> Option<PathBuf> {
-    let p = Path::new(command);
-    if p.components().count() > 1 {
-        return p.is_file().then(|| p.to_path_buf());
-    }
-    search_path().into_iter().map(|d| d.join(command)).find(|c| c.is_file())
-}
+pub use pide_runtime::process::{find_command, search_path};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Installed {
