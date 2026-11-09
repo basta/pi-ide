@@ -1358,6 +1358,7 @@ impl AgentChat {
                                 path: diff_path.clone(),
                                 before: diff_before.clone(),
                                 label: diff_label.clone(),
+                                before_is: "when pi first touched it".into(),
                             },
                             window,
                             cx,

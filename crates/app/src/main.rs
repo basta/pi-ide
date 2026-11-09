@@ -1,5 +1,6 @@
 //! pide: windows (one per project), dock layout, keymap, wiring. `pide [dir]`.
 
+mod git_changes;
 mod goto_file;
 mod menus;
 mod palette;
@@ -198,6 +199,11 @@ fn register_app_commands(cx: &mut App) {
         cx,
         CommandSpec::new("file.goto", "Navigate: Go to File…").key("cmd-shift-o"),
         goto_file::open,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("git.changes", "Git: Local Changes…").key("cmd-9"),
+        git_changes::open,
     );
     CommandRegistry::register(
         cx,

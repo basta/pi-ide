@@ -96,6 +96,7 @@ fn menus() -> Vec<Menu> {
                 cmd("Run Command…", "run.command"),
                 cmd("Optimize Imports", "editor.organize_imports"),
                 MenuItem::separator(),
+                cmd("Local Changes…", "git.changes"),
                 cmd("Next Change", "git.next_change"),
                 cmd("Previous Change", "git.prev_change"),
                 cmd("Rollback Lines", "git.rollback"),

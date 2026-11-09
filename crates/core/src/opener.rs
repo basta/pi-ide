@@ -13,6 +13,8 @@ pub struct DiffRequest {
     pub before: Option<String>,
     /// Shown in the tab, e.g. the session name.
     pub label: SharedString,
+    /// What "before" is, for the header: "when pi first touched it", "HEAD".
+    pub before_is: SharedString,
 }
 
 /// A place in a file, with its line's text (usages, symbol search results).

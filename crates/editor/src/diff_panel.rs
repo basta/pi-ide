@@ -296,13 +296,14 @@ impl Render for DiffPanel {
                 rel.display().to_string(),
                 r.label.clone(),
                 r.before.is_none(),
+                r.before_is.clone(),
             )
         });
         let split = self.mode == DiffMode::Split;
         v_flex()
             .size_full()
             .track_focus(&self.focus)
-            .when_some(header, |this, (rel, label, created)| {
+            .when_some(header, |this, (rel, label, created, before_is)| {
                 this.child(
                     h_flex()
                         .justify_between()
@@ -317,10 +318,11 @@ impl Render for DiffPanel {
                                 .child(div().font_weight(FontWeight::SEMIBOLD).child(rel))
                                 .child(div().text_xs().text_color(theme.muted_foreground).child(
                                     format!(
-                                        "{} · {}{} · before = when pi first touched it",
+                                        "{} · {}{} · before = {}",
                                         label,
-                                        if created { "created by pi · " } else { "" },
-                                        format_args!("+{} −{}", self.stats.0, self.stats.1)
+                                        if created { "new file · " } else { "" },
+                                        format_args!("+{} −{}", self.stats.0, self.stats.1),
+                                        before_is
                                     ),
                                 )),
                         )
