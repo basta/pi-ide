@@ -62,6 +62,7 @@ fn main() {
         pide_problems::init(cx);
         pide_pi_settings::init(cx);
         pide_search::init(cx);
+        pide_preview::init(cx);
         cx.set_global(pide_core::opener::Openers {
             file: Rc::new(pide_editor::open_path),
             file_at: Rc::new(pide_editor::open_path_at),
@@ -121,6 +122,15 @@ fn watch_keymap(cx: &mut App) {
 fn register_app_commands(cx: &mut App) {
     CommandRegistry::register(cx, CommandSpec::new("palette.open", "Find Action…").key("cmd-shift-a"), palette::open);
     CommandRegistry::register(cx, CommandSpec::new("find.in_files", "Edit: Find in Files…").key("cmd-shift-f"), shell::show_find_in_files);
+    CommandRegistry::register(cx, CommandSpec::new("view.markdown_preview", "View: Markdown Preview"), shell::show_markdown_preview);
+    CommandRegistry::register(cx, CommandSpec::new("file.open_in_browser", "File: Open in Browser"), |window, cx| {
+        let Some(path) = shell::active_path(window, cx) else { return };
+        if matches!(path.extension().and_then(|e| e.to_str()), Some("html" | "htm" | "svg")) {
+            cx.open_url(&format!("file://{}", path.display()));
+        } else {
+            window.push_notification(gpui_kit::component::notification::Notification::warning("Open an HTML file first."), cx);
+        }
+    });
     CommandRegistry::register(cx, CommandSpec::new("file.goto", "Navigate: Go to File…").key("cmd-shift-o"), goto_file::open);
     CommandRegistry::register(cx, CommandSpec::new("app.quit", "Quit pide").key("cmd-q"), |_, cx| cx.quit());
     CommandRegistry::register(cx, CommandSpec::new("keymap.open", "Preferences: Open Keymap File"), |window, cx| {

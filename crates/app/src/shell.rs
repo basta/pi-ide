@@ -370,6 +370,40 @@ pub fn show_find_in_files(window: &mut Window, cx: &mut App) {
     window.defer(cx, move |window, cx| panel.update(cx, |p, cx| p.focus_query(selection, window, cx)));
 }
 
+/// The file of the active editor tab in `window`.
+pub fn active_path(window: &Window, cx: &App) -> Option<PathBuf> {
+    let s = Services::for_window(window.window_handle().window_id(), cx)?;
+    let ws = s.workspace.read(cx);
+    Some(ws.active()?.read(cx).path.clone())
+}
+
+/// Preview the active Markdown file beside the editor (or focus its preview).
+pub fn show_markdown_preview(window: &mut Window, cx: &mut App) {
+    let Some(path) = active_path(window, cx).filter(|p| pide_preview::is_markdown(p)) else {
+        window.push_notification(Notification::warning("Open a Markdown file first."), cx);
+        return;
+    };
+    let id = window.window_handle().window_id();
+    let Some(shell) = cx.try_global::<Shells>().and_then(|h| h.0.get(&id)?.upgrade()) else { return };
+    shell.update(cx, |shell, cx| {
+        let p = cx.new(|cx| pide_preview::MarkdownPreview::new(path, window, cx));
+        let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
+        shell.dock.update(cx, |d, cx| {
+            d.add_panel_view(panel_handle(p), DockPlacement::Center, None, window, cx);
+            let node = d.layout(DockPlacement::Center).and_then(|t| t.find_panel_node(pid));
+            if let Some(node) = node {
+                // `move_panel` detaches it from the group it was added to (`split_at` only inserts).
+                let target = gpui_kit::component::dock::InsertTarget::Split {
+                    node,
+                    placement: gpui_kit::component::Placement::Right,
+                    size: None,
+                };
+                d.move_panel(pid, target, window, cx);
+            }
+        });
+    });
+}
+
 /// Show the Problems panel in the bottom dock (adding it the first time); hide it if it's showing.
 pub fn toggle_problems(window: &mut Window, cx: &mut App) {
     let id = window.window_handle().window_id();

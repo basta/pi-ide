@@ -4879,6 +4879,7 @@ dependencies = [
  "pide-language-servers",
  "pide-lsp",
  "pide-pi-settings",
+ "pide-preview",
  "pide-problems",
  "pide-runtime",
  "pide-search",
@@ -4982,6 +4983,16 @@ dependencies = [
  "pide-agent-pi",
  "pide-core",
  "pide-runtime",
+ "serde_json",
+]
+
+[[package]]
+name = "pide-preview"
+version = "0.1.0"
+dependencies = [
+ "gpui-kit",
+ "log",
+ "pide-core",
  "serde_json",
 ]
 

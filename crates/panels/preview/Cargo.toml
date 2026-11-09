@@ -1,0 +1,12 @@
+[package]
+name = "pide-preview"
+description = "Previews: live Markdown preview of a buffer."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+pide-core.workspace = true
+log.workspace = true
+serde_json.workspace = true

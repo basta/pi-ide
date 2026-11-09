@@ -13,6 +13,7 @@ members = [
     "crates/panels/problems",
     "crates/panels/pi_settings",
     "crates/panels/search",
+    "crates/panels/preview",
     "spike",
 ]
 
@@ -45,6 +46,7 @@ pide-language-servers = { path = "crates/panels/language_servers" }
 pide-problems = { path = "crates/panels/problems" }
 pide-pi-settings = { path = "crates/panels/pi_settings" }
 pide-search = { path = "crates/panels/search" }
+pide-preview = { path = "crates/panels/preview" }
 
 anyhow = "1.0.104"
 env_logger = "0.11.11"

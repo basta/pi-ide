@@ -22,6 +22,7 @@ pide-language-servers.workspace = true
 pide-problems.workspace = true
 pide-pi-settings.workspace = true
 pide-search.workspace = true
+pide-preview.workspace = true
 anyhow.workspace = true
 env_logger.workspace = true
 log.workspace = true

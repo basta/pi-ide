@@ -22,6 +22,7 @@ fn menus() -> Vec<Menu> {
                 cmd("Close Project", "project.close"),
                 MenuItem::separator(),
                 cmd("Save", "editor.save"),
+                cmd("Open in Browser", "file.open_in_browser"),
                 cmd("Close Tab", "editor.close"),
                 MenuItem::separator(),
                 cmd("Quit pide", "app.quit"),
@@ -53,6 +54,7 @@ fn menus() -> Vec<Menu> {
                 cmd("Project Panel", "view.toggle_project"),
                 cmd("pi Panel", "view.toggle_agent"),
                 cmd("Problems", "view.problems"),
+                cmd("Markdown Preview", "view.markdown_preview"),
                 MenuItem::separator(),
                 MenuItem::Submenu(Menu {
                     name: "Theme".into(),
