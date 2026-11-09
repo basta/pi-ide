@@ -3,7 +3,7 @@
 A personal, native code editor in Rust on GPUI + GPUI Kit, with the pi coding agent built in.
 Spec: the claude.ai doc "pi IDE — Implementation Spec". Contributor/agent guide: `AGENTS.md`.
 
-Status: **M3** (language servers), **M3.5** (pi Settings) **M4** (Go to File, Find in Files, git) and **M5** (Markdown preview, PDF viewer, open in browser) built; see `docs/GAPS.md` for the PDF part that still needs a first run. M0 results: `docs/SPIKE.md`.
+Status: milestones **M0–M5** built (M6 scripted panels: options written up in `docs/M6-SCRIPTED-PANELS.md`, waiting on a decision). `docs/GAPS.md` lists what GPUI Kit or pi can't do yet and the PDF part that still needs a first run; `docs/IDEAS.md` what's deliberately not built. M0 results: `docs/SPIKE.md`.
 
 ## Run
 
@@ -92,7 +92,7 @@ View → Move Tab to Right Split puts two files side by side.
 
 Each pi session shows its cost, context use, thinking level and model at the top right of the chat; click the model or the thinking level to change it for that session. **pi → Compact Session** summarizes a long conversation to free context. Type `/` in the message box to see pi's commands (extension commands, prompt templates, `skill:` commands); Tab or a click completes one. Type `@` and part of a file name to mention a project file (`@src/main.rs`). Paste a screenshot (Cmd+V with an image on the clipboard) to send it with your next message. **Ask pi** buttons in the Run panel and on each problem put the output or the error in the message box, ready to send.
 
-**Changes** (in the pi panel) lists the files a session changed; click one for a side-by-side or inline diff against the file before pi touched it. **Revert** undoes the whole file; the ↶ button beside each change in the diff undoes just that change.
+**Changes** (in the pi panel) lists the files a session changed; click one for a side-by-side or inline diff against the file before pi touched it. **Revert** undoes the whole file; the ↶ button beside each change in the diff undoes just that change; **Mark all reviewed** / **Revert all…** act on the whole session. The list is saved with the session and comes back when you resume it. A file pi changes while it's open in the editor reloads as an undoable edit (Cmd+Z takes it back). **pi → Export Session as HTML** writes the conversation to a page and opens it; **pi → Rename Session…** names it. Unsaved files are saved before a message goes to pi (setting).
 
 ## Previews
 
