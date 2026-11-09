@@ -19,7 +19,6 @@ const QUIET: &[&str] = &[
     "agent_end",
     "turn_start",
     "turn_end",
-    "queue_update",
     "entry_appended",
     "session_info_changed",
     "thinking_level_changed",
@@ -118,6 +117,15 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
             is_error: v.get("isError").and_then(Value::as_bool).unwrap_or(false),
             duration_ms: v.get("durationMs").and_then(Value::as_u64),
         }),
+        "queue_update" => {
+            let list = |k: &str| -> Vec<String> {
+                v.get(k)
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .unwrap_or_default()
+            };
+            ev(AgentEvent::Queue { steering: list("steering"), follow_up: list("followUp") })
+        }
         "agent_settled" => ev(AgentEvent::Settled {
             aborted: v.get("aborted").and_then(Value::as_bool).unwrap_or(false),
         }),

@@ -41,6 +41,9 @@ struct Shared {
     alive: bool,
     kill: Option<oneshot::Sender<()>>,
     idle_stop: Option<Task<()>>,
+    /// Prompts we already echoed into the chat; pi's own echo of them is dropped.
+    /// Steered and follow-up messages are shown when pi delivers them.
+    echoed: std::collections::VecDeque<String>,
 }
 
 impl Shared {
@@ -137,7 +140,15 @@ impl PiBackend {
         let inbound = cx.spawn(async move |agent: WeakEntity<Agent>, cx| {
             while let Some(rec) = in_rx.recv().await {
                 let ok = agent.update(cx, |agent, cx| match rec {
-                    Inbound::Event(AgentEvent::UserPrompt { .. }) => {} // echoed by us on send
+                    Inbound::Event(AgentEvent::UserPrompt { text }) => {
+                        let mut sh = shared.borrow_mut();
+                        if let Some(i) = sh.echoed.iter().position(|t| *t == text) {
+                            sh.echoed.remove(i); // already shown when sent
+                        } else {
+                            drop(sh);
+                            agent.handle_event(AgentEvent::UserPrompt { text }, cx); // delivered steer/follow-up
+                        }
+                    }
                     Inbound::Event(e @ AgentEvent::Settled { .. }) => {
                         agent.handle_event(e, cx);
                         schedule_idle_stop(&shared, cx);
@@ -225,7 +236,8 @@ fn handle_response(
 impl AgentBackend for PiBackend {
     fn prompt(&mut self, text: String, agent: &mut Agent, cx: &mut Context<Agent>) {
         if agent.is_busy() && self.process.is_some() && !matches!(agent.status(), AgentStatus::Starting) {
-            cx.emit(AgentEvent::Error("pi is still working. Steering and follow-ups arrive in M2.".into()));
+            // Busy: a plain prompt would be rejected by pi; steer instead.
+            self.queue(text, false, agent, cx);
             return;
         }
         if matches!(agent.status(), AgentStatus::Crashed { .. }) {
@@ -237,6 +249,7 @@ impl AgentBackend for PiBackend {
             return;
         }
         cx.emit(AgentEvent::UserPrompt { text: text.clone() });
+        self.shared.borrow_mut().echoed.push_back(text.clone());
         self.send(json!({"type": "prompt", "message": text}));
         agent.set_status(AgentStatus::Busy, cx);
     }
@@ -265,6 +278,16 @@ impl AgentBackend for PiBackend {
                 }
             });
         }));
+    }
+
+    fn queue(&mut self, text: String, follow_up: bool, agent: &mut Agent, cx: &mut Context<Agent>) {
+        if !self.shared.borrow().alive || !agent.is_busy() {
+            // Nothing running: just send it.
+            self.prompt(text, agent, cx);
+            return;
+        }
+        let kind = if follow_up { "follow_up" } else { "steer" };
+        self.send(json!({"type": kind, "message": text}));
     }
 
     fn new_session(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {

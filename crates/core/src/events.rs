@@ -50,6 +50,9 @@ pub enum AgentEvent {
     ToolStart { id: String, name: String, args: Value },
     ToolUpdate { id: String, partial: Value },
     ToolEnd { id: String, name: String, result: Value, is_error: bool, duration_ms: Option<u64> },
+    /// pi's pending messages changed: steering (delivered after the current tool
+    /// calls) and follow-ups (delivered when the run ends). Complete lists.
+    Queue { steering: Vec<String>, follow_up: Vec<String> },
     /// The agent will not continue on its own.
     Settled { aborted: bool },
     /// Fire-and-forget extension UI: status bar item.

@@ -162,3 +162,30 @@ async fn raw_log_records_both_directions() {
     }
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn steer_and_follow_up_queue_updates_parse() {
+    // Recorded from pi 1.5.0: a prompt, then a steer and a follow-up while busy.
+    let fixture = include_str!("fixtures/steer_followup_session.jsonl");
+    let mut queues = Vec::new();
+    let mut users = Vec::new();
+    let mut rejected = None;
+    for line in fixture.lines() {
+        for rec in pide_agent_pi::wire::parse_line(line) {
+            match rec {
+                Inbound::Event(AgentEvent::Queue { steering, follow_up }) => queues.push((steering, follow_up)),
+                Inbound::Event(AgentEvent::UserPrompt { text }) => users.push(text),
+                Inbound::Response { command, success: false, error, .. } if command == "prompt" => rejected = error,
+                _ => {}
+            }
+        }
+    }
+    assert_eq!(queues.first().unwrap().0, vec!["Also mention the word banana in your reply."]);
+    assert!(queues.iter().any(|(_, f)| f == &vec!["Now reply with just: follow-up received.".to_string()]));
+    assert_eq!(queues.last().unwrap(), &(vec![], vec![]));
+    // Delivered steer and follow-up show up as user messages.
+    assert!(users.iter().any(|u| u.contains("banana")));
+    assert!(users.iter().any(|u| u.contains("follow-up received")));
+    // A plain prompt while busy is rejected — why the client must steer instead.
+    assert!(rejected.unwrap().contains("streamingBehavior"));
+}

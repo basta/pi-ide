@@ -23,10 +23,14 @@ use pide_core::{
 use serde_json::{Value, json};
 
 pub const PANEL_NAME: &str = "agent_chat";
+
+actions!(pide_chat, [QueueFollowUp]);
 /// At this width or more the panel shows the session sidebar instead of tabs.
 const SIDEBAR_MIN_WIDTH: f32 = 640.;
 
 pub fn init(cx: &mut App) {
+    // Option+Enter in the pi input queues a follow-up (Enter steers while pi works).
+    cx.bind_keys([KeyBinding::new("alt-enter", QueueFollowUp, Some("AgentInput"))]);
     register_panel(cx, PANEL_NAME, |ctx, window, cx| {
         // Reopen the sessions that were open when the layout was saved.
         if let PanelInfo::Panel(v) = ctx.info() {
@@ -245,7 +249,7 @@ impl AgentChat {
         let subs = vec![
             cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| {
                 if let InputEvent::PressEnter { shift: false, .. } = ev {
-                    this.send(window, cx);
+                    this.send(false, window, cx);
                 }
             }),
             cx.subscribe_in(&sessions, window, |this, _, ev: &SessionsEvent, window, cx| {
@@ -356,14 +360,19 @@ impl AgentChat {
         self.sessions.read(cx).active()
     }
 
-    fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Enter: send, or steer if pi is working. Option+Enter: queue a follow-up.
+    fn send(&mut self, follow_up: bool, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.input.read(cx).value().trim().to_string();
-        let agent = self.active(cx);
-        if text.is_empty() || agent.read(cx).is_busy() {
+        if text.is_empty() {
             return;
         }
+        let agent = self.active(cx);
         self.input.update(cx, |i, cx| i.set_value("", window, cx));
-        agent.update(cx, |a, cx| a.prompt(text, cx));
+        if agent.read(cx).is_busy() {
+            agent.update(cx, |a, cx| a.queue(text, follow_up, cx));
+        } else {
+            agent.update(cx, |a, cx| a.prompt(text, cx));
+        }
     }
 
     fn on_agent_event(&mut self, agent: Entity<Agent>, ev: &AgentEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -759,6 +768,7 @@ impl AgentChat {
         let busy = a.is_busy();
         let name = a.name.clone();
         let status_text = Self::status_text(a);
+        let (steering, follow_ups) = a.queue.clone();
         let id = agent.entity_id();
         let (items, scroll, empty) = match self.views.get(&id) {
             Some(view) => {
@@ -845,8 +855,22 @@ impl AgentChat {
                     .p_2()
                     .border_t_1()
                     .border_color(theme.border)
-                    .when(busy, |this| this.child(div().text_xs().text_color(theme.muted_foreground).child(status_text)))
-                    .child(Textarea::new(&self.input))
+                    .children(steering.into_iter().map(|t| queued_row("steer", t, &theme)))
+                    .children(follow_ups.into_iter().map(|t| queued_row("after this run", t, &theme)))
+                    .when(busy, |this| {
+                        this.child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(format!("{status_text}  Enter steers · ⌥Enter queues a follow-up")),
+                        )
+                    })
+                    .child(
+                        div()
+                            .key_context("AgentInput")
+                            .on_action(cx.listener(|this, _: &QueueFollowUp, window, cx| this.send(true, window, cx)))
+                            .child(Textarea::new(&self.input)),
+                    )
                     .child(h_flex().justify_end().gap_2().when(busy, |this| {
                         this.child(Button::new("stop").small().danger().label("Stop").on_click(
                             cx.listener(|this, _, _, cx| this.active(cx).update(cx, |a, cx| a.abort(cx))),
@@ -854,6 +878,21 @@ impl AgentChat {
                     })),
             )
     }
+}
+
+fn queued_row(kind: &'static str, text: String, theme: &gpui_kit::component::theme::Theme) -> AnyElement {
+    h_flex()
+        .gap_2()
+        .px_2()
+        .py_1()
+        .rounded(theme.radius)
+        .border_1()
+        .border_dashed()
+        .border_color(theme.border)
+        .text_xs()
+        .child(div().flex_none().font_weight(FontWeight::SEMIBOLD).text_color(theme.warning).child(kind))
+        .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().child(text))
+        .into_any_element()
 }
 
 fn tool_mut<'a>(items: &'a mut [Item], id: &str) -> Option<&'a mut Item> {

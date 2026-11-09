@@ -25,6 +25,9 @@ pub trait AgentBackend: 'static {
     /// Must take effect within 1 s.
     fn abort(&mut self, agent: &mut Agent, cx: &mut Context<Agent>);
     fn new_session(&mut self, agent: &mut Agent, cx: &mut Context<Agent>);
+    /// While busy: `follow_up` false = steer (after the current tool calls),
+    /// true = follow-up (after the run ends).
+    fn queue(&mut self, text: String, follow_up: bool, agent: &mut Agent, cx: &mut Context<Agent>);
     /// Stop (if running) and forget the crash; the next prompt resumes the session.
     fn restart(&mut self, agent: &mut Agent, cx: &mut Context<Agent>);
 }
@@ -42,6 +45,8 @@ pub struct Agent {
     pub waiting: bool,
     /// pi's session file, once known; used to resume after the process stops.
     pub session_file: Option<std::path::PathBuf>,
+    /// Messages waiting to be delivered: (steering, follow-ups).
+    pub queue: (Vec<String>, Vec<String>),
 }
 
 pub const UNNAMED: &str = "New session";
@@ -58,6 +63,7 @@ impl Agent {
             unread: false,
             waiting: false,
             session_file: None,
+            queue: (Vec::new(), Vec::new()),
         }
     }
 
@@ -91,6 +97,10 @@ impl Agent {
         }
         self.with_backend(cx, |b, a, cx| b.prompt(text, a, cx));
     }
+    /// Send while busy: steer (`follow_up` false) or queue a follow-up.
+    pub fn queue(&mut self, text: String, follow_up: bool, cx: &mut Context<Self>) {
+        self.with_backend(cx, |b, a, cx| b.queue(text, follow_up, a, cx));
+    }
     pub fn abort(&mut self, cx: &mut Context<Self>) {
         self.with_backend(cx, |b, a, cx| b.abort(a, cx));
     }
@@ -105,11 +115,18 @@ impl Agent {
     /// Backends call this (from a `cx.spawn` task) for everything they receive.
     pub fn handle_event(&mut self, event: AgentEvent, cx: &mut Context<Self>) {
         match &event {
-            AgentEvent::Settled { .. } => self.set_status(AgentStatus::Idle, cx),
+            AgentEvent::Settled { .. } => {
+                self.queue = (Vec::new(), Vec::new());
+                self.set_status(AgentStatus::Idle, cx)
+            }
             AgentEvent::AssistantStart | AgentEvent::ToolStart { .. } => {
                 if !matches!(self.status, AgentStatus::Aborting) {
                     self.set_status(AgentStatus::Busy, cx)
                 }
+            }
+            AgentEvent::Queue { steering, follow_up } => {
+                self.queue = (steering.clone(), follow_up.clone());
+                cx.notify();
             }
             AgentEvent::Status { key, text } => {
                 self.status_items.retain(|(k, _)| k != key);
