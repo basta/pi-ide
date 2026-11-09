@@ -6,6 +6,7 @@ pub mod diff_panel;
 mod follow;
 mod git_gutter;
 mod lsp;
+mod minimal;
 mod rename;
 mod signature;
 mod symbols;
@@ -674,10 +675,16 @@ impl EditorPanel {
                 self.diff = None;
                 self.deleted = false;
                 self.editor.update(cx, |e, cx| {
-                    let cursor = e.cursor_position();
-                    e.set_value(text, window, cx);
+                    if read_only {
+                        let cursor = e.cursor_position();
+                        e.set_value(text, window, cx);
+                        e.set_cursor_position(cursor, window, cx);
+                    } else {
+                        // Undoable: Cmd+Z takes back an outside change (pi's edit).
+                        e.set_readonly(false, cx);
+                        minimal::set_text(e, &text, window, cx);
+                    }
                     e.set_readonly(read_only, cx);
-                    e.set_cursor_position(cursor, window, cx);
                 });
                 self.load_git_base(cx);
                 cx.notify();
@@ -688,19 +695,8 @@ impl EditorPanel {
             }
             WorkspaceEvent::TextReplaced(buffer) if self.is_mine(buffer) => {
                 let text = buffer.read(cx).text().to_string();
-                self.editor.update(cx, |e, cx| {
-                    if e.text().to_string() == text {
-                        return;
-                    }
-                    use gpui_kit::component::input::RopeExt as _;
-                    let rope = e.text().clone();
-                    let end = rope.offset_to_position(rope.len());
-                    let edit = lsp_types::TextEdit {
-                        range: lsp_types::Range::new(lsp_types::Position::new(0, 0), end),
-                        new_text: text,
-                    };
-                    e.apply_lsp_edits(&vec![edit], window, cx);
-                });
+                self.editor
+                    .update(cx, |e, cx| minimal::set_text(e, &text, window, cx));
             }
             WorkspaceEvent::FileDeleted(buffer) if self.is_mine(buffer) => {
                 self.deleted = true;

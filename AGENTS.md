@@ -63,6 +63,7 @@ Dependencies only go downward: `app` → panels/`editor`/`agent-pi` → `core`/`
 - **Panel trait:** ours is `pide_core::Panel` (`title_text`, `default_dock`) on top of GPUI Kit's dock `Panel`/`BasePanel` (`panel_name`, `title`, `dump`). It's `title_text`, not `title`, because GPUI Kit already has a `title` method.
 - **Saved layouts** rebuild panels by `panel_name` through `register_panel`; a panel that needs state (an editor's path) writes it in `dump()` as `PanelInfo::panel(json)`. Bump `DOCK_VERSION` in `app/src/shell.rs` when the default layout changes incompatibly.
 - **`use gpui_kit::*` shadows `#[test]`** with GPUI's test macro. In test modules that glob-import it, write `#[::core::prelude::v1::test]`.
+- **Outside changes are undoable:** a reload (pi's edit, another program) or `Workspace::replace_text` reaches the editor through `minimal::set_text` (line edits via `apply_lsp_edits`), never `set_value`, which wipes undo history. `Workspace::edited` ignores the editor echoing the buffer's own text, so a reload doesn't mark the tab dirty.
 - **Buffers:** the editor gets `\n` text; `Buffer` remembers CRLF and BOM and restores them on save (byte-identical round trip; tests in `core/src/buffer.rs`). Non-UTF-8 files open read-only and are never saved.
 - **`taffy` must stay at 0.15.0** in `Cargo.lock` (GPUI's `profiler` feature needs it). After `cargo update`, run `cargo update -p taffy --precise 0.15.0`.
 

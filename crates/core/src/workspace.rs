@@ -129,6 +129,14 @@ impl Workspace {
 
     /// An editor changed the text.
     pub fn edited(&mut self, buffer: &Entity<Buffer>, text: Rope, cx: &mut Context<Self>) {
+        // The editor catching up with a reload (or replace_text) reports the
+        // buffer's own text back: not an edit, so not dirty. Length first: cheap.
+        {
+            let b = buffer.read(cx);
+            if b.text.len() == text.len() && b.text == text {
+                return;
+            }
+        }
         buffer.update(cx, |b, cx| {
             b.text = text;
             b.dirty = true;
