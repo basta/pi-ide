@@ -201,6 +201,8 @@ pub struct AgentChat {
     attachments: Vec<(pide_core::ImageAttachment, std::sync::Arc<Image>)>,
     /// Image counts to note under the next prompt each session echoes.
     image_notes: HashMap<EntityId, usize>,
+    /// Slash suggestions were showing at the last keystroke.
+    slash_open: bool,
     focus: FocusHandle,
     /// Last laid-out width, measured each frame (tabs vs sidebar).
     width: Rc<Cell<f32>>,
@@ -383,10 +385,16 @@ impl AgentChat {
                     InputEvent::PressEnter { shift: false, .. } => this.send(false, window, cx),
                     InputEvent::Change => {
                         // Typing `/`: fetch the session's commands for the suggestions.
-                        if slash::typed(&this.input.read(cx).value()).is_some() {
+                        // Redraw only for the suggestions: a redraw per keystroke
+                        // re-renders the whole conversation.
+                        let slash = slash::typed(&this.input.read(cx).value()).is_some();
+                        if slash {
                             this.active(cx).update(cx, |a, cx| a.request_commands(cx));
                         }
-                        cx.notify();
+                        if slash || std::mem::replace(&mut this.slash_open, slash) {
+                            this.slash_open = slash;
+                            cx.notify();
+                        }
                     }
                     _ => {}
                 }
@@ -434,6 +442,7 @@ impl AgentChat {
             input,
             attachments: Vec::new(),
             image_notes: HashMap::new(),
+            slash_open: false,
             focus: cx.focus_handle(),
             width: Rc::new(Cell::new(0.)),
             show_list: false,
