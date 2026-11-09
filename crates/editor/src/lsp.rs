@@ -660,6 +660,50 @@ fn byte_offset(text: &str, pos: lsp_types::Position) -> usize {
 /// Find Usages (Alt+F7): every reference to the symbol at the cursor, listed
 /// in the Usages panel. Line text comes from open buffers or the file on disk.
 pub(crate) fn find_usages(window: &mut Window, cx: &mut App) {
+    query_locations("textDocument/references", "Usages of", false, window, cx);
+}
+
+/// Go to Implementation (Cmd+Alt+B): one result jumps there, several are listed.
+pub(crate) fn go_to_implementation(window: &mut Window, cx: &mut App) {
+    query_locations(
+        "textDocument/implementation",
+        "Implementations of",
+        true,
+        window,
+        cx,
+    );
+}
+
+/// Go to Type Declaration (Ctrl+Shift+B).
+pub(crate) fn go_to_type_definition(window: &mut Window, cx: &mut App) {
+    query_locations("textDocument/typeDefinition", "Type of", true, window, cx);
+}
+
+/// A location response in any of its shapes (`Location`, `Location[]`, `LocationLink[]`).
+fn parse_locations(v: Value) -> Vec<lsp_types::Location> {
+    match serde_json::from_value::<GotoDefinitionResponse>(v) {
+        Ok(GotoDefinitionResponse::Scalar(l)) => vec![l],
+        Ok(GotoDefinitionResponse::Array(ls)) => ls,
+        Ok(GotoDefinitionResponse::Link(links)) => links
+            .into_iter()
+            .map(|l| lsp_types::Location {
+                uri: l.target_uri,
+                range: l.target_selection_range,
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Ask the server for places related to the symbol at the cursor and list them
+/// in the Usages panel (or, with `jump_single`, go straight to a lone result).
+fn query_locations(
+    method: &'static str,
+    title: &'static str,
+    jump_single: bool,
+    window: &mut Window,
+    cx: &mut App,
+) {
     use gpui_kit::component::WindowExt as _;
     use gpui_kit::component::input::RopeExt as _;
     use gpui_kit::component::notification::Notification;
@@ -692,7 +736,7 @@ pub(crate) fn find_usages(window: &mut Window, cx: &mut App) {
         "context": { "includeDeclaration": true },
     });
     let task = store.update(cx, |s, cx| {
-        s.request(&path, Some(&rope), "textDocument/references", params, cx)
+        s.request(&path, Some(&rope), method, params, cx)
     });
     // Text of open buffers (unsaved edits count), for the lines shown.
     let open: std::collections::HashMap<PathBuf, String> = pide_core::Services::of(window, cx)
@@ -705,7 +749,7 @@ pub(crate) fn find_usages(window: &mut Window, cx: &mut App) {
     window
         .spawn(cx, async move |cx| {
             let v = task.await.unwrap_or(Value::Null);
-            let refs: Vec<lsp_types::Location> = serde_json::from_value(v).unwrap_or_default();
+            let refs = parse_locations(v);
             let found = cx
                 .background_executor()
                 .spawn(async move {
@@ -757,13 +801,23 @@ pub(crate) fn find_usages(window: &mut Window, cx: &mut App) {
                 .await;
             let _ = cx.update(|window, cx| {
                 if found.is_empty() {
+                    let what = title.split(' ').next().unwrap_or(title).to_lowercase();
                     window.push_notification(
-                        Notification::info(format!("No usages of {word} found.")),
+                        Notification::info(format!("No {what} found for {word}.")),
+                        cx,
+                    );
+                } else if jump_single && found.len() == 1 {
+                    let l = &found[0];
+                    pide_core::opener::open_file_at(
+                        l.path.clone(),
+                        l.line,
+                        l.character,
+                        window,
                         cx,
                     );
                 } else {
                     pide_core::opener::show_locations(
-                        format!("Usages of {word}").into(),
+                        format!("{title} {word}").into(),
                         found,
                         window,
                         cx,

@@ -183,6 +183,23 @@ pub fn init(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
+        CommandSpec::new(
+            "editor.go_to_implementation",
+            "Navigate: Go to Implementation",
+        )
+        .key("cmd-alt-b")
+        .in_context(pide_core::commands::EDITOR),
+        lsp::go_to_implementation,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("editor.go_to_type", "Navigate: Go to Type Declaration")
+            .key("ctrl-shift-b")
+            .in_context(pide_core::commands::EDITOR),
+        lsp::go_to_type_definition,
+    );
+    CommandRegistry::register(
+        cx,
         CommandSpec::new("editor.find_usages", "Navigate: Find Usages")
             .key("alt-f7")
             .in_context(pide_core::commands::EDITOR),

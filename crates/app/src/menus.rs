@@ -77,6 +77,8 @@ fn menus() -> Vec<Menu> {
             name: "Code".into(),
             items: vec![
                 cmd("Go to Declaration", "editor.go_to_definition"),
+                cmd("Go to Implementation", "editor.go_to_implementation"),
+                cmd("Go to Type Declaration", "editor.go_to_type"),
                 cmd("Find Usages", "editor.find_usages"),
                 cmd("File Structure", "editor.file_structure"),
                 cmd("Go to Symbol…", "editor.go_to_symbol"),

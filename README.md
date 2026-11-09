@@ -43,6 +43,7 @@ Requires `pi` (`npm i -g @earendil-works/pi-coding-agent`) for the chat panel; i
 | Cmd+Shift+F | Find in Files (replace too) |
 | Cmd+6 | Problems panel |
 | Cmd+B (editor) | Go to declaration (also Cmd+click) |
+| Cmd+Alt+B / Ctrl+Shift+B | Go to implementation / type declaration |
 | Option+F7 (editor) | Find usages |
 | Cmd+F12 (editor) | File structure |
 | Cmd+Option+O | Go to symbol (project) |
