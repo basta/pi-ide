@@ -12,6 +12,23 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+/// Tool caches and build output (often not gitignored): what a test run or a
+/// build writes there isn't a change worth reviewing.
+const NOISE: &[&str] = &[
+    ".git",
+    ".DS_Store",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    "node_modules",
+    "target",
+    ".next",
+    "dist",
+    "build",
+];
+
 /// Don't walk past this many files.
 const MAX_FILES: usize = 100_000;
 /// Don't keep content of files bigger than this…
@@ -29,7 +46,7 @@ fn walk(root: &Path) -> HashMap<PathBuf, (SystemTime, u64)> {
     let mut out = HashMap::new();
     let walker = ignore::WalkBuilder::new(root)
         .hidden(false)
-        .filter_entry(|e| e.file_name() != ".git")
+        .filter_entry(|e| !NOISE.iter().any(|n| e.file_name() == *n))
         .build();
     for e in walker.flatten() {
         if !e.file_type().is_some_and(|t| t.is_file()) {
@@ -190,6 +207,8 @@ mod tests {
         std::fs::write(dir.join("src/a.rs"), "new a\n").unwrap();
         std::fs::remove_file(dir.join("b.txt")).unwrap();
         std::fs::write(dir.join("c.txt"), "made by bash\n").unwrap();
+        std::fs::create_dir_all(dir.join("__pycache__")).unwrap();
+        std::fs::write(dir.join("__pycache__/x.pyc"), "noise").unwrap();
         let got: Vec<(String, Option<String>)> = changed(&dir, &snap)
             .into_iter()
             .map(|(p, b)| (p.strip_prefix(&dir).unwrap().display().to_string(), b))
