@@ -3,8 +3,9 @@
 
 use std::path::{Path, PathBuf};
 
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dock::{PanelEvent, PanelState, panel_handle, register_panel};
-use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use lsp_types::DiagnosticSeverity;
@@ -194,6 +195,17 @@ impl Render for Problems {
                 let source = d.source.clone().unwrap_or_default();
                 let (line, character) = (d.range.start.line, d.range.start.character);
                 let target = path.clone();
+                let rel = path
+                    .strip_prefix(&self.root)
+                    .unwrap_or(&path)
+                    .display()
+                    .to_string();
+                let draft = format!(
+                    "Fix this {label} in {rel}:{}:{}: {}\n",
+                    line + 1,
+                    character + 1,
+                    d.message.trim()
+                );
                 rows.push(
                     h_flex()
                         .id(SharedString::from(format!(
@@ -239,6 +251,20 @@ impl Render for Problems {
                                 .text_xs()
                                 .text_color(theme.muted_foreground)
                                 .child(format!("{source} {}:{}", line + 1, character + 1)),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!(
+                                "ask-{}-{i}-{line}",
+                                path.display()
+                            )))
+                            .xsmall()
+                            .ghost()
+                            .label("Ask pi")
+                            .tooltip("Put this problem in pi's message box")
+                            .on_click(move |_, window, cx| {
+                                cx.stop_propagation();
+                                pide_core::opener::ask_agent(draft.clone(), window, cx);
+                            }),
                         )
                         .into_any_element(),
                 );
