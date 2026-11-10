@@ -3,6 +3,7 @@
 //! Status is read with gix (`repo.rs`), refreshed on saves, tree changes and a
 //! slow poll; changes go through the `git` command.
 
+pub mod log;
 pub mod repo;
 
 use std::path::PathBuf;

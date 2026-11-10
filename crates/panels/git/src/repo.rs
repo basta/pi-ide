@@ -167,6 +167,28 @@ fn with_paths(workdir: &Path, args: &[&str], rels: &[String]) -> anyhow::Result<
     git(workdir, &all, None).map(|_| ())
 }
 
+/// Run a read-only `git` command; its stdout.
+pub(crate) fn git_out(workdir: &Path, args: &[&str]) -> anyhow::Result<String> {
+    git(workdir, args, None)
+}
+
+/// Like [`git_out`], raw bytes (file contents).
+pub(crate) fn git_bytes(workdir: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(workdir)
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .context("run git")?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        bail!("git {}: {err}", args.first().copied().unwrap_or(""));
+    }
+    Ok(out.stdout)
+}
+
 fn git(workdir: &Path, args: &[&str], stdin: Option<&str>) -> anyhow::Result<String> {
     use std::io::Write as _;
     use std::process::Stdio;
