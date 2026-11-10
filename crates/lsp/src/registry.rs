@@ -91,6 +91,35 @@ fn builtin() -> Vec<ServerSpec> {
             version_command: None,
             organize_imports_command: None,
         },
+        // Completion, references, outline, and the build: the editor asks it to
+        // build on save (`textDocument/build`: latexmk -pdf -synctex=1), and
+        // errors from the LaTeX log come back as diagnostics.
+        ServerSpec {
+            id: "texlab",
+            language: "LaTeX",
+            language_id: "latex",
+            extensions: &["tex", "sty", "cls", "ltx", "dtx"],
+            command: "texlab".into(),
+            args: vec![],
+            install: Some(if cfg!(target_os = "macos") {
+                vec!["brew".into(), "install".into(), "texlab".into()]
+            } else {
+                vec![
+                    "cargo".into(),
+                    "install".into(),
+                    "--locked".into(),
+                    "texlab".into(),
+                ]
+            }),
+            source: if cfg!(target_os = "macos") {
+                "Homebrew"
+            } else {
+                "cargo install"
+            },
+            overridden: false,
+            version_command: None,
+            organize_imports_command: None,
+        },
     ]
 }
 
