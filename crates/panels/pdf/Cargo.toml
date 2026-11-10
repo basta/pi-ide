@@ -1,6 +1,6 @@
 [package]
 name = "pide-pdf"
-description = "PDF panel: pdfium rendering on a worker thread, zoom, text search, bounded page cache."
+description = "PDF panel: PDFKit (macOS) / pdfium rendering on a worker thread, zoom, text search, bounded page cache."
 edition.workspace = true
 version.workspace = true
 publish.workspace = true
@@ -14,4 +14,15 @@ tokio = { workspace = true }
 log.workspace = true
 serde_json.workspace = true
 image = { version = "0.25", default-features = false }
+
+# macOS: Apple's PDFKit (part of the OS, nothing to install).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSURL", "NSAutoreleasePool", "NSGeometry", "NSObjCRuntime"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGContext", "CGBitmapContext", "CGColorSpace", "CGImage", "objc2"] }
+objc2-pdf-kit = { version = "0.3", default-features = false, features = ["std", "PDFDocument", "PDFPage", "PDFSelection", "objc2-core-graphics"] }
+
+# Elsewhere: pdfium, downloaded on request.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
 pdfium-render = { version = "=0.9.5", default-features = false, features = ["pdfium_8125", "image_latest", "thread_safe"] }

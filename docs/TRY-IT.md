@@ -42,7 +42,7 @@ cargo run -p pide --release -- ~/some/project
 
 ## Needs your decision
 
-- PDF: open a PDF, click **Install pdfium** (or ask for macOS PDFKit instead).
+- PDF: open a PDF; on macOS it shows straight away (PDFKit), on Linux click **Install pdfium** first. Zoom, Fit width, search with highlights.
 - M6 scripted panels: see `docs/M6-SCRIPTED-PANELS.md`.
 - Comment / duplicate / move line: see `docs/GAPS.md` (JetBrains line commands).
 

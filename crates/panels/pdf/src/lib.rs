@@ -3,6 +3,10 @@
 //! native library pide installs on request (an Install button, like language
 //! servers), into `~/.local/share/pide/pdfium`.
 
+#[cfg(not(target_os = "macos"))]
+mod pdfium;
+#[cfg(target_os = "macos")]
+mod pdfkit;
 pub mod worker;
 
 use std::collections::{HashMap, HashSet, VecDeque};
