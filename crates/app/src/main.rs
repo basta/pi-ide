@@ -1,6 +1,5 @@
 //! pide: windows (one per project), dock layout, keymap, wiring. `pide [dir]`.
 
-mod git_changes;
 mod goto_file;
 mod keymap_ui;
 mod menus;
@@ -76,6 +75,7 @@ fn main() {
         pide_editor::init(cx);
         pide_file_tree::init(cx);
         pide_run::init(cx);
+        pide_git::init(cx);
         palette::init(cx);
         pide_agent_chat::init(cx);
         pide_language_servers::init(cx);
@@ -268,11 +268,7 @@ fn register_app_commands(cx: &mut App) {
         CommandSpec::new("settings.pide", "Settings: pide…").key("cmd-,"),
         settings_ui::open,
     );
-    CommandRegistry::register(
-        cx,
-        CommandSpec::new("git.changes", "Git: Local Changes…").key("cmd-9"),
-        git_changes::open,
-    );
+
     CommandRegistry::register(
         cx,
         CommandSpec::new("run.command", "Run: Run Command…").key("ctrl-alt-r"),

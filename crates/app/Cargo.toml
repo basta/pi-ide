@@ -23,6 +23,7 @@ pide-problems.workspace = true
 pide-pi-settings.workspace = true
 pide-search.workspace = true
 pide-run.workspace = true
+pide-git.workspace = true
 pide-preview.workspace = true
 pide-pdf.workspace = true
 anyhow.workspace = true

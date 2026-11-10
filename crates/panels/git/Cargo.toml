@@ -1,0 +1,13 @@
+[package]
+name = "pide-git"
+description = "Git panel: local changes, staging, commit. Reads with gix, writes with the git CLI."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+pide-core.workspace = true
+log.workspace = true
+anyhow.workspace = true
+gix = { version = "0.90", default-features = false, features = ["status", "sha1", "parallel"] }
