@@ -17,6 +17,12 @@ cargo run -p pide --release -- ~/some/project
 7. **Cmd+9** lists your uncommitted files; Enter shows the diff against HEAD; the ↶ next to a change rolls just that change back. In the editor, **Cmd+Alt+Z** does the same for the change under the cursor.
 8. Right-click in the project tree: New File, Rename, Move to Trash, Copy Path, Reveal in Finder. **Option+F1** selects the open file in the tree.
 
+## Tool windows
+
+1. The thin stripes on the window's edges hold the tool windows: Project on top left; Run, Problems, Find at the bottom left (they open in the bottom dock); pi on the right. Click one to show it, click it again to hide it. Keys: **Cmd+1** Project, **Cmd+3** Find, **Cmd+4** Run, **Cmd+6** Problems, **Cmd+0** pi.
+2. Right-click a stripe button: **Move to Left / Right / Bottom**. The move is remembered with the layout.
+3. **Shift+Esc** hides the tool window you're in; **Cmd+Shift+F12** hides them all (again brings them back).
+
 ## pi
 
 1. **Cmd+Shift+I** jumps to the pi box (Esc goes back). The header shows cost, context use, thinking level and model; click the model or the thinking level to change them for this session.
