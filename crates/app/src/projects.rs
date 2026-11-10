@@ -99,6 +99,9 @@ fn open_now(root: PathBuf, cx: &mut App) {
             title: Some(title.into()),
             ..Default::default()
         }),
+        // Under test control (devctl) windows stay hidden and never take focus.
+        show: !controlled(),
+        focus: !controlled(),
         ..Default::default()
     };
     let errors = cx
@@ -131,7 +134,14 @@ fn open_now(root: PathBuf, cx: &mut App) {
     if let Err(e) = result {
         log::error!("open window for {shown}: {e:#}");
     }
-    cx.activate(true);
+    if !controlled() {
+        cx.activate(true);
+    }
+}
+
+/// Driven by a test over the devctl socket (`--features devctl`, `PIDE_CTL`).
+fn controlled() -> bool {
+    cfg!(feature = "devctl") && std::env::var_os("PIDE_CTL").is_some()
 }
 
 /// Centered for the first window; later ones cascade down and right from the

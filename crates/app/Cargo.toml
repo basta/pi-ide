@@ -9,6 +9,12 @@ publish.workspace = true
 name = "pide"
 path = "src/main.rs"
 
+[features]
+# Driving pide from the background for testing (dev/pidectl): a local socket
+# that runs commands, sends keys and clicks, and renders the window to an image
+# even while it's hidden. Never in a normal build.
+devctl = ["gpui-kit/test-support"]
+
 [dependencies]
 gpui-kit.workspace = true
 pide-core.workspace = true

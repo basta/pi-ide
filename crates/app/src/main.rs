@@ -1,5 +1,7 @@
 //! pide: windows (one per project), dock layout, keymap, wiring. `pide [dir]`.
 
+#[cfg(feature = "devctl")]
+mod devctl;
 mod goto_file;
 mod keymap_ui;
 mod menus;
@@ -110,6 +112,8 @@ fn main() {
         pide_runtime::monitor::start(cx).detach();
         projects::init(keymap_errors, cx);
         menus::init(cx); // after every command is registered
+        #[cfg(feature = "devctl")]
+        devctl::start(cx);
 
         match arg.or_else(|| projects::last_project(cx)) {
             Some(root) => projects::open(root, cx),
