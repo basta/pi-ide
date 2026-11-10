@@ -6475,6 +6475,7 @@ dependencies = [
  "log",
  "pide-core",
  "pide-runtime",
+ "serde_json",
  "similar 3.2.1",
 ]
 

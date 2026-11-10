@@ -6,6 +6,8 @@
 //! Status is read with gix (`repo.rs`), refreshed on saves, tree changes and a
 //! slow poll; changes go through the `git` command.
 
+pub mod annotate;
+pub mod blame;
 pub mod commit;
 pub mod log;
 pub mod log_panel;
@@ -39,6 +41,7 @@ const PREVIEW_LINES: usize = 8;
 pub fn init(cx: &mut App) {
     log_panel::init(cx);
     widget::init(cx);
+    annotate::init(cx);
     register_panel(cx, PANEL_NAME, |_, window, cx| {
         panel_handle(cx.new(|cx| GitPanel::new(window, cx)))
     });

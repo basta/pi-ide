@@ -51,6 +51,32 @@ impl Global for Instances {}
 #[derive(Default)]
 struct PendingFilter(std::collections::HashMap<WindowId, String>);
 impl Global for PendingFilter {}
+#[derive(Default)]
+struct PendingSelect(std::collections::HashMap<WindowId, String>);
+impl Global for PendingSelect {}
+
+/// Show the Git Log (all branches) with one commit selected, opening it if needed.
+pub fn show_commit(hash: String, window: &mut Window, cx: &mut App) {
+    let win = window.window_handle().window_id();
+    let open = cx
+        .try_global::<Instances>()
+        .and_then(|i| i.0.get(&win))
+        .and_then(|w| w.upgrade());
+    match open {
+        Some(panel) => panel.update(cx, |p, cx| {
+            p.pending_select = Some(hash);
+            if p.only.is_some() {
+                p.set_only(None, cx);
+            } else {
+                p.apply_pending(cx);
+            }
+        }),
+        None => {
+            cx.default_global::<PendingSelect>().0.insert(win, hash);
+        }
+    }
+    pide_core::toolwindow::toggle(PANEL_NAME, window, cx);
+}
 
 /// Show the Git Log limited to one ref (`refs/heads/main`), opening it if needed.
 pub fn show_ref(full: String, window: &mut Window, cx: &mut App) {
@@ -82,6 +108,8 @@ pub struct GitLogPanel {
     error: Option<String>,
     /// Full ref name the log is limited to; `None` = all branches.
     only: Option<String>,
+    /// A commit to select once the history is loaded (`show_commit`).
+    pending_select: Option<String>,
     /// Refs and HEAD at the last read: a change means reload.
     fingerprint: Option<Vec<(String, String)>>,
     search: Entity<InputState>,
@@ -107,6 +135,7 @@ impl GitLogPanel {
         let me = cx.weak_entity();
         cx.default_global::<Instances>().0.insert(win, me);
         let only = cx.default_global::<PendingFilter>().0.remove(&win);
+        let pending_select = cx.default_global::<PendingSelect>().0.remove(&win);
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Text, hash or author"));
         let subs = vec![cx.subscribe(&search, |this, _, ev: &InputEvent, cx| {
             if matches!(ev, InputEvent::Change) {
@@ -127,6 +156,7 @@ impl GitLogPanel {
             read_once: false,
             error: None,
             only,
+            pending_select,
             fingerprint: None,
             search,
             visible: Rc::new(Vec::new()),
@@ -179,6 +209,10 @@ impl GitLogPanel {
                     .as_ref()
                     .and_then(|l| l.log.commits.first().map(|c| c.id));
                 this.apply_search(cx);
+                if this.apply_pending(cx) {
+                    cx.notify();
+                    return;
+                }
                 match keep.or(first) {
                     Some(id) if keep.is_none() || this.files.is_none() => this.select(id, cx),
                     Some(_) => {}
@@ -190,6 +224,31 @@ impl GitLogPanel {
                 cx.notify();
             });
         }));
+    }
+
+    /// Select the commit `show_commit` asked for, if it's loaded.
+    fn apply_pending(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(hash) = self.pending_select.clone() else {
+            return false;
+        };
+        let Some(loaded) = self.loaded.clone() else {
+            return false;
+        };
+        self.pending_select = None;
+        let Some(i) = loaded
+            .log
+            .commits
+            .iter()
+            .position(|c| c.id.to_string().starts_with(&hash))
+        else {
+            return false;
+        };
+        let id = loaded.log.commits[i].id;
+        self.select(id, cx);
+        if let Some(pos) = self.visible.iter().position(|&v| v == i) {
+            self.scroll.scroll_to_item(pos, ScrollStrategy::Center);
+        }
+        true
     }
 
     /// Reload when a branch, tag or HEAD moved since the last read.

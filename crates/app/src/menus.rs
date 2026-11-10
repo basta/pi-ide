@@ -114,6 +114,8 @@ fn menus() -> Vec<Menu> {
                 cmd("Next Change", "git.next_change"),
                 cmd("Previous Change", "git.prev_change"),
                 cmd("Rollback Lines", "git.rollback"),
+                cmd("Annotate with Git Blame", "git.annotate"),
+                cmd("Why This Line? (pi)", "git.why_line"),
                 MenuItem::separator(),
                 cmd("Problems", "view.problems"),
                 cmd("Restart Language Server", "lsp.restart"),

@@ -696,6 +696,34 @@ pub fn open_pdf(path: PathBuf, window: &mut Window, cx: &mut App) {
 }
 
 /// Open an image in the center (or switch to its tab).
+/// A non-file center tab (`opener::open_panel`): select it if it's open, else add it.
+pub fn open_center_panel(
+    view: std::sync::Arc<dyn gpui_kit::component::dock::BasePanelView>,
+    entity: EntityId,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let id = window.window_handle().window_id();
+    let Some(shell) = cx
+        .try_global::<Shells>()
+        .and_then(|h| h.0.get(&id)?.upgrade())
+    else {
+        return;
+    };
+    shell.update(cx, |shell, cx| {
+        let pid = gpui_kit::component::dock::PanelId::from(entity);
+        if shell.dock.read(cx).panel(pid).is_some() {
+            shell
+                .dock
+                .update(cx, |d, cx| d.select_panel(pid, window, cx));
+        } else {
+            shell.dock.update(cx, |d, cx| {
+                d.add_panel_view(view, DockPlacement::Center, None, window, cx)
+            });
+        }
+    });
+}
+
 pub fn open_image(path: PathBuf, window: &mut Window, cx: &mut App) {
     let id = window.window_handle().window_id();
     let Some(shell) = cx

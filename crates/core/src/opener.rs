@@ -46,13 +46,35 @@ pub struct Openers {
     pub close: Rc<dyn Fn(PathBuf, &mut Window, &mut App)>,
     /// Put text in the agent's message box (not sent) and focus it.
     pub ask: Rc<dyn Fn(String, &mut Window, &mut App)>,
+    /// Show a panel as a center tab, or select it when it's already one
+    /// (the entity id tells). For panels that aren't files (Annotate).
+    pub panel: Rc<CenterPanelFn>,
 }
+
+pub type CenterPanelFn = dyn Fn(
+    std::sync::Arc<dyn gpui_kit::component::dock::BasePanelView>,
+    EntityId,
+    &mut Window,
+    &mut App,
+);
 
 impl Global for Openers {}
 
 pub fn open_file(path: PathBuf, window: &mut Window, cx: &mut App) {
     if let Some(o) = cx.try_global::<Openers>().map(|o| o.file.clone()) {
         o(path, window, cx);
+    }
+}
+
+/// See [`Openers::panel`].
+pub fn open_panel(
+    view: std::sync::Arc<dyn gpui_kit::component::dock::BasePanelView>,
+    id: EntityId,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if let Some(o) = cx.try_global::<Openers>().map(|o| o.panel.clone()) {
+        o(view, id, window, cx);
     }
 }
 

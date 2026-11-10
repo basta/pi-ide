@@ -102,6 +102,7 @@ fn main() {
             diff: Rc::new(pide_editor::diff_panel::open_diff),
             close: Rc::new(pide_editor::close_path),
             ask: Rc::new(shell::ask_pi_with),
+            panel: Rc::new(shell::open_center_panel),
             locations: Rc::new(shell::show_locations),
         });
         register_app_commands(cx);

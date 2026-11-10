@@ -12,4 +12,5 @@ log.workspace = true
 anyhow.workspace = true
 pide-runtime.workspace = true
 similar.workspace = true
+serde_json.workspace = true
 gix = { version = "0.90", default-features = false, features = ["status", "sha1", "parallel"] }
