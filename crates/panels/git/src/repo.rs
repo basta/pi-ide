@@ -113,6 +113,161 @@ pub fn status(root: &Path) -> anyhow::Result<Option<Status>> {
     Ok(Some(out))
 }
 
+/// Changes against HEAD, the way the Commit window shows them (JetBrains
+/// style: no staged / unstaged split): tracked files, and unversioned ones.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Changes {
+    pub workdir: PathBuf,
+    pub tracked: Vec<Entry>,
+    pub unversioned: Vec<Entry>,
+}
+
+impl Changes {
+    pub fn abs(&self, rel: &str) -> PathBuf {
+        self.workdir.join(rel)
+    }
+}
+
+impl From<Status> for Changes {
+    fn from(s: Status) -> Self {
+        use std::collections::BTreeMap;
+        let rank = |k: Kind| match k {
+            Kind::Conflict => 0,
+            Kind::Added => 1,
+            Kind::Deleted => 2,
+            Kind::Renamed => 3,
+            Kind::Modified => 4,
+            Kind::Untracked => 5,
+        };
+        let mut by_path: BTreeMap<String, Kind> = BTreeMap::new();
+        for e in s.staged.iter().chain(&s.unstaged) {
+            by_path
+                .entry(e.rel.clone())
+                .and_modify(|k| {
+                    // Staged as new, edited since: still new. A staged file
+                    // that's also "untracked" can't happen; keep the strongest.
+                    if rank(e.kind) < rank(*k) {
+                        *k = e.kind
+                    }
+                })
+                .or_insert(e.kind);
+        }
+        let mut out = Changes {
+            workdir: s.workdir,
+            ..Default::default()
+        };
+        for (rel, kind) in by_path {
+            let e = Entry { rel, kind };
+            if kind == Kind::Untracked {
+                out.unversioned.push(e);
+            } else {
+                out.tracked.push(e);
+            }
+        }
+        out
+    }
+}
+
+/// Commit exactly what's given, whatever is staged: `full` files as they are
+/// on disk (new, changed or deleted), `partial` files with the given content
+/// (some of their changes). Built in a temporary index from HEAD, so the
+/// user's staging area isn't used; afterwards the committed paths are reset
+/// in the real index to the new HEAD. Returns git's one-line summary.
+pub fn commit_selection(
+    workdir: &Path,
+    message: &str,
+    amend: bool,
+    full: &[String],
+    partial: &[(String, String)],
+) -> anyhow::Result<String> {
+    let index = std::env::temp_dir().join(format!(
+        "pide-commit-{}-{}.index",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos())
+    ));
+    let env = [("GIT_INDEX_FILE", index.as_os_str())];
+    let result = (|| {
+        let has_head = git(workdir, &["rev-parse", "--verify", "-q", "HEAD"], None).is_ok();
+        if has_head {
+            git_env(workdir, &["read-tree", "HEAD"], None, &env)?;
+        } else {
+            git_env(workdir, &["read-tree", "--empty"], None, &env)?;
+        }
+        if !full.is_empty() {
+            let mut args = vec!["add", "-A", "--"];
+            args.extend(full.iter().map(String::as_str));
+            git_env(workdir, &args, None, &env)?;
+        }
+        for (rel, content) in partial {
+            let sha = git(workdir, &["hash-object", "-w", "--stdin"], Some(content))?;
+            let mode = git(workdir, &["ls-tree", "HEAD", "--", rel], None)
+                .ok()
+                .and_then(|l| l.split_whitespace().next().map(str::to_string))
+                .unwrap_or_else(|| "100644".into());
+            let info = format!("{mode},{},{rel}", sha.trim());
+            git_env(
+                workdir,
+                &["update-index", "--add", "--cacheinfo", &info],
+                None,
+                &env,
+            )?;
+        }
+        let mut args = vec!["commit", "-q", "-F", "-"];
+        if amend {
+            args.push("--amend");
+        }
+        git_env(workdir, &args, Some(message), &env)
+    })();
+    let _ = std::fs::remove_file(&index);
+    result?;
+    // The real index: committed paths now match HEAD (what's left of a
+    // partly committed file shows as a change again).
+    let paths: Vec<String> = full
+        .iter()
+        .cloned()
+        .chain(partial.iter().map(|(p, _)| p.clone()))
+        .collect();
+    if !paths.is_empty() {
+        let _ = with_paths(workdir, &["reset", "-q"], &paths);
+    }
+    git(workdir, &["log", "-1", "--format=%h %s"], None).map(|s| s.trim().to_string())
+}
+
+/// Put files back to HEAD, in the index and on disk. A file that's new in the
+/// index is only un-added (it stays on disk, unversioned).
+pub fn rollback_to_head(workdir: &Path, entries: &[Entry]) -> anyhow::Result<()> {
+    let added: Vec<String> = entries
+        .iter()
+        .filter(|e| e.kind == Kind::Added)
+        .map(|e| e.rel.clone())
+        .collect();
+    let rest: Vec<String> = entries
+        .iter()
+        .filter(|e| !matches!(e.kind, Kind::Added | Kind::Untracked))
+        .map(|e| e.rel.clone())
+        .collect();
+    if !added.is_empty() {
+        with_paths(workdir, &["rm", "-q", "--cached", "-r"], &added)?;
+    }
+    if !rest.is_empty() {
+        with_paths(
+            workdir,
+            &["restore", "--source=HEAD", "--staged", "--worktree"],
+            &rest,
+        )?;
+    }
+    Ok(())
+}
+
+/// The last `n` commit subjects (for matching their style).
+pub fn recent_subjects(workdir: &Path, n: usize) -> Vec<String> {
+    git(workdir, &["log", &format!("-{n}"), "--format=%s"], None)
+        .map(|s| s.lines().map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
 /// Commits ahead of / behind the upstream branch; `None` without an upstream.
 pub fn ahead_behind(workdir: &Path) -> Option<(u32, u32)> {
     let out = git(
@@ -190,12 +345,22 @@ pub(crate) fn git_bytes(workdir: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>
 }
 
 fn git(workdir: &Path, args: &[&str], stdin: Option<&str>) -> anyhow::Result<String> {
+    git_env(workdir, args, stdin, &[])
+}
+
+fn git_env(
+    workdir: &Path,
+    args: &[&str],
+    stdin: Option<&str>,
+    env: &[(&str, &std::ffi::OsStr)],
+) -> anyhow::Result<String> {
     use std::io::Write as _;
     use std::process::Stdio;
     let mut child = Command::new("git")
         .arg("-C")
         .arg(workdir)
         .args(args)
+        .envs(env.iter().copied())
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(if stdin.is_some() {
             Stdio::piped()
@@ -301,6 +466,63 @@ mod tests {
         commit(&s.workdir, "second, amended", true).unwrap();
         assert_eq!(last_message(&s.workdir).unwrap(), "second, amended");
         assert_eq!(ahead_behind(&s.workdir), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_only_what_is_checked() {
+        let dir = std::env::temp_dir().join(format!("pide-git-sel-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        sh(&dir, &["init", "-q", "-b", "main"]);
+        sh(&dir, &["config", "user.name", "t"]);
+        sh(&dir, &["config", "user.email", "t@t"]);
+        sh(&dir, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(dir.join("a.txt"), "1\n2\n3\n4\n5\n").unwrap();
+        std::fs::write(dir.join("b.txt"), "b\n").unwrap();
+        std::fs::write(dir.join("gone.txt"), "g\n").unwrap();
+        sh(&dir, &["add", "."]);
+        sh(&dir, &["commit", "-q", "-m", "base"]);
+
+        // a.txt: two changes, only the first goes in. b.txt: staged, not checked.
+        std::fs::write(dir.join("a.txt"), "ONE\n2\n3\n4\nFIVE\n").unwrap();
+        std::fs::write(dir.join("b.txt"), "b2\n").unwrap();
+        sh(&dir, &["add", "b.txt"]);
+        std::fs::remove_file(dir.join("gone.txt")).unwrap();
+        std::fs::write(dir.join("new.txt"), "n\n").unwrap();
+        let c: Changes = status(&dir).unwrap().unwrap().into();
+        let tracked: Vec<(&str, Kind)> = c.tracked.iter().map(|e| (e.rel.as_str(), e.kind)).collect();
+        assert_eq!(
+            tracked,
+            [("a.txt", Kind::Modified), ("b.txt", Kind::Modified), ("gone.txt", Kind::Deleted)]
+        );
+        assert_eq!(c.unversioned[0].rel, "new.txt");
+
+        commit_selection(
+            &dir,
+            "partial",
+            false,
+            &["gone.txt".into(), "new.txt".into()],
+            &[("a.txt".into(), "ONE\n2\n3\n4\n5\n".into())],
+        )
+        .unwrap();
+        let show = |spec: &str| git(&dir, &["show", spec], None).unwrap();
+        assert_eq!(show("HEAD:a.txt"), "ONE\n2\n3\n4\n5\n");
+        assert_eq!(show("HEAD:b.txt"), "b\n"); // staged but unchecked: not committed
+        assert_eq!(show("HEAD:new.txt"), "n\n");
+        assert!(git(&dir, &["show", "HEAD:gone.txt"], None).is_err());
+        // The file on disk keeps its other change; b.txt stays staged.
+        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "ONE\n2\n3\n4\nFIVE\n");
+        let s = status(&dir).unwrap().unwrap();
+        assert_eq!(rels(&s.staged), [("b.txt", Kind::Modified)]);
+        assert_eq!(rels(&s.unstaged), [("a.txt", Kind::Modified)]);
+
+        // Roll b.txt and a.txt back to HEAD.
+        let c: Changes = s.into();
+        rollback_to_head(&dir, &c.tracked).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("b.txt")).unwrap(), "b\n");
+        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "ONE\n2\n3\n4\n5\n");
+        assert!(status(&dir).unwrap().unwrap().staged.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

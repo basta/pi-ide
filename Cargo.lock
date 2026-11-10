@@ -6474,6 +6474,8 @@ dependencies = [
  "gpui-kit",
  "log",
  "pide-core",
+ "pide-runtime",
+ "similar 3.2.1",
 ]
 
 [[package]]

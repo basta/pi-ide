@@ -10,4 +10,6 @@ gpui-kit.workspace = true
 pide-core.workspace = true
 log.workspace = true
 anyhow.workspace = true
+pide-runtime.workspace = true
+similar.workspace = true
 gix = { version = "0.90", default-features = false, features = ["status", "sha1", "parallel"] }
