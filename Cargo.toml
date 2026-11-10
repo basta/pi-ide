@@ -73,6 +73,10 @@ regex = "1.13.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.154"
 similar = "3.2.1"
+# LaTeX highlighting: GPUI Kit has no LaTeX grammar (editor/src/latex.rs). tree-sitter must
+# stay the version GPUI Kit uses (its Language type is shared).
+tree-sitter = "0.26"
+codebook-tree-sitter-latex = "0.6.1"
 base64 = "0.22.1"
 tokio = { version = "1.54.1", features = ["rt", "process", "io-util", "sync", "time", "macros"] }
 

@@ -6,6 +6,8 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+tree-sitter.workspace = true
+codebook-tree-sitter-latex.workspace = true
 gpui-kit.workspace = true
 pide-core.workspace = true
 pide-lsp.workspace = true

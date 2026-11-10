@@ -45,3 +45,7 @@ cargo run -p pide --release -- ~/some/project
 - PDF: open a PDF, click **Install pdfium** (or ask for macOS PDFKit instead).
 - M6 scripted panels: see `docs/M6-SCRIPTED-PANELS.md`.
 - Comment / duplicate / move line: see `docs/GAPS.md` (JetBrains line commands).
+
+## LaTeX (started)
+
+- `.tex` / `.sty` / `.cls` files are highlighted (commands, environments, section titles, labels and citations, math, comments, bold/italic) and soft-wrap like Markdown. Building, the PDF preview and texlab are next.

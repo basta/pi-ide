@@ -37,7 +37,7 @@ Dependencies only go downward: `app` → panels/`editor`/`agent-pi` → `core`/`
 3. **`cargo check` after every file you change.** Never leave the workspace not building.
 4. **Don't write editing code** (buffer, cursor, rendering, highlighter). If GPUI Kit's editor can't do something, write it in `docs/GAPS.md` and ask the user.
 5. **Don't guess pi's protocol.** pi logs every raw line to `~/.local/state/pide/pi-rpc.jsonl`; derive types from what's there. Tests use recorded fixtures (`crates/agent-pi/tests/fixtures/`). Read the installed pi's `docs/rpc*.md` and `docs/json.md` (`$(npm root -g)/@earendil-works/pi-coding-agent/docs`).
-6. **No highlighting = a missing tree-sitter Cargo feature**, not a bug. Features are set once, in the workspace `Cargo.toml`.
+6. **No highlighting = a missing tree-sitter Cargo feature**, not a bug. Features are set once, in the workspace `Cargo.toml`. Languages GPUI Kit has no grammar for at all are registered at startup with `LanguageRegistry::register` and our own highlight query (LaTeX: `editor/src/latex.rs`, grammar crate `codebook-tree-sitter-latex`; `tree-sitter` must stay the version GPUI Kit uses). Test a query with a unit test (it must compile against the grammar).
 7. **Panels never import each other.** Shared needs go into `core` as an event or command — ask the user first. (Example: the file tree opens files through the `FileOpener` global the app installs, not by depending on `pide-editor`.)
 8. **Keep scope to the current milestone.** Ideas go in `docs/IDEAS.md`.
 9. **Keep this file up to date.**
