@@ -18,7 +18,8 @@ pub fn search_path() -> Vec<PathBuf> {
             dirs.push(home.join(extra));
         }
     }
-    for extra in ["/opt/homebrew/bin", "/usr/local/bin"] {
+    // TeX Live / MacTeX / BasicTeX put their programs here.
+    for extra in ["/opt/homebrew/bin", "/usr/local/bin", "/Library/TeX/texbin"] {
         dirs.push(PathBuf::from(extra));
     }
     dirs.dedup();
