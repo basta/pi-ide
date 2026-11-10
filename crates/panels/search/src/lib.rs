@@ -30,6 +30,18 @@ pub fn init(cx: &mut App) {
     register_panel(cx, PANEL_NAME, |_, window, cx| {
         panel_handle(cx.new(|cx| FindInFiles::new(window, cx)))
     });
+    pide_core::toolwindow::register(
+        cx,
+        pide_core::ToolWindowSpec {
+            id: PANEL_NAME,
+            title: "Find",
+            icon: gpui_kit::component::IconName::Search,
+            dock: pide_core::DockPosition::Bottom,
+            command: "view.find",
+            key: Some("cmd-3"),
+            create: |window, cx| panel_handle(cx.new(|cx| FindInFiles::new(window, cx))),
+        },
+    );
 }
 
 #[derive(Default)]

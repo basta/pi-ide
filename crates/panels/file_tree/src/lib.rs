@@ -24,6 +24,18 @@ pub fn init(cx: &mut App) {
     register_panel(cx, PANEL_NAME, |_, window, cx| {
         panel_handle(cx.new(|cx| FileTree::new(window, cx)))
     });
+    pide_core::toolwindow::register(
+        cx,
+        pide_core::ToolWindowSpec {
+            id: PANEL_NAME,
+            title: "Project",
+            icon: gpui_kit::component::IconName::Folder,
+            dock: pide_core::DockPosition::Left,
+            command: "view.toggle_project",
+            key: Some("cmd-1"),
+            create: |window, cx| panel_handle(cx.new(|cx| FileTree::new(window, cx))),
+        },
+    );
 }
 
 /// A plain, `Send` description of the tree, built on a background thread.

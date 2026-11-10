@@ -25,6 +25,18 @@ pub fn init(cx: &mut App) {
     register_panel(cx, PANEL_NAME, |_, window, cx| {
         panel_handle(cx.new(|cx| RunPanel::new(window, cx)))
     });
+    pide_core::toolwindow::register(
+        cx,
+        pide_core::ToolWindowSpec {
+            id: PANEL_NAME,
+            title: "Run",
+            icon: gpui_kit::component::IconName::SquareTerminal,
+            dock: pide_core::DockPosition::Bottom,
+            command: "view.run",
+            key: Some("cmd-4"),
+            create: |window, cx| panel_handle(cx.new(|cx| RunPanel::new(window, cx))),
+        },
+    );
 }
 
 #[derive(Default)]

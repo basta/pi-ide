@@ -18,6 +18,8 @@ use pide_core::{
 };
 use pide_file_tree::FileTree;
 
+use crate::tool_windows::{self, Side};
+
 const DOCK_ID: &str = "pide-main";
 /// Bump when the default layout changes incompatibly; old saved layouts are then ignored.
 const DOCK_VERSION: usize = 1;
@@ -31,15 +33,11 @@ pub fn forget(window: WindowId, cx: &mut App) {
     cx.default_global::<Shells>().0.remove(&window);
 }
 
-pub fn toggle_dock(placement: DockPlacement, window: &mut Window, cx: &mut App) {
+/// The dock area of `window`'s shell.
+pub fn dock_of(window: &Window, cx: &App) -> Option<Entity<DockArea>> {
     let id = window.window_handle().window_id();
-    if let Some(shell) = cx
-        .try_global::<Shells>()
-        .and_then(|h| h.0.get(&id)?.upgrade())
-    {
-        let dock = shell.read(cx).dock.clone();
-        dock.update(cx, |d, cx| d.toggle_dock(placement, window, cx));
-    }
+    let shell = cx.try_global::<Shells>()?.0.get(&id)?.upgrade()?;
+    Some(shell.read(cx).dock.clone())
 }
 
 /// Run: Run Command… — ask for a shell command and run it in the Run panel.
@@ -220,6 +218,8 @@ impl Shell {
                 }
             }),
             cx.observe(&services.sessions, |_, _, cx| cx.notify()),
+            // The tool stripes show which panels are open.
+            cx.observe(&dock, |_, _, cx| cx.notify()),
             cx.observe_window_appearance(window, |_, window, cx| {
                 crate::theme::on_system_appearance_changed(window, cx)
             }),
@@ -810,55 +810,6 @@ pub fn show_locations(
     });
 }
 
-/// Show the Problems panel in the bottom dock (adding it the first time); hide it if it's showing.
-pub fn toggle_problems(window: &mut Window, cx: &mut App) {
-    let id = window.window_handle().window_id();
-    let Some(shell) = cx
-        .try_global::<Shells>()
-        .and_then(|h| h.0.get(&id)?.upgrade())
-    else {
-        return;
-    };
-    shell.update(cx, |shell, cx| {
-        let existing = pide_problems::existing(window, cx).filter(|p| {
-            shell
-                .dock
-                .read(cx)
-                .panel(gpui_kit::component::dock::PanelId::from(p.entity_id()))
-                .is_some()
-        });
-        match existing {
-            Some(p) => {
-                let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
-                shell.dock.update(cx, |d, cx| {
-                    if d.is_dock_open(DockPlacement::Bottom) {
-                        d.toggle_dock(DockPlacement::Bottom, window, cx);
-                    } else {
-                        d.toggle_dock(DockPlacement::Bottom, window, cx);
-                        d.select_panel(pid, window, cx);
-                    }
-                });
-            }
-            None => {
-                let p = cx.new(|cx| pide_problems::Problems::new(window, cx));
-                shell.dock.update(cx, |d, cx| {
-                    d.add_panel_view(
-                        panel_handle(p.clone()),
-                        DockPlacement::Bottom,
-                        Some(px(220.)),
-                        window,
-                        cx,
-                    );
-                    if !d.is_dock_open(DockPlacement::Bottom) {
-                        d.toggle_dock(DockPlacement::Bottom, window, cx);
-                    }
-                });
-                let _ = p;
-            }
-        }
-    });
-}
-
 impl Render for Shell {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
@@ -893,10 +844,11 @@ impl Render for Shell {
                         .child(div().w(px(130.)).text_right().child(keys))
                         .child(div().text_color(muted).child(what))
                 };
-                div()
+                let editor_area = div()
                     .relative()
                     .flex_1()
-                    .w_full()
+                    .h_full()
+                    .min_w_0()
                     .overflow_hidden()
                     .child(self.dock.clone())
                     .when(empty, |this| {
@@ -920,7 +872,14 @@ impl Render for Shell {
                                         .child(hint("⌘⇧I", "Ask pi")),
                                 ),
                         )
-                    })
+                    });
+                h_flex()
+                    .flex_1()
+                    .w_full()
+                    .min_h_0()
+                    .child(tool_windows::stripe(Side::Left, &self.dock, cx))
+                    .child(editor_area)
+                    .child(tool_windows::stripe(Side::Right, &self.dock, cx))
             })
             .child(self.render_status_bar(cx))
     }

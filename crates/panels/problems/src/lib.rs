@@ -18,6 +18,18 @@ pub fn init(cx: &mut App) {
     register_panel(cx, PANEL_NAME, |_, window, cx| {
         panel_handle(cx.new(|cx| Problems::new(window, cx)))
     });
+    pide_core::toolwindow::register(
+        cx,
+        pide_core::ToolWindowSpec {
+            id: PANEL_NAME,
+            title: "Problems",
+            icon: gpui_kit::component::IconName::TriangleAlert,
+            dock: pide_core::DockPosition::Bottom,
+            command: "view.problems",
+            key: Some("cmd-6"),
+            create: |window, cx| panel_handle(cx.new(|cx| Problems::new(window, cx))),
+        },
+    );
 }
 
 /// Errors and warnings across the project (for the status bar too).

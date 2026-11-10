@@ -17,6 +17,7 @@ pub mod paths;
 pub mod recent;
 pub mod sessions;
 pub mod settings;
+pub mod toolwindow;
 pub mod workspace;
 
 pub use agent::{
@@ -29,4 +30,5 @@ pub use events::{
 };
 pub use panel::{DockPosition, Panel, Services};
 pub use sessions::{Sessions, SessionsEvent};
+pub use toolwindow::ToolWindowSpec;
 pub use workspace::Workspace;

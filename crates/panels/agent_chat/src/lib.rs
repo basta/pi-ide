@@ -63,6 +63,18 @@ pub fn init(cx: &mut App) {
         }
         panel_handle(cx.new(|cx| AgentChat::new(window, cx)))
     });
+    pide_core::toolwindow::register(
+        cx,
+        pide_core::ToolWindowSpec {
+            id: PANEL_NAME,
+            title: "pi",
+            icon: gpui_kit::component::IconName::Bot,
+            dock: pide_core::DockPosition::Right,
+            command: "view.toggle_agent",
+            key: Some("cmd-0"),
+            create: |window, cx| panel_handle(cx.new(|cx| AgentChat::new(window, cx))),
+        },
+    );
 
     let active = |window: &Window, cx: &App| Services::active_agent(window, cx);
     let sessions = |window: &Window, cx: &App| Services::of(window, cx).sessions;

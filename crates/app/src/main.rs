@@ -10,6 +10,7 @@ mod recent_files;
 mod settings_ui;
 mod shell;
 mod theme;
+mod tool_windows;
 mod unsaved;
 
 use std::path::PathBuf;
@@ -83,6 +84,7 @@ fn main() {
         pide_search::init(cx);
         pide_preview::init(cx);
         pide_pdf::init(cx);
+        tool_windows::init(cx);
         cx.set_global(pide_core::opener::Openers {
             // PDFs open in the PDF panel; everything else in an editor tab.
             file: Rc::new(|path, window, cx| {
@@ -340,24 +342,7 @@ fn register_app_commands(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
-        CommandSpec::new("view.toggle_project", "View: Toggle Project Panel").key("cmd-1"),
-        |window, cx| shell::toggle_dock(gpui_kit::component::dock::DockPlacement::Left, window, cx),
-    );
-    CommandRegistry::register(
-        cx,
-        CommandSpec::new("view.problems", "View: Problems").key("cmd-6"),
-        shell::toggle_problems,
-    );
-    CommandRegistry::register(
-        cx,
         CommandSpec::new("agent.ask", "pi: Ask pi").key("cmd-shift-i"),
         shell::ask_pi,
-    );
-    CommandRegistry::register(
-        cx,
-        CommandSpec::new("view.toggle_agent", "View: Toggle pi Panel"),
-        |window, cx| {
-            shell::toggle_dock(gpui_kit::component::dock::DockPlacement::Right, window, cx)
-        },
     );
 }
