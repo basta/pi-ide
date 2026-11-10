@@ -4,6 +4,7 @@
 //! slow poll; changes go through the `git` command.
 
 pub mod log;
+pub mod log_panel;
 pub mod repo;
 
 use std::path::PathBuf;
@@ -25,6 +26,7 @@ use repo::{Entry, Kind, Status};
 pub const PANEL_NAME: &str = "git";
 
 pub fn init(cx: &mut App) {
+    log_panel::init(cx);
     register_panel(cx, PANEL_NAME, |_, window, cx| {
         panel_handle(cx.new(|cx| GitPanel::new(window, cx)))
     });
@@ -32,11 +34,11 @@ pub fn init(cx: &mut App) {
         cx,
         pide_core::ToolWindowSpec {
             id: PANEL_NAME,
-            title: "Git",
+            title: "Commit",
             icon: gpui_kit::component::IconName::Github,
             dock: DockPosition::Left,
             command: "git.changes",
-            key: Some("cmd-9"),
+            key: Some("cmd-k"),
             create: |window, cx| panel_handle(cx.new(|cx| GitPanel::new(window, cx))),
         },
     );

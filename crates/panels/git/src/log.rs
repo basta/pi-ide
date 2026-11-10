@@ -232,6 +232,31 @@ pub fn read(root: &Path, only: Option<&str>) -> anyhow::Result<Option<Log>> {
     }))
 }
 
+/// Every ref and HEAD with what they point at: cheap, and it changes whenever
+/// the log would (a commit, checkout, fetch, new branch or tag).
+pub fn fingerprint(root: &Path) -> Option<Vec<(String, String)>> {
+    pide_core::git::git_dir(root)?;
+    let repo = gix::discover(root).ok()?;
+    let mut out: Vec<(String, String)> = repo
+        .references()
+        .ok()?
+        .all()
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|r| {
+            let target = match r.target() {
+                gix::refs::TargetRef::Object(id) => id.to_string(),
+                gix::refs::TargetRef::Symbolic(name) => name.as_bstr().to_string(),
+            };
+            (r.name().as_bstr().to_string(), target)
+        })
+        .collect();
+    let head = repo.head_id().map(|id| id.to_string()).unwrap_or_default();
+    out.push(("HEAD".into(), head));
+    out.sort();
+    Some(out)
+}
+
 fn split_message(message: &str) -> (String, String) {
     let message = message.trim();
     match message.split_once('\n') {

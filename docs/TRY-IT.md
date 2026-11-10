@@ -14,12 +14,13 @@ cargo run -p pide --release -- ~/some/project
 4. Make a file messy, **Cmd+Alt+L** reformats it; Cmd+Z undoes that.
 5. **F2** jumps to the next error. In the Problems panel (**Cmd+6**), **Ask pi** drafts a fix request.
 6. **Ctrl+Alt+R**, run `cargo check` (or your tests): output streams into the Run panel; click a `file:line` to jump; **Ask pi** sends the output to pi.
-7. **Cmd+9** opens the Git tool window: staged and unstaged files, click one for the diff against HEAD (the ↶ in the diff rolls just that change back), **+** / **−** stage and unstage, ↶ rolls a file back. Write a message and **Cmd+Enter** commits; **Amend** rewrites the last commit. In the editor, **Cmd+Alt+Z** does the same for the change under the cursor.
-8. Right-click in the project tree: New File, Rename, Move to Trash, Copy Path, Reveal in Finder. **Option+F1** selects the open file in the tree.
+7. **Cmd+K** opens the Commit tool window: staged and unstaged files, click one for the diff against HEAD (the ↶ in the diff rolls just that change back), **+** / **−** stage and unstage, ↶ rolls a file back. Write a message and **Cmd+Enter** commits; **Amend** rewrites the last commit. In the editor, **Cmd+Alt+Z** does the same for the change under the cursor.
+8. **Cmd+9** opens the Git Log at the bottom: every branch with its graph, click a branch or tag on the left to see only its history, type to search (text, hash, author). Click a commit for its message and files, a file for that commit's diff; ↑/↓ move; **Ask pi: explain** drafts a question about the commit.
+9. Right-click in the project tree: New File, Rename, Move to Trash, Copy Path, Reveal in Finder. **Option+F1** selects the open file in the tree.
 
 ## Tool windows
 
-1. The thin stripes on the window's edges hold the tool windows: Project and Git on top left; Run, Problems, Find at the bottom left (they open in the bottom dock); pi on the right. Click one to show it, click it again to hide it. Keys: **Cmd+1** Project, **Cmd+3** Find, **Cmd+4** Run, **Cmd+6** Problems, **Cmd+0** pi.
+1. The thin stripes on the window's edges hold the tool windows: Project and Commit on top left; Git Log, Run, Problems, Find at the bottom left (they open in the bottom dock); pi on the right. Click one to show it, click it again to hide it. Keys: **Cmd+1** Project, **Cmd+K** Commit, **Cmd+9** Git Log, **Cmd+3** Find, **Cmd+4** Run, **Cmd+6** Problems, **Cmd+0** pi.
 2. Right-click a stripe button: **Move to Left / Right / Bottom**. The move is remembered with the layout.
 3. **Shift+Esc** hides the tool window you're in; **Cmd+Shift+F12** hides them all (again brings them back).
 
