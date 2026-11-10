@@ -16,7 +16,8 @@ cargo run -p pide --release -- ~/some/project
 6. **Ctrl+Alt+R**, run `cargo check` (or your tests): output streams into the Run panel; click a `file:line` to jump; **Ask pi** sends the output to pi.
 7. **Cmd+K** opens the Commit tool window: staged and unstaged files, click one for the diff against HEAD (the ↶ in the diff rolls just that change back), **+** / **−** stage and unstage, ↶ rolls a file back. Write a message and **Cmd+Enter** commits; **Amend** rewrites the last commit. In the editor, **Cmd+Alt+Z** does the same for the change under the cursor.
 8. **Cmd+9** opens the Git Log at the bottom: every branch with its graph, click a branch or tag on the left to see only its history, type to search (text, hash, author). Click a commit for its message and files, a file for that commit's diff; ↑/↓ move; **Ask pi: explain** drafts a question about the commit.
-9. Right-click in the project tree: New File, Rename, Move to Trash, Copy Path, Reveal in Finder. **Option+F1** selects the open file in the tree.
+9. The status bar shows the branch with **↓n** (click to pull) and **↑n** (click to push). Click the branch for the Git popup: Update Project (**Cmd+T**), Push… (**Cmd+Shift+K**), Fetch, New Branch…, and every branch: Enter on one for Checkout, New Branch from…, Show in Git Log, Merge into / Rebase onto the current branch, Rename, Delete. Push… lists the outgoing commits and their files first (and warns when the remote has commits you don't).
+10. Right-click in the project tree: New File, Rename, Move to Trash, Copy Path, Reveal in Finder. **Option+F1** selects the open file in the tree.
 
 ## Tool windows
 

@@ -166,9 +166,8 @@ pub struct Shell {
     pdfs: Vec<(PathBuf, WeakEntity<pide_pdf::PdfPanel>)>,
     /// Image tabs, likewise.
     images: Vec<(PathBuf, WeakEntity<pide_preview::image::ImageView>)>,
-    /// Current git branch, re-read every few seconds (None outside a repository).
-    branch: Option<String>,
-    _branch_poll: Task<()>,
+    /// Branch, ↓ pull and ↑ push in the status bar (`pide_git::widget`).
+    git_widget: Entity<pide_git::widget::GitWidget>,
     /// "12:5" (or with the selection size) for the status bar; polled, since
     /// the editor has no cursor-moved event.
     cursor: Option<String>,
@@ -270,28 +269,7 @@ impl Shell {
                 window.push_notification(note, cx);
             }
         }));
-        let branch_root = root.clone();
-        let branch_poll = cx.spawn(async move |this, cx| {
-            loop {
-                let r = branch_root.clone();
-                let b = cx
-                    .background_executor()
-                    .spawn(async move { pide_core::git::branch(&r) })
-                    .await;
-                if this
-                    .update(cx, |this, cx| {
-                        if this.branch != b {
-                            this.branch = b;
-                            cx.notify();
-                        }
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-                cx.background_executor().timer(Duration::from_secs(3)).await;
-            }
-        });
+        let git_widget = cx.new(|cx| pide_git::widget::GitWidget::new(window, cx));
         let cursor_poll = cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor()
@@ -322,8 +300,7 @@ impl Shell {
             _cursor_poll: cursor_poll,
             pdfs: Vec::new(),
             images: Vec::new(),
-            branch: None,
-            _branch_poll: branch_poll,
+            git_widget,
             services: services.clone(),
             lsp,
 
@@ -494,17 +471,7 @@ impl Shell {
             .child(
                 h_flex()
                     .gap_3()
-                    .when_some(self.branch.clone(), |this, b| {
-                        this.child(
-                            div()
-                                .id("branch")
-                                .cursor_pointer()
-                                .child(format!("⎇ {b}"))
-                                .on_click(|_, window, cx| {
-                                    CommandRegistry::run("git.changes", window, cx);
-                                }),
-                        )
-                    })
+                    .child(self.git_widget.clone())
                     .when(errors + warnings > 0, |this| {
                         this.child(
                             div()

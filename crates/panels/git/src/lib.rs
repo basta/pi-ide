@@ -11,6 +11,7 @@ pub mod log;
 pub mod log_panel;
 pub mod remote;
 pub mod repo;
+pub mod widget;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -37,6 +38,7 @@ const PREVIEW_LINES: usize = 8;
 
 pub fn init(cx: &mut App) {
     log_panel::init(cx);
+    widget::init(cx);
     register_panel(cx, PANEL_NAME, |_, window, cx| {
         panel_handle(cx.new(|cx| GitPanel::new(window, cx)))
     });

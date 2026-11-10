@@ -44,6 +44,30 @@ pub fn init(cx: &mut App) {
     );
 }
 
+/// Each window's Git Log, and a branch filter waiting for one that's about to open.
+#[derive(Default)]
+struct Instances(std::collections::HashMap<WindowId, WeakEntity<GitLogPanel>>);
+impl Global for Instances {}
+#[derive(Default)]
+struct PendingFilter(std::collections::HashMap<WindowId, String>);
+impl Global for PendingFilter {}
+
+/// Show the Git Log limited to one ref (`refs/heads/main`), opening it if needed.
+pub fn show_ref(full: String, window: &mut Window, cx: &mut App) {
+    let win = window.window_handle().window_id();
+    let open = cx
+        .try_global::<Instances>()
+        .and_then(|i| i.0.get(&win))
+        .and_then(|w| w.upgrade());
+    match open {
+        Some(panel) => panel.update(cx, |p, cx| p.set_only(Some(full), cx)),
+        None => {
+            cx.default_global::<PendingFilter>().0.insert(win, full);
+        }
+    }
+    pide_core::toolwindow::toggle(PANEL_NAME, window, cx);
+}
+
 /// What one read produced, with the graph laid out (both off the UI thread).
 struct Loaded {
     log: Log,
@@ -79,6 +103,10 @@ impl GitLogPanel {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let workspace = Services::of(window, cx).workspace;
         let root = workspace.read(cx).root().to_path_buf();
+        let win = window.window_handle().window_id();
+        let me = cx.weak_entity();
+        cx.default_global::<Instances>().0.insert(win, me);
+        let only = cx.default_global::<PendingFilter>().0.remove(&win);
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Text, hash or author"));
         let subs = vec![cx.subscribe(&search, |this, _, ev: &InputEvent, cx| {
             if matches!(ev, InputEvent::Change) {
@@ -98,7 +126,7 @@ impl GitLogPanel {
             loaded: None,
             read_once: false,
             error: None,
-            only: None,
+            only,
             fingerprint: None,
             search,
             visible: Rc::new(Vec::new()),

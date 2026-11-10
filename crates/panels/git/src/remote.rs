@@ -83,6 +83,8 @@ pub struct OutCommit {
     pub subject: String,
     pub author: String,
     pub time: i64,
+    /// The author's UTC offset in seconds.
+    pub offset: i32,
 }
 
 /// What a push of the current branch would send.
@@ -122,7 +124,7 @@ pub fn outgoing(workdir: &Path) -> anyhow::Result<Outgoing> {
             )
         }
     };
-    let mut args = vec!["log", "--format=%H%x00%s%x00%an%x00%at"];
+    let mut args = vec!["log", "--format=%H%x00%s%x00%an%x00%at%x00%ai"];
     args.extend(range.iter().map(String::as_str));
     let commits = git_out(workdir, &args)?
         .lines()
@@ -133,6 +135,7 @@ pub fn outgoing(workdir: &Path) -> anyhow::Result<Outgoing> {
                 subject: f.next()?.to_string(),
                 author: f.next()?.to_string(),
                 time: f.next()?.parse().unwrap_or(0),
+                offset: f.next().map_or(0, parse_offset),
             })
         })
         .collect();
@@ -151,6 +154,19 @@ pub fn outgoing(workdir: &Path) -> anyhow::Result<Outgoing> {
         commits,
         behind,
     })
+}
+
+/// "2026-11-10 15:27:00 +0900" → seconds east of UTC.
+fn parse_offset(iso: &str) -> i32 {
+    let tz = iso.rsplit(' ').next().unwrap_or("");
+    let (sign, digits) = match tz.split_at_checked(1) {
+        Some(("-", d)) => (-1, d),
+        Some(("+", d)) => (1, d),
+        _ => return 0,
+    };
+    let h: i32 = digits.get(..2).and_then(|x| x.parse().ok()).unwrap_or(0);
+    let m: i32 = digits.get(2..4).and_then(|x| x.parse().ok()).unwrap_or(0);
+    sign * (h * 3600 + m * 60)
 }
 
 fn first_remote(workdir: &Path) -> anyhow::Result<String> {
@@ -191,7 +207,14 @@ pub fn push(workdir: &Path, out: &Outgoing, force: bool) -> anyhow::Result<Strin
 /// Update Project: `git pull` with the user's own pull settings (merge or rebase).
 pub fn pull(workdir: &Path) -> anyhow::Result<String> {
     let before = git_out(workdir, &["rev-parse", "HEAD"]).unwrap_or_default();
-    git_out(workdir, &["pull", "--no-edit"])?;
+    // Without a pull.rebase setting newer git refuses diverged branches;
+    // merge then (git's classic default; JetBrains' too).
+    let configured = git_out(workdir, &["config", "--get", "pull.rebase"]).is_ok();
+    let mut args = vec!["pull", "--no-edit"];
+    if !configured {
+        args.push("--no-rebase");
+    }
+    git_out(workdir, &args)?;
     let after = git_out(workdir, &["rev-parse", "HEAD"]).unwrap_or_default();
     if before == after {
         return Ok("Already up to date".into());
@@ -270,6 +293,8 @@ mod tests {
         assert_eq!((b[0].ahead, b[0].behind), (1, 2));
         assert_eq!(b[0].upstream.as_deref(), Some("origin/main"));
         assert!(b[2].remote);
+        assert_eq!(parse_offset("2026-11-10 15:27:00 +0900"), 9 * 3600);
+        assert_eq!(parse_offset("2026-11-10 15:27:00 -0530"), -(5 * 3600 + 30 * 60));
     }
 
     fn sh(dir: &Path, args: &[&str]) {

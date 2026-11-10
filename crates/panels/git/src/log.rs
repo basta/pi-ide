@@ -404,6 +404,22 @@ pub struct ChangedFile {
 pub fn changed_files(workdir: &Path, commit: &Commit) -> anyhow::Result<Vec<ChangedFile>> {
     let id = commit.id.to_string();
     let parent = commit.parents.first().map(|p| p.to_string());
+    changed_between(workdir, parent, id)
+}
+
+/// Like [`changed_files`], for a commit known only by its hash.
+pub fn changed_files_rev(workdir: &Path, hash: &str) -> anyhow::Result<Vec<ChangedFile>> {
+    let line = crate::repo::git_out(workdir, &["rev-list", "--parents", "-n1", hash])?;
+    let mut ids = line.split_whitespace();
+    let id = ids.next().unwrap_or(hash).to_string();
+    changed_between(workdir, ids.next().map(str::to_string), id)
+}
+
+fn changed_between(
+    workdir: &Path,
+    parent: Option<String>,
+    id: String,
+) -> anyhow::Result<Vec<ChangedFile>> {
     let base: Vec<&str> = match &parent {
         Some(p) => vec!["diff-tree", "-r", "-M", "--no-commit-id", p.as_str(), id.as_str()],
         None => vec!["diff-tree", "-r", "-M", "--no-commit-id", "--root", id.as_str()],
