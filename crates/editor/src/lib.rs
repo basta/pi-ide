@@ -13,6 +13,7 @@ mod nav;
 mod rename;
 mod signature;
 mod symbols;
+mod tex;
 pub use lsp::apply_workspace_edit;
 
 use std::path::{Path, PathBuf};
@@ -65,6 +66,7 @@ impl Global for OpenEditors {}
 pub fn init(cx: &mut App) {
     cx.set_global(OpenEditors::default());
     latex::init();
+    tex::init(cx);
     diff_panel::init(cx);
     cx.set_global(pide_core::context::EditorContextSource(std::rc::Rc::new(
         editor_context,
@@ -1066,6 +1068,9 @@ impl EditorPanel {
             WorkspaceEvent::BufferSaved(buffer) if self.is_mine(buffer) => {
                 // A commit may have happened since the file was opened.
                 self.load_git_base(cx);
+                if tex::is_latex(&self.path) {
+                    tex::build_on_save(self, window, cx);
+                }
             }
             WorkspaceEvent::TextReplaced(buffer) if self.is_mine(buffer) => {
                 let text = buffer.read(cx).text().to_string();

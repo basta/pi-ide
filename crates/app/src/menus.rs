@@ -117,6 +117,8 @@ fn menus() -> Vec<Menu> {
                 cmd("Annotate with Git Blame", "git.annotate"),
                 cmd("Why This Line? (pi)", "git.why_line"),
                 MenuItem::separator(),
+                cmd("LaTeX: Show in PDF", "latex.forward_search"),
+                MenuItem::separator(),
                 cmd("Problems", "view.problems"),
                 cmd("Restart Language Server", "lsp.restart"),
                 cmd("Language Servers…", "lsp.servers"),

@@ -46,6 +46,12 @@ cargo run -p pide --release -- ~/some/project
 - M6 scripted panels: see `docs/M6-SCRIPTED-PANELS.md`.
 - Comment / duplicate / move line: see `docs/GAPS.md` (JetBrains line commands).
 
-## LaTeX (started)
+## LaTeX
 
-- `.tex` / `.sty` / `.cls` files are highlighted (commands, environments, section titles, labels and citations, math, comments, bold/italic) and soft-wrap like Markdown. Building, the PDF preview and texlab are next.
+Needs a TeX install with latexmk (macOS: `brew install --cask basictex`, then `sudo tlmgr install latexmk` plus the packages your documents use) and texlab (Settings → Language Servers → Install, or `brew install texlab`).
+
+- `.tex` / `.sty` / `.cls` files are highlighted (commands, environments, section titles, labels and citations, math, comments, bold/italic) and soft-wrap like Markdown.
+- **Cmd+S builds.** texlab runs `latexmk -pdf -synctex=1` on the document the file belongs to (the file itself if it has `\documentclass`, else the document that `\input`s it, or a `% !TEX root = main.tex` comment). The PDF opens beside the source the first time, then reloads in place; the focus stays in the editor.
+- LaTeX errors and warnings from the log show in **Problems** (Cmd+6) with Ask pi; a build with errors also shows a notice.
+- **SyncTeX:** Cmd+Alt+Shift+J (Code → LaTeX: Show in PDF) scrolls the PDF to the cursor's line and marks it. **Cmd+click** in the PDF jumps to that source line.
+- The PDF tab also reloads when the file changes from outside (latexmk in a terminal).

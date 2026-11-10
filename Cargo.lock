@@ -6474,6 +6474,7 @@ dependencies = [
  "nucleo-matcher",
  "pide-core",
  "pide-lsp",
+ "pide-runtime",
  "serde_json",
  "similar 3.2.1",
  "tree-sitter",

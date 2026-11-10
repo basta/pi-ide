@@ -103,6 +103,7 @@ fn main() {
             close: Rc::new(pide_editor::close_path),
             ask: Rc::new(shell::ask_pi_with),
             panel: Rc::new(shell::open_center_panel),
+            pdf: Rc::new(shell::show_pdf),
             locations: Rc::new(shell::show_locations),
         });
         register_app_commands(cx);

@@ -163,7 +163,6 @@ fn layout_file(root: &Path) -> PathBuf {
 pub struct Shell {
     services: Services,
     /// PDF tabs opened by command, to switch to instead of opening twice.
-    pdfs: Vec<(PathBuf, WeakEntity<pide_pdf::PdfPanel>)>,
     /// Image tabs, likewise.
     images: Vec<(PathBuf, WeakEntity<pide_preview::image::ImageView>)>,
     /// Branch, ↓ pull and ↑ push in the status bar (`pide_git::widget`).
@@ -298,7 +297,6 @@ impl Shell {
         let this = Self {
             cursor: None,
             _cursor_poll: cursor_poll,
-            pdfs: Vec::new(),
             images: Vec::new(),
             git_widget,
             services: services.clone(),
@@ -664,6 +662,21 @@ pub fn show_markdown_preview(window: &mut Window, cx: &mut App) {
 
 /// Open a PDF in the center (or switch to its tab).
 pub fn open_pdf(path: PathBuf, window: &mut Window, cx: &mut App) {
+    show_pdf(
+        pide_core::opener::PdfRequest {
+            path,
+            beside: false,
+            reload: false,
+            at: None,
+        },
+        window,
+        cx,
+    );
+}
+
+/// `opener::show_pdf`: open (beside the active tab when asked), reload, scroll
+/// to a SyncTeX spot. A request that isn't a plain open keeps the focus where it is.
+pub fn show_pdf(req: pide_core::opener::PdfRequest, window: &mut Window, cx: &mut App) {
     let id = window.window_handle().window_id();
     let Some(shell) = cx
         .try_global::<Shells>()
@@ -671,28 +684,52 @@ pub fn open_pdf(path: PathBuf, window: &mut Window, cx: &mut App) {
     else {
         return;
     };
+    let keep_focus = (req.beside || req.reload || req.at.is_some())
+        .then(|| window.focused(cx))
+        .flatten();
     shell.update(cx, |shell, cx| {
-        let open = shell
-            .pdfs
-            .iter()
-            .filter_map(|(p, w)| (p == &path).then(|| w.upgrade()).flatten())
-            .next();
-        if let Some(p) = open {
+        let open = pide_pdf::find(&req.path, window, cx).filter(|p| {
             let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
-            if shell.dock.read(cx).panel(pid).is_some() {
-                shell
-                    .dock
-                    .update(cx, |d, cx| d.select_panel(pid, window, cx));
-                return;
-            }
-        }
-        let p = cx.new(|cx| pide_pdf::PdfPanel::new(path.clone(), window, cx));
-        shell.pdfs.retain(|(_, w)| w.upgrade().is_some());
-        shell.pdfs.push((path, p.downgrade()));
-        shell.dock.update(cx, |d, cx| {
-            d.add_panel_view(panel_handle(p), DockPlacement::Center, None, window, cx)
+            shell.dock.read(cx).panel(pid).is_some()
         });
+        let p = if let Some(p) = open {
+            let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
+            shell
+                .dock
+                .update(cx, |d, cx| d.select_panel(pid, window, cx));
+            if req.reload {
+                p.update(cx, |p, cx| p.reload(cx));
+            }
+            p
+        } else {
+            let p = cx.new(|cx| pide_pdf::PdfPanel::new(req.path.clone(), window, cx));
+            let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
+            shell.dock.update(cx, |d, cx| {
+                d.add_panel_view(panel_handle(p.clone()), DockPlacement::Center, None, window, cx);
+                if req.beside {
+                    let node = d
+                        .layout(DockPlacement::Center)
+                        .and_then(|t| t.find_panel_node(pid));
+                    if let Some(node) = node {
+                        // `move_panel` detaches it from the group it was added to.
+                        let target = gpui_kit::component::dock::InsertTarget::Split {
+                            node,
+                            placement: gpui_kit::component::Placement::Right,
+                            size: None,
+                        };
+                        d.move_panel(pid, target, window, cx);
+                    }
+                }
+            });
+            p
+        };
+        if let Some(at) = req.at {
+            p.update(cx, |p, cx| p.reveal(at, cx));
+        }
     });
+    if let Some(f) = keep_focus {
+        window.focus(&f, cx);
+    }
 }
 
 /// Open an image in the center (or switch to its tab).

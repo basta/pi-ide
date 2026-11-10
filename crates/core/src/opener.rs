@@ -21,6 +21,27 @@ pub struct DiffRequest {
     pub before_is: SharedString,
 }
 
+/// Show a PDF (a LaTeX build's output): open it, beside the editor the first
+/// time when `beside`; scroll to a spot (SyncTeX); reload it after a build.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PdfRequest {
+    pub path: PathBuf,
+    /// Open it in a split to the right of the active tab, if it isn't open yet.
+    pub beside: bool,
+    /// Read the file again (it was just rebuilt).
+    pub reload: bool,
+    /// Scroll to this spot and mark it.
+    pub at: Option<PdfSpot>,
+}
+
+/// A point on a PDF page: 0-based page, PDF points from its top-left corner.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PdfSpot {
+    pub page: usize,
+    pub x: f32,
+    pub y: f32,
+}
+
 /// A place in a file, with its line's text (usages, symbol search results).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Location {
@@ -49,6 +70,8 @@ pub struct Openers {
     /// Show a panel as a center tab, or select it when it's already one
     /// (the entity id tells). For panels that aren't files (Annotate).
     pub panel: Rc<CenterPanelFn>,
+    /// See [`PdfRequest`]. Keeps the focus where it is.
+    pub pdf: Rc<dyn Fn(PdfRequest, &mut Window, &mut App)>,
 }
 
 pub type CenterPanelFn = dyn Fn(
@@ -75,6 +98,13 @@ pub fn open_panel(
 ) {
     if let Some(o) = cx.try_global::<Openers>().map(|o| o.panel.clone()) {
         o(view, id, window, cx);
+    }
+}
+
+/// See [`PdfRequest`].
+pub fn show_pdf(req: PdfRequest, window: &mut Window, cx: &mut App) {
+    if let Some(o) = cx.try_global::<Openers>().map(|o| o.pdf.clone()) {
+        o(req, window, cx);
     }
 }
 

@@ -1,7 +1,8 @@
-//! PDF panel (spec M5): pages rendered by pdfium on a worker thread, zoom, text
-//! search with highlights, and a page cache bounded at 256 MB. pdfium is a
-//! native library pide installs on request (an Install button, like language
-//! servers), into `~/.local/share/pide/pdfium`.
+//! PDF panel (spec M5): pages rendered on a worker thread (PDFKit on macOS,
+//! pdfium elsewhere, installed on request into `~/.local/share/pide/pdfium`),
+//! zoom, text search with highlights, and a page cache bounded at 256 MB.
+//! Reloads when the file changes (a LaTeX build); SyncTeX: `reveal` scrolls to
+//! a spot and marks it, Cmd+click jumps to the source line (`synctex edit`).
 
 #[cfg(not(target_os = "macos"))]
 mod pdfium;
@@ -9,17 +10,21 @@ mod pdfium;
 mod pdfkit;
 pub mod worker;
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant, SystemTime};
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dock::{PanelEvent, PanelInfo, PanelState, panel_handle, register_panel};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::{ActiveTheme, Disableable as _, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme, Disableable as _, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use pide_core::opener::PdfSpot;
 use pide_core::{DockPosition, Panel};
 
 use worker::{Hit, PageSize};
@@ -28,6 +33,12 @@ pub const PANEL_NAME: &str = "pdf";
 /// Rendered pages kept in memory, at most.
 const CACHE_BYTES: usize = 256 * 1024 * 1024;
 const PAGE_GAP: f32 = 12.;
+/// Space above the first page (`py_4`).
+const TOP_PAD: f32 = 16.;
+/// How often to look for a rebuilt file.
+const WATCH_EVERY: Duration = Duration::from_millis(700);
+/// How long a SyncTeX mark stays.
+const MARK_FOR: Duration = Duration::from_millis(1800);
 
 pub fn init(cx: &mut App) {
     register_panel(cx, PANEL_NAME, |ctx, window, cx| {
@@ -43,6 +54,24 @@ pub fn is_pdf(path: &std::path::Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+}
+
+/// Every PDF tab, also those rebuilt from a saved layout (to find one by path).
+#[derive(Default)]
+struct OpenPdfs(Vec<WeakEntity<PdfPanel>>);
+impl Global for OpenPdfs {}
+
+/// This window's open tab for `path`, if any.
+pub fn find(path: &Path, window: &Window, cx: &App) -> Option<Entity<PdfPanel>> {
+    let id = window.window_handle().window_id();
+    cx.try_global::<OpenPdfs>()?
+        .0
+        .iter()
+        .filter_map(WeakEntity::upgrade)
+        .find(|p| {
+            let p = p.read(cx);
+            p.window_id == id && p.path == path
+        })
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -105,7 +134,19 @@ struct Install {
 
 pub struct PdfPanel {
     path: PathBuf,
+    window_id: WindowId,
+    /// Stable, for element ids.
     id: u64,
+    /// The worker's document; a reload opens the new file under a new one.
+    doc_id: u64,
+    /// The file's modification time when it was opened.
+    loaded: Option<SystemTime>,
+    /// A reload in flight: keep showing the old pages until it's ready.
+    reloading: bool,
+    /// Where SyncTeX pointed, until when.
+    mark: Option<(PdfSpot, Instant)>,
+    /// On-screen bounds of the pages drawn last frame (for Cmd+click).
+    page_bounds: Rc<RefCell<HashMap<usize, Bounds<Pixels>>>>,
     doc: Doc,
     /// Logical pixels per PDF point.
     scale: f32,
@@ -117,6 +158,8 @@ pub struct PdfPanel {
     hits: Vec<Hit>,
     current: usize,
     install: Option<Install>,
+    /// Pages rendered before a reload, shown until the new ones are ready.
+    stale: Vec<((usize, u32), Arc<RenderImage>)>,
     /// Evicted pages, freed from the GPU atlas on the next frame.
     to_drop: Vec<Arc<RenderImage>>,
     focus: FocusHandle,
@@ -140,9 +183,20 @@ impl PdfPanel {
                 }
             }),
         ];
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let me = cx.entity().downgrade();
+        let open = &mut cx.default_global::<OpenPdfs>().0;
+        open.retain(|w| w.upgrade().is_some());
+        open.push(me);
         let mut this = Self {
             path,
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            window_id: window.window_handle().window_id(),
+            id,
+            doc_id: id,
+            loaded: None,
+            reloading: false,
+            mark: None,
+            page_bounds: Rc::default(),
             doc: Doc::Loading,
             scale: 1.0,
             fit_width: true,
@@ -153,13 +207,165 @@ impl PdfPanel {
             hits: vec![],
             current: 0,
             install: None,
+            stale: vec![],
             to_drop: vec![],
             focus: cx.focus_handle(),
             _tasks: vec![],
             _subs: subs,
         };
         this.open(cx);
+        this.watch(cx);
         this
+    }
+
+    /// Reload when the file changes on disk and has settled (same time and
+    /// size twice in a row: latexmk writes the PDF in pieces).
+    fn watch(&mut self, cx: &mut Context<Self>) {
+        let path = self.path.clone();
+        self._tasks.push(cx.spawn(async move |this, cx| {
+            let mut last: Option<(SystemTime, u64)> = None;
+            loop {
+                cx.background_executor().timer(WATCH_EVERY).await;
+                let p = path.clone();
+                let now = cx
+                    .background_executor()
+                    .spawn(async move { stamp(&p) })
+                    .await;
+                let settled = now.is_some() && now == last;
+                last = now;
+                let Ok(()) = this.update(cx, |this, cx| {
+                    if let (true, Some((t, _))) = (settled, now)
+                        && this.loaded.is_some_and(|l| l != t)
+                        && !this.reloading
+                    {
+                        this.reload(cx);
+                    }
+                }) else {
+                    return; // the panel is gone
+                };
+            }
+        }));
+    }
+
+    /// Read the file again, keeping the zoom and scroll position.
+    pub fn reload(&mut self, cx: &mut Context<Self>) {
+        if !matches!(self.doc, Doc::Ready(_)) {
+            self.open(cx);
+            return;
+        }
+        let Ok(w) = worker::worker() else { return };
+        let old = self.doc_id;
+        let new = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        self.reloading = true;
+        let path = self.path.clone();
+        let rx = w.open(new, &path);
+        self._tasks.push(cx.spawn(async move |this, cx| {
+            let r = rx.await.unwrap_or(Err("the PDF engine stopped".into()));
+            let modified = cx
+                .background_executor()
+                .spawn(async move { stamp(&path).map(|(t, _)| t) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.reloading = false;
+                match r {
+                    Ok(sizes) if !sizes.is_empty() => {
+                        w.close(old);
+                        this.doc_id = new;
+                        this.loaded = modified;
+                        this.doc = Doc::Ready(sizes);
+                        // Old pages stay up (as stand-ins) until the new ones render.
+                        let stale = std::mem::take(&mut this.cache);
+                        this.stale = stale.images.into_iter().collect();
+                        this.pending.clear();
+                        if !this.hits.is_empty() {
+                            this.run_search(cx);
+                        }
+                    }
+                    // Half-written or broken: keep the old one, try on the next change.
+                    _ => w.close(new),
+                }
+                cx.notify();
+            });
+        }));
+    }
+
+    /// Scroll to a SyncTeX spot and mark it for a moment.
+    pub fn reveal(&mut self, spot: PdfSpot, cx: &mut Context<Self>) {
+        let Doc::Ready(sizes) = &self.doc else {
+            // Not open yet: try again once it is.
+            self._tasks.push(cx.spawn(async move |this, cx| {
+                for _ in 0..50 {
+                    cx.background_executor().timer(Duration::from_millis(100)).await;
+                    let ready = this
+                        .update(cx, |this, cx| {
+                            let ready = matches!(this.doc, Doc::Ready(_));
+                            if ready {
+                                this.reveal(spot, cx);
+                            }
+                            ready
+                        })
+                        .unwrap_or(true);
+                    if ready {
+                        return;
+                    }
+                }
+            }));
+            return;
+        };
+        let Some(page) = sizes.get(spot.page) else { return };
+        let page_top: f32 = TOP_PAD
+            + sizes[..spot.page]
+                .iter()
+                .map(|s| s.height * self.scale + PAGE_GAP)
+                .sum::<f32>();
+        let view_h = f32::from(self.scroll.bounds().size.height).max(200.);
+        let y = page_top + spot.y.min(page.height) * self.scale - view_h / 3.;
+        self.scroll.set_offset(point(px(0.), px(-y.max(0.))));
+        self.mark = Some((spot, Instant::now() + MARK_FOR));
+        self._tasks.push(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(MARK_FOR).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.mark.is_some_and(|(_, until)| until <= Instant::now()) {
+                    this.mark = None;
+                    cx.notify();
+                }
+            });
+        }));
+        cx.notify();
+    }
+
+    /// Cmd+click: the source line under the click (`synctex edit`), opened in the editor.
+    fn inverse_search(
+        &mut self,
+        page: usize,
+        at: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(origin) = self.page_bounds.borrow().get(&page).map(|b| b.origin) else {
+            return;
+        };
+        let x = f32::from(at.x - origin.x) / self.scale;
+        let y = f32::from(at.y - origin.y) / self.scale;
+        let pdf = self.path.clone();
+        let work = cx
+            .background_executor()
+            .spawn(async move { synctex_edit(&pdf, page, x, y) });
+        cx.spawn_in(window, async move |_, cx| {
+            let found = work.await;
+            let _ = cx.update(|window, cx| match found {
+                Some((file, line)) => {
+                    pide_core::opener::open_file_at(file, line.saturating_sub(1), 0, window, cx)
+                }
+                None => window.push_notification(
+                    gpui_kit::component::notification::Notification::info(
+                        "SyncTeX found no source here. Was the PDF built with -synctex=1?",
+                    ),
+                    cx,
+                ),
+            });
+        })
+        .detach();
     }
 
     fn open(&mut self, cx: &mut Context<Self>) {
@@ -175,10 +381,16 @@ impl PdfPanel {
             }
         };
         self.doc = Doc::Loading;
-        let rx = w.open(self.id, &self.path);
+        let rx = w.open(self.doc_id, &self.path);
+        let path = self.path.clone();
         self._tasks.push(cx.spawn(async move |this, cx| {
-            let r = rx.await.unwrap_or(Err("pdfium stopped".into()));
+            let r = rx.await.unwrap_or(Err("the PDF engine stopped".into()));
+            let modified = cx
+                .background_executor()
+                .spawn(async move { stamp(&path).map(|(t, _)| t) })
+                .await;
             let _ = this.update(cx, |this, cx| {
+                this.loaded = modified;
                 this.doc = match r {
                     Ok(sizes) if !sizes.is_empty() => Doc::Ready(sizes),
                     Ok(_) => Doc::Failed("This PDF has no pages.".into()),
@@ -267,7 +479,7 @@ impl PdfPanel {
             return;
         }
         let Ok(w) = worker::worker() else { return };
-        let rx = w.search(self.id, &text, false);
+        let rx = w.search(self.doc_id, &text, false);
         self._tasks.push(cx.spawn(async move |this, cx| {
             let hits = rx.await.ok().and_then(Result::ok).unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
@@ -297,7 +509,7 @@ impl PdfPanel {
             .iter()
             .map(|s| s.height * self.scale + PAGE_GAP)
             .sum();
-        let y = top + hit.rects.first().map(|r| r.y * self.scale).unwrap_or(0.) - 80.;
+        let y = TOP_PAD + top + hit.rects.first().map(|r| r.y * self.scale).unwrap_or(0.) - 80.;
         self.scroll.set_offset(point(px(0.), px(-y.max(0.))));
     }
 
@@ -314,10 +526,14 @@ impl PdfPanel {
         }
         let Ok(w) = worker::worker() else { return };
         self.pending.insert(key);
-        let rx = w.render(self.id, page, width_px);
+        let doc_id = self.doc_id;
+        let rx = w.render(doc_id, page, width_px);
         let task = cx.spawn(async move |this, cx| {
             let r = rx.await;
             let _ = this.update(cx, |this, cx| {
+                if this.doc_id != doc_id {
+                    return; // rendered from the file before a reload
+                }
                 this.pending.remove(&key);
                 match r {
                     Ok(Ok(b)) => {
@@ -329,6 +545,11 @@ impl PdfPanel {
                         let img = Arc::new(RenderImage::new(vec![image::Frame::new(buf)]));
                         let evicted = this.cache.insert(key, img, size);
                         this.to_drop.extend(evicted);
+                        // This page's pre-reload stand-in can go.
+                        let (gone, keep): (Vec<_>, Vec<_>) =
+                            std::mem::take(&mut this.stale).into_iter().partition(|((p, _), _)| *p == key.0);
+                        this.stale = keep;
+                        this.to_drop.extend(gone.into_iter().map(|(_, i)| i));
                         cx.notify();
                     }
                     Ok(Err(e)) => log::warn!("pdf render page {}: {e}", key.0),
@@ -361,7 +582,7 @@ impl gpui_kit::component::dock::BasePanel for PdfPanel {
     }
     fn on_removed(&mut self, _: &mut Window, _: &mut Context<Self>) {
         if let Ok(w) = worker::worker() {
-            w.close(self.id);
+            w.close(self.doc_id);
         }
     }
 }
@@ -550,6 +771,7 @@ impl PdfPanel {
         let bottom = top + f32::from(viewport.size.height).max(800.);
         let mut y = 0.;
         let mut pages: Vec<AnyElement> = Vec::new();
+        self.page_bounds.borrow_mut().clear();
         for (i, s) in sizes.iter().enumerate() {
             let (w, h) = (s.width * scale, s.height * scale);
             let near = y + h >= top - h && y <= bottom + h;
@@ -559,10 +781,12 @@ impl PdfPanel {
                     Some(img) => Some(img),
                     None => {
                         self.request(i, width_px, cx);
-                        // Show any other size of this page while the right one renders.
+                        // Show any other size of this page (or the page from
+                        // before a reload) while the right one renders.
                         self.cache
                             .images
                             .iter()
+                            .chain(self.stale.iter().map(|(k, v)| (k, v)))
                             .find(|((p, _), _)| *p == i)
                             .map(|(_, img)| img.clone())
                     }
@@ -594,8 +818,33 @@ impl PdfPanel {
                     })
                 })
                 .collect();
+            let mark = self
+                .mark
+                .filter(|(m, until)| m.page == i && *until > Instant::now())
+                .map(|(m, _)| {
+                    // The line SyncTeX points at: a band across the page, and a dot.
+                    let accent = theme.danger;
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top(px((m.y - 11.) * scale))
+                        .w_full()
+                        .h(px(14. * scale))
+                        .bg(accent.opacity(0.12))
+                        .child(
+                            div()
+                                .absolute()
+                                .left(px(m.x * scale - 10.))
+                                .top(px(7. * scale - 4.))
+                                .size(px(8.))
+                                .rounded_full()
+                                .bg(accent),
+                        )
+                });
+            let bounds = self.page_bounds.clone();
             pages.push(
                 div()
+                    .id(("pdf-page", i))
                     .relative()
                     .flex_none()
                     .w(px(w))
@@ -606,6 +855,30 @@ impl PdfPanel {
                         d.child(gpui_kit::img(ImageSource::Render(img)).size_full())
                     })
                     .children(highlights)
+                    .children(mark)
+                    .when(near, |d| {
+                        // Record where this page is on screen, for Cmd+click.
+                        d.child(
+                            canvas(
+                                move |b, _, _| {
+                                    bounds.borrow_mut().insert(i, b);
+                                },
+                                |_, _, _, _| {},
+                            )
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .size_full(),
+                        )
+                    })
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                            if ev.modifiers.platform {
+                                this.inverse_search(i, ev.position, window, cx);
+                            }
+                        }),
+                    )
                     .into_any_element(),
             );
             y += h + PAGE_GAP;
@@ -628,9 +901,53 @@ impl PdfPanel {
     }
 }
 
+/// The file's modification time and size, if it's there.
+fn stamp(path: &Path) -> Option<(SystemTime, u64)> {
+    let m = std::fs::metadata(path).ok()?;
+    Some((m.modified().ok()?, m.len()))
+}
+
+/// The source file and 1-based line at a point on a page (0-based page, PDF
+/// points from its top-left). Blocking.
+fn synctex_edit(pdf: &Path, page: usize, x: f32, y: f32) -> Option<(PathBuf, u32)> {
+    let exe = pide_runtime::process::find_command("synctex").unwrap_or_else(|| "synctex".into());
+    let out = std::process::Command::new(exe)
+        .arg("edit")
+        .arg("-o")
+        .arg(format!("{}:{x}:{y}:{}", page + 1, pdf.display()))
+        .output()
+        .ok()?;
+    parse_edit(&String::from_utf8_lossy(&out.stdout))
+}
+
+fn parse_edit(out: &str) -> Option<(PathBuf, u32)> {
+    let field = |name: &str| {
+        out.lines()
+            .find_map(|l| l.strip_prefix(name)?.strip_prefix(':').map(str::trim))
+    };
+    let input = field("Input")?;
+    let line: u32 = field("Line")?.parse().ok()?;
+    // synctex writes `dir/./file.tex`; open the plain path.
+    let path: PathBuf = Path::new(input)
+        .components()
+        .filter(|c| !matches!(c, std::path::Component::CurDir))
+        .collect();
+    Some((path, line.max(1)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn edit_output() {
+        let out = "This is SyncTeX\nSyncTeX result begin\nOutput:report.pdf\nInput:/a/b/./sections/one.tex\nLine:104\nColumn:-1\nSyncTeX result end\n";
+        assert_eq!(
+            parse_edit(out),
+            Some((PathBuf::from("/a/b/sections/one.tex"), 104))
+        );
+        assert_eq!(parse_edit("SyncTeX ERROR"), None);
+    }
 
     #[::core::prelude::v1::test]
     fn pdf_extension() {
