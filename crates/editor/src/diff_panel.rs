@@ -28,6 +28,7 @@ fn restore_request(v: &serde_json::Value) -> Option<DiffRequest> {
     Some(DiffRequest {
         path: PathBuf::from(v.get("path")?.as_str()?),
         before: v.get("before").and_then(|b| b.as_str()).map(str::to_string),
+        after: v.get("after").and_then(|b| b.as_str()).map(str::to_string),
         label: v
             .get("label")
             .and_then(|l| l.as_str())
@@ -64,7 +65,8 @@ pub fn init(cx: &mut App) {
     });
 }
 
-/// Open (or refresh and focus) the diff tab for `req.path`.
+/// Open (or refresh and focus) the diff tab for `req.path` (one per path and
+/// label, so a commit's diff doesn't replace the local-changes one).
 pub fn open_diff(req: DiffRequest, window: &mut Window, cx: &mut App) {
     let win = window.window_handle().window_id();
     let existing = cx
@@ -74,7 +76,11 @@ pub fn open_diff(req: DiffRequest, window: &mut Window, cx: &mut App) {
         .filter_map(|w| w.upgrade())
         .find(|p| {
             p.read(cx).window_id == win
-                && p.read(cx).req.as_ref().is_some_and(|r| r.path == req.path)
+                && p.read(cx).req.as_ref().is_some_and(|r| {
+                    r.path == req.path
+                        && r.after.is_some() == req.after.is_some()
+                        && (r.after.is_none() || r.label == req.label)
+                })
         });
     if let Some(panel) = existing {
         let group = panel.update(cx, |p, cx| {
@@ -171,7 +177,10 @@ impl DiffPanel {
             .to_string();
         let language = language_for(&req.path);
         let work = cx.background_executor().spawn(async move {
-            let now = pide_core::changes::snapshot(&req.path);
+            let now = match &req.after {
+                Some(fixed) => Some(fixed.clone()),
+                None => pide_core::changes::snapshot(&req.path),
+            };
             let before = req.before.clone().unwrap_or_default();
             let after = now.clone().unwrap_or_default();
             let stats = pide_core::changes::line_stats(&before, &after);
@@ -195,7 +204,7 @@ impl DiffPanel {
             } else {
                 DiffFile::parse(&patch).map_err(|e| format!("{e:?}"))
             };
-            let hunks = if now.is_some() {
+            let hunks = if now.is_some() && req.after.is_none() {
                 pide_core::changes::hunks(&before, &after)
             } else {
                 Vec::new()
@@ -292,13 +301,13 @@ impl gpui_kit::component::dock::BasePanel for DiffPanel {
     fn dump(&self, _: &App) -> PanelState {
         let mut state = PanelState::new(PANEL_NAME);
         if let Some(r) = &self.req
-            && r.before
-                .as_ref()
-                .is_none_or(|b| b.len() <= MAX_SAVED_BEFORE)
+            && r.before.as_ref().map_or(0, String::len) + r.after.as_ref().map_or(0, String::len)
+                <= MAX_SAVED_BEFORE
         {
             state.info = PanelInfo::panel(serde_json::json!({
                 "path": r.path,
                 "before": r.before,
+                "after": r.after,
                 "label": r.label.as_ref(),
                 "before_is": r.before_is.as_ref(),
             }));
@@ -318,11 +327,19 @@ impl gpui_kit::component::dock::Panel for DiffPanel {
 
 impl Panel for DiffPanel {
     fn title_text(&self, _: &App) -> SharedString {
-        self.req
-            .as_ref()
-            .and_then(|r| r.path.file_name().map(|n| n.to_string_lossy().to_string()))
-            .unwrap_or_else(|| "diff".into())
-            .into()
+        let Some(r) = &self.req else {
+            return "diff".into();
+        };
+        let name = r
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "diff".into());
+        if r.after.is_some() {
+            format!("{name} @ {}", r.label).into()
+        } else {
+            name.into()
+        }
     }
     fn default_dock(&self) -> DockPosition {
         DockPosition::Center

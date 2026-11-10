@@ -6,11 +6,15 @@ use std::rc::Rc;
 
 use gpui_kit::*;
 
-/// Show what pi changed in a file: `before` (`None` = file didn't exist) vs the file on disk now.
+/// Show how a file changed: `before` (`None` = file didn't exist) vs `after`
+/// (`None` = the file on disk now; a fixed text for one commit's change).
 #[derive(Clone, Debug)]
 pub struct DiffRequest {
     pub path: PathBuf,
     pub before: Option<String>,
+    /// A fixed after-text (e.g. the file in a commit). Fixed diffs can't be
+    /// reverted from the tab. `None` compares with the file on disk.
+    pub after: Option<String>,
     /// Shown in the tab, e.g. the session name.
     pub label: SharedString,
     /// What "before" is, for the header: "when pi first touched it", "HEAD".

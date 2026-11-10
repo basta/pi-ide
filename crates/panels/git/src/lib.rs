@@ -277,6 +277,7 @@ impl GitPanel {
                         pide_core::opener::DiffRequest {
                             path,
                             before,
+                            after: None,
                             label: "Local changes".into(),
                             before_is: "HEAD".into(),
                         },

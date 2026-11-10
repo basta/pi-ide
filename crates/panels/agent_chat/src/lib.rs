@@ -1452,6 +1452,7 @@ impl AgentChat {
                             pide_core::opener::DiffRequest {
                                 path: diff_path.clone(),
                                 before: diff_before.clone(),
+                                after: None,
                                 label: diff_label.clone(),
                                 before_is: "when pi first touched it".into(),
                             },
