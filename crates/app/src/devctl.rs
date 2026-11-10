@@ -80,11 +80,28 @@ pub fn start(cx: &mut App) {
                 .timer(Duration::from_millis(15))
                 .await;
             while let Ok((req, reply)) = rx.try_recv() {
+                // Settle first, like real frames would: draw, then let other
+                // UI tasks run (a dialog opened from a task, its fade-in, the
+                // focus it moves to its input once its content is built).
+                for _ in 0..3 {
+                    cx.update(|cx| settle(&req, cx));
+                    cx.background_executor()
+                        .timer(Duration::from_millis(16))
+                        .await;
+                }
                 let _ = reply.send(cx.update(|cx| handle(&req, cx)));
             }
         }
     })
     .detach();
+}
+
+/// Draw the request's window (see the loop in `start`).
+fn settle(req: &Value, cx: &mut App) {
+    let index = req["window"].as_u64().unwrap_or(0) as usize;
+    if let Some(handle) = cx.windows().get(index).copied() {
+        let _ = handle.update(cx, |_, window, cx| redraw(window, cx));
+    }
 }
 
 fn handle(req: &Value, cx: &mut App) -> Value {
@@ -120,8 +137,6 @@ fn run(req: &Value, cx: &mut App) -> anyhow::Result<Value> {
         .get(index)
         .ok_or_else(|| anyhow::anyhow!("no window {index}"))?;
     handle.update(cx, |_, window, cx| -> anyhow::Result<Value> {
-        // Draw first: hit-testing and the shot use the latest frame.
-        redraw(window, cx);
         let point = || {
             point(
                 px(req["x"].as_f64().unwrap_or(0.) as f32),
