@@ -9,6 +9,7 @@
 pub mod commit;
 pub mod log;
 pub mod log_panel;
+pub mod remote;
 pub mod repo;
 
 use std::collections::{HashMap, HashSet};
