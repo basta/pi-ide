@@ -6,16 +6,18 @@
 //! The panels register themselves (`pide_core::toolwindow::register`); this
 //! module only works the dock area.
 
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dock::{DockArea, DockPlacement, PanelId};
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
 use gpui_kit::component::{Selectable as _, Sizable as _, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use pide_core::toolwindow::{self, ToolWindowHost, ToolWindowSpec};
-use pide_core::DockPosition;
+use pide_core::{CommandRegistry, CommandSpec, DockPosition};
 
 pub fn init(cx: &mut App) {
     cx.set_global(ToolWindowHost {
@@ -24,6 +26,163 @@ pub fn init(cx: &mut App) {
                 toggle(&dock, id, window, cx);
             }
         }),
+    });
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("view.hide_tool", "View: Hide Active Tool Window").key("shift-escape"),
+        |window, cx| {
+            if let Some(dock) = crate::shell::dock_of(window, cx) {
+                hide_focused(&dock, window, cx);
+            }
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("view.hide_all_tools", "View: Hide All Tool Windows")
+            .key("cmd-shift-f12"),
+        |window, cx| {
+            if let Some(dock) = crate::shell::dock_of(window, cx) {
+                hide_all(&dock, window, cx);
+            }
+        },
+    );
+}
+
+const SIDES: [DockPlacement; 3] = [
+    DockPlacement::Left,
+    DockPlacement::Right,
+    DockPlacement::Bottom,
+];
+
+/// Docks hidden by Hide All Tool Windows, per window, to bring back next time.
+#[derive(Default)]
+struct HiddenByAll(HashMap<WindowId, Vec<DockPlacement>>);
+impl Global for HiddenByAll {}
+
+pub fn forget(window: WindowId, cx: &mut App) {
+    cx.default_global::<HiddenByAll>().0.remove(&window);
+}
+
+/// The selected panel of the first tab group in `p`.
+fn selected_panel(dock: &DockArea, p: DockPlacement) -> Option<PanelId> {
+    use gpui_kit::component::dock::PaneRef;
+    let tree = dock.layout(p)?;
+    tree.node_ids().into_iter().find_map(|n| match tree.find_node(n)?.kind() {
+        PaneRef::Tabs { panels, active_ix } => panels.get(active_ix).copied(),
+        PaneRef::Split { .. } => None,
+    })
+}
+
+/// Focus the editor area's selected tab (after hiding a tool window).
+fn focus_center(dock: &Entity<DockArea>, window: &mut Window, cx: &mut App) {
+    let d = dock.read(cx);
+    if let Some(view) = selected_panel(d, DockPlacement::Center).and_then(|p| d.panel(p)) {
+        let focus = view.focus_handle(cx);
+        window.defer(cx, move |window, cx| focus.focus(window, cx));
+    }
+}
+
+/// Shift+Esc: hide the dock holding the focus and go back to the editor.
+fn hide_focused(dock: &Entity<DockArea>, window: &mut Window, cx: &mut App) {
+    let d = dock.read(cx);
+    let focused = SIDES.into_iter().find(|&p| {
+        d.is_dock_open(p)
+            && d.layout(p).is_some_and(|t| {
+                t.panels().any(|pid| {
+                    d.panel(pid)
+                        .is_some_and(|v| v.focus_handle(cx).contains_focused(window, cx))
+                })
+            })
+    });
+    if let Some(p) = focused {
+        dock.update(cx, |d, cx| d.toggle_dock(p, window, cx));
+        focus_center(dock, window, cx);
+    }
+}
+
+/// Cmd+Shift+F12: hide every open dock; again brings them back.
+fn hide_all(dock: &Entity<DockArea>, window: &mut Window, cx: &mut App) {
+    let id = window.window_handle().window_id();
+    let open: Vec<DockPlacement> = SIDES
+        .into_iter()
+        .filter(|&p| dock.read(cx).is_dock_open(p))
+        .collect();
+    let hiding = !open.is_empty();
+    let to_toggle = if !hiding {
+        cx.default_global::<HiddenByAll>()
+            .0
+            .remove(&id)
+            .unwrap_or_default()
+    } else {
+        cx.default_global::<HiddenByAll>().0.insert(id, open.clone());
+        open
+    };
+    dock.update(cx, |d, cx| {
+        for p in to_toggle {
+            if d.has_dock(p) {
+                d.toggle_dock(p, window, cx);
+            }
+        }
+    });
+    if hiding {
+        focus_center(dock, window, cx);
+    }
+}
+
+/// Move a tool window to another dock (creating it there if it isn't open yet).
+pub fn move_to(id: &str, to: DockPlacement, window: &mut Window, cx: &mut App) {
+    use gpui_kit::component::dock::{DockLayout, InsertTarget, PaneRef};
+    let Some(dock) = crate::shell::dock_of(window, cx) else {
+        return;
+    };
+    let Some(spec) = toolwindow::get(id, cx) else {
+        return;
+    };
+    let pid = match find(dock.read(cx), id, cx) {
+        Some((_, from)) if from == to => return,
+        Some((pid, _)) => {
+            dock.update(cx, |d, cx| {
+                if !d.has_dock(to) {
+                    d.set_dock(to, DockLayout::tabs(), window, cx);
+                    d.set_dock_size(to, default_size(to), window, cx);
+                    d.set_dock_collapsible(to, true, window, cx);
+                }
+                let Some(tree) = d.layout(to) else { return };
+                let tabs = tree.node_ids().into_iter().find(|n| {
+                    tree.find_node(*n)
+                        .is_some_and(|n| matches!(n.kind(), PaneRef::Tabs { .. }))
+                });
+                let target = match tabs {
+                    Some(node) => InsertTarget::Tabs {
+                        node,
+                        ix: None,
+                        activate: true,
+                    },
+                    None => InsertTarget::Split {
+                        node: tree.root().id(),
+                        placement: gpui_kit::component::Placement::Right,
+                        size: None,
+                    },
+                };
+                d.move_panel(pid, target, window, cx);
+            });
+            pid
+        }
+        None => {
+            let view = (spec.create)(window, cx);
+            let pid = view.panel_id(cx);
+            dock.update(cx, |d, cx| {
+                let size = (!d.has_dock(to)).then(|| default_size(to));
+                d.add_panel_view(view, to, size, window, cx);
+            });
+            pid
+        }
+    };
+    dock.update(cx, |d, cx| {
+        if !d.is_dock_open(to) {
+            d.toggle_dock(to, window, cx);
+        }
+        d.select_panel(pid, window, cx);
     });
 }
 
@@ -167,8 +326,22 @@ pub fn stripe(side: Side, dock: &Entity<DockArea>, cx: &App) -> impl IntoElement
             None => spec.title.to_string(),
         };
         div()
+            .id(SharedString::from(format!("tool-wrap-{id}")))
             .rounded(radius)
             .when(*showing, |this| this.bg(active_bg))
+            .context_menu(move |menu, _, _| {
+                [
+                    ("Move to Left", DockPlacement::Left),
+                    ("Move to Right", DockPlacement::Right),
+                    ("Move to Bottom", DockPlacement::Bottom),
+                ]
+                .into_iter()
+                .fold(menu, |menu, (label, to)| {
+                    menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
+                        move_to(id, to, window, cx)
+                    }))
+                })
+            })
             .child(
                 Button::new(SharedString::from(format!("tool-{id}")))
                     .ghost()
