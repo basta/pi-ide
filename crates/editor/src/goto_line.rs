@@ -73,6 +73,7 @@ pub(crate) fn open(window: &mut Window, cx: &mut App) {
             });
         }
         dialog
+            .text_sm()
             .title(format!("Go to line (1–{lines}), optionally :column"))
             .w(px(360.))
             .child(Input::new(&input))

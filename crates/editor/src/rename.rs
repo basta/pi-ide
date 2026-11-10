@@ -155,6 +155,7 @@ fn open_dialog(
             });
         }
         dialog
+            .text_sm()
             .title(format!("Rename {current}"))
             .w(px(420.))
             .child(Input::new(&input).large())

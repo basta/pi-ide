@@ -1410,7 +1410,7 @@ impl Render for PiSettings {
                     .py_2()
                     .border_b_1()
                     .border_color(theme.border)
-                    .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child("pi Settings"))
+                    .child(div().text_base().font_weight(FontWeight::SEMIBOLD).child("pi Settings"))
                     .child(
                         h_flex()
                             .gap_1()

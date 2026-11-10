@@ -74,7 +74,7 @@ pub fn open(window: &mut Window, cx: &mut App) {
                     window.refresh();
                 })
         };
-        dialog.title("pide settings").w(px(520.)).child(
+        dialog.text_sm().title("pide settings").w(px(520.)).child(
             v_flex()
                 .gap_3()
                 .child(

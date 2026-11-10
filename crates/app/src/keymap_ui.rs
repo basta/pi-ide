@@ -45,6 +45,7 @@ pub fn open(window: &mut Window, cx: &mut App) {
             focus_once.clone(),
         );
         dialog
+            .text_sm()
             .close_button(false)
             .p_0()
             .content(move |content, window, cx| {
@@ -193,6 +194,7 @@ fn ask_key(id: String, title: String, current: Option<String>, window: &mut Wind
         }
         let muted = cx.theme().muted_foreground;
         dialog
+            .text_sm()
             .title(format!("Shortcut for {title}"))
             .w(px(460.))
             .child(

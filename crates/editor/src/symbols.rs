@@ -207,6 +207,7 @@ fn open_popup(
             workspace_from.clone(),
         );
         dialog
+            .text_sm()
             .close_button(false)
             .p_0()
             .content(move |content, window, cx| {

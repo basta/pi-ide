@@ -600,11 +600,9 @@ impl GitLogPanel {
                     .gap_1p5()
                     .border_b_1()
                     .border_color(theme.border)
-                    .child(
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(c.subject.clone()),
-                    )
+                    // Body text, like the rest of the panel: a commit message is
+                    // content, not a heading.
+                    .child(div().child(c.subject.clone()))
                     .when(!c.body.is_empty(), |d| {
                         d.child(
                             div()

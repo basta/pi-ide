@@ -855,6 +855,9 @@ impl Render for Shell {
             })
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
+            // Body text is 14 px everywhere; unsized text would otherwise take the
+            // 16 px rem and read like a heading. See "Text sizes" in AGENTS.md.
+            .text_sm()
             .child(
                 h_flex()
                     .w_full()

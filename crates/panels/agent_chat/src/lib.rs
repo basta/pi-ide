@@ -11,7 +11,7 @@ use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::dock::{PanelEvent, PanelInfo, PanelState, panel_handle, register_panel};
 use gpui_kit::component::input::{InputEvent, Paste, Textarea, TextareaState};
 use gpui_kit::component::notification::Notification;
-use gpui_kit::component::text::{TextView, TextViewState};
+use gpui_kit::component::text::{TextView, TextViewState, TextViewStyle};
 use gpui_kit::component::{ActiveTheme, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -1695,7 +1695,7 @@ impl AgentChat {
                             .overflow_hidden()
                             .text_ellipsis()
                             .whitespace_nowrap()
-                            .when(selected || a.unread, |this| {
+                            .when(a.unread, |this| {
                                 this.font_weight(FontWeight::SEMIBOLD)
                             })
                             .child(a.name.clone()),
@@ -1795,7 +1795,7 @@ impl AgentChat {
                             .overflow_hidden()
                             .text_ellipsis()
                             .whitespace_nowrap()
-                            .when(i == active || a.unread, |this| {
+                            .when(a.unread, |this| {
                                 this.font_weight(FontWeight::SEMIBOLD)
                             })
                             .child(a.name.clone()),
@@ -1957,7 +1957,7 @@ impl AgentChat {
                             }),
                     )
                 })
-                .child(TextView::new(markdown).selectable(true))
+                .child(TextView::new(markdown).style(chat_text_style()).selectable(true))
                 .when_some(error.clone(), |this, e| {
                     this.child(
                         div()
@@ -2572,4 +2572,15 @@ mod tests {
         let plain = vec![serde_json::json!({ "x": 1 }), serde_json::json!({ "x": 2 })];
         assert_eq!(current_branch(plain.clone()), plain);
     }
+}
+
+/// pi's replies sit between 14 px chat text and 12 px tool cards, so markdown
+/// headings stay close to the body (the default scale is for documents: an
+/// `#` would be ~25 px here). Weight carries the hierarchy, as everywhere else.
+fn chat_text_style() -> TextViewStyle {
+    TextViewStyle::default().heading_font_size(|level, base| match level {
+        1 => base * 1.25,
+        2 => base * 1.125,
+        _ => base,
+    })
 }

@@ -295,6 +295,8 @@ impl Render for FileTree {
                 };
                 let id = item.id.clone();
                 ListItem::new(ix)
+                    // GPUI Kit's list items are 16 px; tree rows are body text.
+                    .text_sm()
                     .w_full()
                     .rounded(cx.theme().radius)
                     .py_0p5()

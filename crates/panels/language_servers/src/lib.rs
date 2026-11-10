@@ -347,7 +347,7 @@ impl Render for LanguageServers {
             .child(
                 h_flex()
                     .justify_between()
-                    .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child("Language Servers"))
+                    .child(div().text_base().font_weight(FontWeight::SEMIBOLD).child("Language Servers"))
                     .child(
                         h_flex()
                             .gap_2()

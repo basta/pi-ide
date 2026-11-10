@@ -60,6 +60,7 @@ pub fn confirm(
         let (files2, proceed2) = (files.clone(), proceed.clone());
         let muted = cx.theme().muted_foreground;
         dialog
+            .text_sm()
             .title(if n == 1 {
                 format!("Save changes to {}?", names[0])
             } else {

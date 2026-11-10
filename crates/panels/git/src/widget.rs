@@ -232,6 +232,7 @@ fn show_branches(list: Vec<BranchInfo>, window: &mut Window, cx: &mut App) {
             current.clone(),
         );
         dialog
+            .text_sm()
             .close_button(false)
             .p_0()
             .w(px(420.))
@@ -355,6 +356,7 @@ fn branch_actions(b: BranchInfo, current: Option<String>, window: &mut Window, c
         let (actions, state, focus_once, b) =
             (actions.clone(), state.clone(), focus_once.clone(), b.clone());
         dialog
+            .text_sm()
             .close_button(false)
             .p_0()
             .w(px(380.))
@@ -471,6 +473,7 @@ fn prompt_name(
             });
         }
         dialog
+            .text_sm()
             .title(title.clone())
             .w(px(420.))
             .child(Input::new(&input))
@@ -749,6 +752,7 @@ fn show_push(root: PathBuf, out: Outgoing, window: &mut Window, cx: &mut App) {
     window.open_dialog(cx, move |dialog, _, _| {
         let (view, push_ok, push_force) = (view.clone(), push.clone(), push.clone());
         dialog
+            .text_sm()
             .title(title.clone())
             .w(px(760.))
             .child(view)

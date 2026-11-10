@@ -48,6 +48,7 @@ pub(crate) fn open(agent: Entity<Agent>, window: &mut Window, cx: &mut App) {
             });
         }
         dialog
+            .text_sm()
             .title("Rename session")
             .w(px(420.))
             .child(Input::new(&input).large())

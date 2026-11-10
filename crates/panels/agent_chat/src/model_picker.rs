@@ -52,6 +52,7 @@ pub(crate) fn open(agent: Entity<Agent>, window: &mut Window, cx: &mut App) {
             focus_once.clone(),
         );
         dialog
+            .text_sm()
             .close_button(false)
             .p_0()
             .content(move |content, window, cx| {
@@ -144,6 +145,7 @@ pub(crate) fn open_thinking(agent: Entity<Agent>, window: &mut Window, cx: &mut 
     window.open_dialog(cx, move |dialog, _, _| {
         let (agent, state, focus_once) = (agent.clone(), state.clone(), focus_once.clone());
         dialog
+            .text_sm()
             .close_button(false)
             .p_0()
             .w(px(320.))

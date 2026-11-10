@@ -84,6 +84,7 @@ fn prompt_name(
             });
         }
         dialog
+            .text_sm()
             .title(title.clone())
             .w(px(420.))
             .child(Input::new(&input))

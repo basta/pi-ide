@@ -487,6 +487,7 @@ pub fn prompt(
             });
         }
         dialog
+            .text_sm()
             .title("Run a command in the project folder")
             .w(px(520.))
             .child(Input::new(&input))

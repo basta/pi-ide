@@ -129,6 +129,7 @@ pub fn open(window: &mut Window, cx: &mut App) {
         let state = state.clone();
         let focus_once = focus_once.clone();
         dialog
+            .text_sm()
             .close_button(false)
             .p_0()
             .content(move |content, window, cx| {

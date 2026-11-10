@@ -69,6 +69,13 @@ Dependencies only go downward: `app` → panels/`editor`/`agent-pi` → `core`/`
 - **`use gpui_kit::*` shadows `#[test]`** with GPUI's test macro. In test modules that glob-import it, write `#[::core::prelude::v1::test]`.
 - **Outside changes are undoable:** a reload (pi's edit, another program) or `Workspace::replace_text` reaches the editor through `minimal::set_text` (line edits via `apply_lsp_edits`), never `set_value`, which wipes undo history. `Workspace::edited` ignores the editor echoing the buffer's own text, so a reload doesn't mark the tab dirty.
 - **Buffers:** the editor gets `\n` text; `Buffer` remembers CRLF and BOM and restores them on save (byte-identical round trip; tests in `core/src/buffer.rs`). Non-UTF-8 files open read-only and are never saved.
+- **Text sizes** (the rem stays 16 px, so spacing is unchanged; hierarchy comes mostly from weight and color, not size):
+  title 16 semibold = `text_base` (dialog titles — GPUI Kit's default — and the heading of a full-tab page like pi Settings) ·
+  body 14 = `text_sm`, the default (the shell root and every dialog set it; don't size body text yourself) ·
+  emphasis 14 semibold (group/section headers, item names) ·
+  meta 12 = `text_xs`, usually `muted_foreground` (paths after names, counts, hashes, dates, hints, status bar; small-caps section labels are 12 semibold muted) ·
+  code 13 = `mono_font_size` (editor), 12 mono for snippets inside panels.
+  Content (a commit message, a chat reply) is body, never a heading. GPUI Kit's `ListItem` hard-codes 16 px: add `.text_sm()`. Chat markdown uses a flatter heading scale (`chat_text_style`).
 - **`taffy` must stay at 0.15.0** in `Cargo.lock` (GPUI's `profiler` feature needs it). After `cargo update`, run `cargo update -p taffy --precise 0.15.0`.
 
 ## Running and logs
