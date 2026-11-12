@@ -322,7 +322,7 @@ impl Render for RunPanel {
         let lines = Rc::new(self.lines.clone());
         let mono = theme.mono_font_family.clone();
         let root = self.root.clone();
-        let link = theme.link;
+        let link = pide_core::colors::accent(cx);
         v_flex()
             .size_full()
             .track_focus(&self.focus)

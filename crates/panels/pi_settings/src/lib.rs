@@ -499,7 +499,7 @@ impl PiSettings {
                                             }),
                                         ))
                                     })
-                                    .child(Button::new(SharedString::from(format!("rm-{}", p.source))).small().danger().label("Remove").disabled(busy).on_click({
+                                    .child(Button::new(SharedString::from(format!("rm-{}", p.source))).small().label("Remove").disabled(busy).on_click({
                                         let me = cx.entity().downgrade();
                                         let shown = p.display.clone();
                                         move |_, window, cx| {
@@ -640,7 +640,7 @@ impl PiSettings {
                         this.child(
                             div()
                                 .text_xs()
-                                .text_color(theme.primary)
+                                .text_color(pide_core::colors::accent(cx))
                                 .child(format!("set for {}", scope.label().to_lowercase())),
                         )
                     }),
@@ -1081,7 +1081,7 @@ impl PiSettings {
                 Button::new(SharedString::from(format!("think-{level}")))
                     .small()
                     .label(level.to_string())
-                    .when(*level == thinking, |b| b.primary())
+                    .map(|b| pide_core::colors::toggle(b, *level == thinking, cx))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         let l = l.clone();
                         this.edit_settings(
@@ -1418,7 +1418,7 @@ impl Render for PiSettings {
                                 Button::new(SharedString::from(format!("scope-{}", s.label())))
                                     .small()
                                     .label(s.label())
-                                    .when(scope == s, |b| b.primary())
+                                    .map(|b| pide_core::colors::toggle(b, scope == s, cx))
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.scope = s;
                                         cx.notify();

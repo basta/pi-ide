@@ -587,11 +587,7 @@ impl Render for PushView {
             Some(Ok(list)) => v_flex()
                 .py_1()
                 .children(list.iter().map(|f| {
-                    let color = match f.kind {
-                        'A' => theme.success,
-                        'D' => theme.danger,
-                        _ => theme.blue,
-                    };
+                    let color = pide_core::colors::change(pide_core::colors::Change::from_letter(f.kind), cx);
                     h_flex()
                         .px_2()
                         .gap_2()

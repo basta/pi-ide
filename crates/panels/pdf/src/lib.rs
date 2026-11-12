@@ -669,7 +669,7 @@ impl Render for PdfPanel {
                         Button::new("fit")
                             .xsmall()
                             .label("Fit width")
-                            .when(self.fit_width, |b| b.primary())
+                            .map(|b| pide_core::colors::toggle(b, self.fit_width, cx))
                             .disabled(!ready)
                             .on_click(cx.listener(|t, _, _, cx| {
                                 t.fit_width = true;

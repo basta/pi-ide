@@ -10,14 +10,14 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::Button;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::component::dock::{PanelEvent, PanelState, panel_handle, register_panel};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{
     ActiveTheme, Disableable as _, Sizable as _, WindowExt as _, h_flex, v_flex,
 };
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use pide_core::{DockPosition, Panel, Services, Workspace};
 
@@ -338,7 +338,7 @@ impl Render for FindInFiles {
             Button::new(id)
                 .xsmall()
                 .label(label)
-                .when(on, |b| b.primary())
+                .map(|b| pide_core::colors::toggle(b, on, cx))
                 .tooltip(tip)
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle(which, cx)))
         };

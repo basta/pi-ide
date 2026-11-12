@@ -309,13 +309,10 @@ impl Render for FileTree {
                             .child(icon)
                             .child(div().flex_1().child(item.label.clone()))
                             .when_some(badge, |this, b| {
-                                let color = if b == "A" {
-                                    cx.theme().success
-                                } else if b == "D" {
-                                    cx.theme().danger
-                                } else {
-                                    cx.theme().warning
-                                };
+                                let color = pide_core::colors::change(
+                                    pide_core::colors::Change::from_letter(b.chars().next().unwrap_or('M')),
+                                    cx,
+                                );
                                 this.child(
                                     div()
                                         .text_xs()

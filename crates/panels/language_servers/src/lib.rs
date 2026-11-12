@@ -151,7 +151,9 @@ impl LanguageServers {
                 theme.success,
                 format!("running · {}", server.unwrap().status_text()),
             ),
-            (Some(ServerState::Starting), _) => (theme.warning, "starting".to_string()),
+            (Some(ServerState::Starting), _) => {
+                (pide_core::colors::accent(cx), "starting".to_string())
+            }
             (Some(ServerState::Crashed { message, .. }), _) => {
                 (theme.danger, format!("crashed: {message}"))
             }
@@ -162,7 +164,7 @@ impl LanguageServers {
                     spec.extensions[0]
                 ),
             ),
-            (_, Some(Installed::No { .. })) => (theme.danger, "not installed".to_string()),
+            (_, Some(Installed::No { .. })) => (theme.muted_foreground, "not installed".to_string()),
             (_, None) => (theme.muted_foreground, "checking…".to_string()),
         };
         let detail = match &installed {

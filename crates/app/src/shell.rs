@@ -462,7 +462,7 @@ impl Shell {
             .px_3()
             .py_1()
             .text_xs()
-            .bg(theme.secondary)
+            .bg(theme.status_bar)
             .border_t_1()
             .border_color(theme.border)
             .text_color(theme.muted_foreground)

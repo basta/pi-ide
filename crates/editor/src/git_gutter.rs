@@ -64,8 +64,9 @@ impl EditorPanel {
             return;
         }
         let status = &cx.theme().highlight_theme.style.status;
-        let (added, modified, deleted) =
-            (status.created(cx), status.modified(cx), status.deleted(cx));
+        // Modified is blue, as in every git list (GPUI Kit's own is yellow).
+        let modified = pide_core::colors::change(pide_core::colors::Change::Modified, cx);
+        let (added, deleted) = (status.created(cx), status.deleted(cx));
         let marks: Vec<GutterDecoration> = changes
             .iter()
             .map(|c| {

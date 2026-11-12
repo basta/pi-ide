@@ -186,11 +186,13 @@ impl EditorPanel {
                             .child(
                                 h_flex()
                                     .flex_wrap()
+                                    // The rest of the signature recedes; the parameter being typed stands out.
+                                    .text_color(theme.muted_foreground)
                                     .child(before.to_string())
                                     .child(
                                         div()
                                             .font_weight(FontWeight::BOLD)
-                                            .text_color(theme.primary)
+                                            .text_color(theme.popover_foreground)
                                             .child(param.to_string()),
                                     )
                                     .child(after.to_string())

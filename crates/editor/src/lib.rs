@@ -1130,11 +1130,7 @@ impl EditorPanel {
     }
 
     fn bar(&self, cx: &App, error: bool, text: impl Into<SharedString>) -> Div {
-        let (bg, fg) = if error {
-            (cx.theme().danger, cx.theme().danger_foreground)
-        } else {
-            (cx.theme().warning, cx.theme().warning_foreground)
-        };
+        let (bg, fg) = (pide_core::colors::notice_bg(error, cx), cx.theme().foreground);
         h_flex()
             .w_full()
             .gap_2()
@@ -1209,7 +1205,7 @@ impl gpui_kit::component::dock::Panel for EditorPanel {
             .gap_1()
             .child(self.title_text(cx))
             .when(dirty, |this| {
-                this.child(div().text_color(cx.theme().warning).child("●"))
+                this.child(div().text_color(cx.theme().muted_foreground).child("●"))
             })
     }
 }

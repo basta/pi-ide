@@ -393,7 +393,7 @@ impl Render for DiffPanel {
                                     Button::new("split")
                                         .small()
                                         .label("Side by side")
-                                        .when(split, |b| b.primary())
+                                        .map(|b| pide_core::colors::toggle(b, split, cx))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.set_mode(DiffMode::Split, cx)
                                         })),
@@ -402,7 +402,7 @@ impl Render for DiffPanel {
                                     Button::new("inline")
                                         .small()
                                         .label("Inline")
-                                        .when(!split, |b| b.primary())
+                                        .map(|b| pide_core::colors::toggle(b, !split, cx))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.set_mode(DiffMode::Unified, cx)
                                         })),

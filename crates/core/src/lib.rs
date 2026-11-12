@@ -5,6 +5,7 @@
 pub mod agent;
 pub mod buffer;
 pub mod changes;
+pub mod colors;
 pub mod commands;
 pub mod context;
 pub mod events;

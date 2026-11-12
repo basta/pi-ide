@@ -1427,11 +1427,10 @@ impl AgentChat {
                     .display()
                     .to_string();
                 let badge = c.badge();
-                let badge_color = match badge {
-                    "A" => theme.success,
-                    "D" => theme.danger,
-                    _ => theme.warning,
-                };
+                let badge_color = pide_core::colors::change(
+                    pide_core::colors::Change::from_letter(badge.chars().next().unwrap_or('M')),
+                    cx,
+                );
                 let flagged = shared.contains(&c.path);
                 let (diff_path, diff_before, diff_label) =
                     (c.path.clone(), c.before.clone(), label.clone());
@@ -1446,7 +1445,7 @@ impl AgentChat {
                     .border_b_1()
                     .border_color(theme.border)
                     .cursor_pointer()
-                    .hover(|this| this.bg(theme.accent))
+                    .hover(|this| this.bg(theme.list_hover))
                     .on_click(cx.listener(move |_, _, window, cx| {
                         pide_core::opener::open_diff(
                             pide_core::opener::DiffRequest {
@@ -1540,7 +1539,6 @@ impl AgentChat {
                                 .child(
                                     Button::new(("revert", i))
                                         .xsmall()
-                                        .danger()
                                         .label("Revert")
                                         .on_click(cx.listener(move |this, _, window, cx| {
                                             cx.stop_propagation();
@@ -1605,7 +1603,6 @@ impl AgentChat {
                 this.child(
                     Button::new("revert-all")
                         .xsmall()
-                        .danger()
                         .label("Revert all…")
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.confirm_revert_all(agent_rev.clone(), open.clone(), window, cx)
@@ -1631,7 +1628,7 @@ impl AgentChat {
             AgentStatus::Crashed { .. } => base.bg(theme.danger).into_any_element(),
             _ if agent.waiting => base.bg(theme.warning).into_any_element(),
             AgentStatus::Busy | AgentStatus::Starting | AgentStatus::Aborting => {
-                base.bg(theme.primary).into_any_element()
+                base.bg(pide_core::colors::accent(cx)).into_any_element()
             }
             _ if agent.unread => div()
                 .flex_none()
@@ -1684,7 +1681,7 @@ impl AgentChat {
                     .when(selected, |this| {
                         this.bg(theme.background)
                             .border_t_2()
-                            .border_color(theme.primary)
+                            .border_color(pide_core::colors::accent(cx))
                     })
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.sessions.update(cx, |s, cx| s.set_active(i, cx));
@@ -1783,7 +1780,8 @@ impl AgentChat {
                     .px_3()
                     .py_2()
                     .cursor_pointer()
-                    .when(i == active, |this| this.bg(theme.accent))
+                    .hover(|this| this.bg(theme.list_hover))
+                    .when(i == active, |this| this.bg(theme.list_active))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.sessions.update(cx, |s, cx| s.set_active(i, cx));
                     }))
@@ -1829,7 +1827,7 @@ impl AgentChat {
                     .px_3()
                     .py_1p5()
                     .cursor_pointer()
-                    .hover(|this| this.bg(theme.accent))
+                    .hover(|this| this.bg(theme.list_hover))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         let (path, name) = (path.clone(), name.clone());
                         this.sessions.update(cx, |s, cx| {
@@ -2129,7 +2127,7 @@ impl AgentChat {
                     .py_1()
                     .border_b_1()
                     .border_color(theme.border)
-                    .child(Button::new("view-chat").xsmall().label("Chat").when(!show_changes, |b| b.primary()).on_click(
+                    .child(Button::new("view-chat").xsmall().label("Chat").map(|b| pide_core::colors::toggle(b, !show_changes, cx)).on_click(
                         cx.listener(|this, _, _, cx| {
                             this.show_changes = false;
                             cx.notify();
@@ -2143,7 +2141,7 @@ impl AgentChat {
                                 (_, 0) => format!("Changes · {n_changes}"),
                                 (_, u) => format!("Changes · {u} to review"),
                             })
-                            .when(show_changes, |b| b.primary())
+                            .map(|b| pide_core::colors::toggle(b, show_changes, cx))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.show_changes = true;
                                 cx.notify();
@@ -2351,7 +2349,7 @@ impl AgentChat {
                         Button::new("context-toggle")
                             .xsmall()
                             .label(label)
-                            .when(on, |b| b.primary())
+                            .map(|b| pide_core::colors::toggle(b, on, cx))
                             .tooltip("Send the active file and selection with new prompts")
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_context(cx)))
                     }).when(busy, |this| {
@@ -2381,7 +2379,7 @@ fn queued_row(
             div()
                 .flex_none()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.warning)
+                .text_color(theme.muted_foreground)
                 .child(kind),
         )
         .child(
@@ -2489,7 +2487,7 @@ impl Render for AgentChat {
                                 .child(
                                     Button::new("new-session-wide")
                                         .small()
-                                        .primary()
+                                        .ghost()
                                         .label("New")
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.sessions.update(cx, |s, cx| {

@@ -561,9 +561,8 @@ impl GitPanel {
             .text_size(px(10.))
             .cursor_pointer()
             .when(on, |d| {
-                d.bg(theme.primary)
-                    .border_color(theme.primary)
-                    .text_color(theme.primary_foreground)
+                let accent = pide_core::colors::accent(cx);
+                d.bg(accent).border_color(accent).text_color(theme.background)
             })
             .when(!on, |d| d.border_color(theme.input))
             .child(match tri {
@@ -575,12 +574,17 @@ impl GitPanel {
 
     fn render_file(&self, e: &Entry, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
-        let color = match e.kind {
-            Kind::Untracked => theme.warning,
-            Kind::Added => theme.success,
-            Kind::Deleted | Kind::Conflict => theme.danger,
-            _ => theme.blue,
-        };
+        use pide_core::colors::{Change, change};
+        let color = change(
+            match e.kind {
+                Kind::Untracked => Change::Untracked,
+                Kind::Added => Change::Added,
+                Kind::Deleted => Change::Deleted,
+                Kind::Conflict => Change::Conflict,
+                Kind::Modified | Kind::Renamed => Change::Modified,
+            },
+            cx,
+        );
         let (dir, name) = match e.rel.rsplit_once('/') {
             Some((d, n)) => (d.to_string(), n.to_string()),
             None => (String::new(), e.rel.clone()),

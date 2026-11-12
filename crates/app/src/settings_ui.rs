@@ -68,7 +68,7 @@ pub fn open(window: &mut Window, cx: &mut App) {
             Button::new(id)
                 .small()
                 .label(label)
-                .when(theme == setting, |b| b.primary())
+                .map(|b| pide_core::colors::toggle(b, theme == setting, cx))
                 .on_click(move |_, window, cx| {
                     CommandRegistry::run(command, window, cx);
                     window.refresh();

@@ -532,11 +532,7 @@ impl GitLogPanel {
                         )),
                 )
                 .children(files.iter().enumerate().map(|(i, f)| {
-                    let color = match f.kind {
-                        'A' => theme.success,
-                        'D' => theme.danger,
-                        _ => theme.warning,
-                    };
+                    let color = pide_core::colors::change(pide_core::colors::Change::from_letter(f.kind), cx);
                     let (dir, name) = match f.path.rsplit_once('/') {
                         Some((d, n)) => (d.to_string(), n.to_string()),
                         None => (String::new(), f.path.clone()),
