@@ -701,6 +701,7 @@ impl EditorPanel {
                     }
                     this.signature_after_edit(cx);
                     this.refresh_git_marks(std::time::Duration::from_millis(250), cx);
+                    this.pi_text_changed(cx);
                 }
                 InputEvent::Blur => this.hide_signature(cx),
                 _ => {}

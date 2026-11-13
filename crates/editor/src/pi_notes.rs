@@ -30,10 +30,12 @@ pub(crate) struct PiNotes {
     /// What the marks were last made from; the agent notifies on every streamed
     /// token, so unchanged notes skip the work.
     last: Option<(
-        Vec<(pide_core::collab::StopRef, usize, bool, bool)>,
+        Vec<(pide_core::collab::StopRef, usize, bool, bool, String)>,
         Option<pide_core::collab::StopRef>,
         u64,
     )>,
+    /// Re-finding the anchors after you type (debounced).
+    _typed: Option<Task<()>>,
     _agent_sub: Option<Subscription>,
     _sessions_sub: Option<Subscription>,
 }
@@ -61,6 +63,22 @@ impl EditorPanel {
         self.refresh_pi_marks(cx);
     }
 
+    /// The text changed: find the notes' lines again once typing pauses.
+    pub(crate) fn pi_text_changed(&mut self, cx: &mut Context<Self>) {
+        if self.pi.agent.is_none() {
+            return;
+        }
+        self.pi._typed = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(400))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.pi_marks_stale();
+                this.refresh_pi_marks(cx);
+            });
+        }));
+    }
+
     /// Make the next refresh redo the marks even if the notes didn't change.
     pub(crate) fn pi_marks_stale(&mut self) {
         self.pi.last = None;
@@ -85,7 +103,7 @@ impl EditorPanel {
         let key = (
             stops
                 .iter()
-                .map(|s| (s.at.clone(), s.line, s.seen, s.outdated))
+                .map(|s| (s.at.clone(), s.line, s.seen, s.outdated, s.label()))
                 .collect::<Vec<_>>(),
             current.clone(),
             self.buffer
