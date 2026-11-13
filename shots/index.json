@@ -1,5 +1,17 @@
 [
  {
+  "file": "shots/20261113T174520Z-commit-pi-notes.png",
+  "time": "2026-11-13T17:45:20Z",
+  "milestone": "consolidation",
+  "caption": "The Commit tool window flags stats.py with 3 pi notes not yet stepped through; clicking walks them in that session."
+ },
+ {
+  "file": "shots/20261113T174519Z-understand-card.png",
+  "time": "2026-11-13T17:45:19Z",
+  "milestone": "consolidation",
+  "caption": "An empty session now shows the Understand card: the five ways to follow pi's code, each one click, and what the editor's marks mean."
+ },
+ {
   "file": "shots/20261113T172759Z-tour-resumed.png",
   "time": "2026-11-13T17:27:59Z",
   "milestone": "tours library",
