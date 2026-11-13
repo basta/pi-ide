@@ -1,5 +1,17 @@
 [
  {
+  "file": "shots/20261113T1708Z-explain-this.png",
+  "time": "2026-11-13T17:08:24Z",
+  "milestone": "advisor items",
+  "caption": "Explain This Code on spread(): pi left three numbered pins in reading order (the note bar shows 1/3) and an overview in the chat, without changing code."
+ },
+ {
+  "file": "shots/20261113T1708Z-ask-why.png",
+  "time": "2026-11-13T17:08:23Z",
+  "milestone": "advisor items",
+  "caption": "Changes after Ask why: stats.py had no reason, the button asked pi in the session to explain it, and its summary now shows in Changes and the note bar."
+ },
+ {
   "file": "shots/20261113T1703Z-pin-snippet-note-bar.png",
   "time": "2026-11-13T17:03:45Z",
   "milestone": "polish",
