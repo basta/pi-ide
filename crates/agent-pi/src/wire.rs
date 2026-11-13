@@ -140,13 +140,23 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
             id: s(&v, "toolCallId"),
             partial: v.get("partialResult").cloned().unwrap_or_default(),
         }),
-        "tool_execution_end" => ev(AgentEvent::ToolEnd {
-            id: s(&v, "toolCallId"),
-            name: s(&v, "toolName"),
-            result: v.get("result").cloned().unwrap_or_default(),
-            is_error: v.get("isError").and_then(Value::as_bool).unwrap_or(false),
-            duration_ms: v.get("durationMs").and_then(Value::as_u64),
-        }),
+        "tool_execution_end" => {
+            let id = s(&v, "toolCallId");
+            let result = v.get("result").cloned().unwrap_or_default();
+            let is_error = v.get("isError").and_then(Value::as_bool).unwrap_or(false);
+            let collab = (!is_error)
+                .then(|| collab_event(&id, &result["details"]))
+                .flatten();
+            let mut out = ev(AgentEvent::ToolEnd {
+                id,
+                name: s(&v, "toolName"),
+                result,
+                is_error,
+                duration_ms: v.get("durationMs").and_then(Value::as_u64),
+            });
+            out.extend(collab.map(Inbound::Event));
+            out
+        }
         "queue_update" => {
             let list = |k: &str| -> Vec<String> {
                 v.get(k)
@@ -217,6 +227,63 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
         },
         t if QUIET.contains(&t) => vec![],
         _ => ev(AgentEvent::Unknown(v)),
+    }
+}
+
+/// A pide extension tool's result `details` (`ext/pide.ts`, docs/COLLAB.md) as
+/// an event. Paths are as the extension sent them (relative to the project when
+/// inside it); the connection resolves them against pi's working directory.
+pub fn collab_event(tool_call_id: &str, d: &Value) -> Option<AgentEvent> {
+    use pide_core::collab::{Anchor, HunkNote, Pin, ProgressStep};
+    if d.get("pide").and_then(Value::as_u64) != Some(1) {
+        return None;
+    }
+    let line = |v: &Value, k: &str| v.get(k).and_then(Value::as_u64).unwrap_or(1).max(1) as usize;
+    match d.get("kind")?.as_str()? {
+        "pin" => {
+            let start = line(d, "line");
+            Some(AgentEvent::Pin(Pin {
+                id: tool_call_id.to_string(),
+                path: s(d, "path").into(),
+                anchor: Anchor::new(start, s(d, "text")),
+                end_line: line(d, "end_line").max(start),
+                note: s(d, "note"),
+                seen: false,
+                dismissed: false,
+            }))
+        }
+        "explain" => Some(AgentEvent::ExplainChange {
+            path: s(d, "path").into(),
+            summary: s(d, "summary"),
+            hunks: d
+                .get("hunks")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .map(|h| HunkNote {
+                            anchor: Anchor::new(line(h, "line"), s(h, "text")),
+                            note: s(h, "note"),
+                            seen: false,
+                            dismissed: false,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }),
+        "progress" => Some(AgentEvent::Progress(
+            d.get("steps")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .map(|st| ProgressStep {
+                            text: s(st, "text"),
+                            done: st.get("done").and_then(Value::as_bool).unwrap_or(false),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        )),
+        _ => None, // "refused": the model was told; nothing to show
     }
 }
 

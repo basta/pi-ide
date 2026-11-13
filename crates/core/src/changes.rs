@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 use gpui_kit::SharedString;
 
+use crate::collab::{HunkNote, Pin, ProgressStep};
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Touch {
     pub tool_call_id: String,
@@ -24,9 +26,34 @@ pub struct FileChange {
     pub deleted_now: bool,
     pub reviewed: bool,
     pub reverted: bool,
+    /// pi's one-line reason (`ide_explain_change`).
+    pub summary: Option<String>,
+    /// pi's notes on changed places (`ide_explain_change`).
+    pub notes: Vec<HunkNote>,
+    /// First changed line now (1-based), with the stats; the walkthrough's stop
+    /// for a file without notes.
+    pub first_line: Option<usize>,
+    /// That stop was stepped onto (walkthrough).
+    pub seen: bool,
 }
 
 impl FileChange {
+    pub fn new(path: PathBuf, before: Option<String>, touch: Touch) -> Self {
+        Self {
+            path,
+            before,
+            touches: vec![touch],
+            stats: None,
+            deleted_now: false,
+            reviewed: false,
+            reverted: false,
+            summary: None,
+            notes: Vec::new(),
+            first_line: None,
+            seen: false,
+        }
+    }
+
     pub fn badge(&self) -> &'static str {
         if self.deleted_now {
             "D"
@@ -98,16 +125,51 @@ struct Stored {
     touches: Vec<(String, String)>,
     reviewed: bool,
     reverted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    notes: Vec<HunkNote>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    seen: bool,
 }
 
-/// Write a session's change list (blocking: call off the UI thread).
-pub fn save(session_file: &Path, changes: &[FileChange]) -> std::io::Result<()> {
-    save_at(&store_file(session_file), changes)
+/// What's saved per pi session: its changes and what pi pointed at (collaborator mode).
+#[derive(Clone, Debug, Default)]
+pub struct Saved {
+    pub changes: Vec<FileChange>,
+    pub pins: Vec<Pin>,
+    pub progress: Vec<ProgressStep>,
 }
 
-fn save_at(file: &Path, changes: &[FileChange]) -> std::io::Result<()> {
+impl Saved {
+    pub fn is_empty(&self) -> bool {
+        self.changes.is_empty() && self.pins.is_empty() && self.progress.is_empty()
+    }
+}
+
+/// The file: an object since collaborator mode; a bare change list before.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum StoredFile {
+    Full {
+        changes: Vec<Stored>,
+        #[serde(default)]
+        pins: Vec<Pin>,
+        #[serde(default)]
+        progress: Vec<ProgressStep>,
+    },
+    Changes(Vec<Stored>),
+}
+
+/// Write a session's saved state (blocking: call off the UI thread).
+pub fn save(session_file: &Path, saved: &Saved) -> std::io::Result<()> {
+    save_at(&store_file(session_file), saved)
+}
+
+fn save_at(file: &Path, saved: &Saved) -> std::io::Result<()> {
     let file = file.to_path_buf();
-    if changes.is_empty() {
+    let changes = &saved.changes;
+    if saved.is_empty() {
         return match std::fs::remove_file(&file) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
@@ -125,28 +187,82 @@ fn save_at(file: &Path, changes: &[FileChange]) -> std::io::Result<()> {
                 .collect(),
             reviewed: c.reviewed,
             reverted: c.reverted,
+            summary: c.summary.clone(),
+            notes: c.notes.clone(),
+            seen: c.seen,
         })
         .collect();
+    let doc = serde_json::json!({
+        "changes": stored,
+        "pins": saved.pins,
+        "progress": saved.progress,
+    });
     std::fs::create_dir_all(file.parent().unwrap_or(Path::new(".")))?;
     let tmp = file.with_extension("json.tmp");
     std::fs::write(
         &tmp,
-        serde_json::to_vec(&stored).map_err(std::io::Error::other)?,
+        serde_json::to_vec(&doc).map_err(std::io::Error::other)?,
     )?;
     std::fs::rename(tmp, file)
 }
 
-/// A saved session's change list (empty if none); stats are left to compute.
-pub fn load(session_file: &Path) -> Vec<FileChange> {
-    load_at(&store_file(session_file))
+/// A saved session's state (empty if none); stats are left to compute.
+/// Pins and hunk notes are re-anchored against the files on disk (blocking:
+/// call off the UI thread).
+pub fn load(session_file: &Path) -> Saved {
+    let mut saved = load_at(&store_file(session_file));
+    reanchor_from_disk(&mut saved);
+    saved
 }
 
-fn load_at(file: &Path) -> Vec<FileChange> {
-    let Ok(bytes) = std::fs::read(file) else {
-        return Vec::new();
+/// Find every pin and hunk note again in its file as it is now; mark the ones
+/// whose text is gone outdated.
+pub fn reanchor_from_disk(saved: &mut Saved) {
+    let mut cache: std::collections::HashMap<PathBuf, Option<String>> = Default::default();
+    let mut text = |p: &Path| {
+        cache
+            .entry(p.to_path_buf())
+            .or_insert_with(|| snapshot(p))
+            .clone()
     };
-    let stored: Vec<Stored> = serde_json::from_slice(&bytes).unwrap_or_default();
-    stored
+    for c in &mut saved.changes {
+        let now = text(&c.path);
+        for n in &mut c.notes {
+            match &now {
+                Some(t) => {
+                    n.anchor.reanchor(t);
+                }
+                None => n.anchor.outdated = true,
+            }
+        }
+    }
+    for p in &mut saved.pins {
+        match text(&p.path) {
+            Some(t) => {
+                p.anchor.reanchor(&t);
+            }
+            None => p.anchor.outdated = true,
+        }
+    }
+}
+
+fn load_at(file: &Path) -> Saved {
+    let Ok(bytes) = std::fs::read(file) else {
+        return Saved::default();
+    };
+    let (stored, pins, progress) = match serde_json::from_slice::<StoredFile>(&bytes) {
+        Ok(StoredFile::Full {
+            changes,
+            pins,
+            progress,
+        }) => (changes, pins, progress),
+        Ok(StoredFile::Changes(c)) => (c, Vec::new(), Vec::new()),
+        Err(e) => {
+            log::warn!("{}: {e}", file.display());
+            Default::default()
+        }
+    };
+    let changes = stored
         .into_iter()
         .map(|s| FileChange {
             path: s.path,
@@ -160,8 +276,17 @@ fn load_at(file: &Path) -> Vec<FileChange> {
             deleted_now: false,
             reviewed: s.reviewed,
             reverted: s.reverted,
+            summary: s.summary,
+            notes: s.notes,
+            first_line: None,
+            seen: s.seen,
         })
-        .collect()
+        .collect();
+    Saved {
+        changes,
+        pins,
+        progress,
+    }
 }
 
 /// One changed region: line ranges (0-based, end exclusive) in before and after.
@@ -211,20 +336,51 @@ mod tests {
     #[::core::prelude::v1::test]
     fn change_list_round_trips() {
         let file = std::env::temp_dir().join(format!("pide-changes-{}/x.json", std::process::id()));
-        let c = FileChange {
-            path: "/p/a.rs".into(),
-            before: Some("old\n".into()),
-            touches: vec![Touch {
+        let mut c = FileChange::new(
+            "/p/a.rs".into(),
+            Some("old\n".into()),
+            Touch {
                 tool_call_id: "t1".into(),
                 tool: "edit".into(),
-            }],
-            stats: Some((1, 1)),
-            deleted_now: false,
-            reviewed: true,
-            reverted: false,
+            },
+        );
+        c.stats = Some((1, 1));
+        c.reviewed = true;
+        c.summary = Some("why".into());
+        c.notes = vec![HunkNote {
+            anchor: crate::collab::Anchor::new(3, "x".into()),
+            note: "n".into(),
+            seen: true,
+            dismissed: false,
+        }];
+        let pin = Pin {
+            id: "t2".into(),
+            path: "/p/a.rs".into(),
+            anchor: crate::collab::Anchor::new(1, "fn a".into()),
+            end_line: 2,
+            note: "look".into(),
+            seen: false,
+            dismissed: false,
         };
-        save_at(&file, &[c.clone()]).unwrap();
-        let back = load_at(&file);
+        let progress = vec![ProgressStep {
+            text: "one".into(),
+            done: true,
+        }];
+        save_at(
+            &file,
+            &Saved {
+                changes: vec![c.clone()],
+                pins: vec![pin.clone()],
+                progress: progress.clone(),
+            },
+        )
+        .unwrap();
+        let saved = load_at(&file);
+        assert_eq!(saved.pins, vec![pin]);
+        assert_eq!(saved.progress, progress);
+        assert_eq!(saved.changes[0].summary.as_deref(), Some("why"));
+        assert_eq!(saved.changes[0].notes, c.notes);
+        let back = saved.changes;
         assert_eq!(back.len(), 1);
         assert_eq!(
             (
@@ -236,7 +392,14 @@ mod tests {
             (c.path, c.before, c.touches, true)
         );
         assert_eq!(back[0].stats, None);
-        save_at(&file, &[]).unwrap();
+        // The format before collaborator mode (a bare list) still loads.
+        std::fs::write(
+            &file,
+            r#"[{"path":"/p/b.rs","before":null,"touches":[["t","write"]],"reviewed":false,"reverted":false}]"#,
+        )
+        .unwrap();
+        assert_eq!(load_at(&file).changes[0].path, PathBuf::from("/p/b.rs"));
+        save_at(&file, &Saved::default()).unwrap();
         assert!(load_at(&file).is_empty());
         let _ = std::fs::remove_dir_all(file.parent().unwrap());
     }

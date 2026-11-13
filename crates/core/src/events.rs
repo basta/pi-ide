@@ -150,6 +150,16 @@ pub enum AgentEvent {
         message: String,
         error: bool,
     },
+    /// Collaborator mode (`ide_pin`): pi points the user at code.
+    Pin(crate::collab::Pin),
+    /// Collaborator mode (`ide_explain_change`): why pi changed a file (absolute path).
+    ExplainChange {
+        path: PathBuf,
+        summary: String,
+        hunks: Vec<crate::collab::HunkNote>,
+    },
+    /// Collaborator mode (`ide_progress`): the session's checklist, complete.
+    Progress(Vec<crate::collab::ProgressStep>),
     /// Something the backend wants the user to see (rejected prompt, extension error…).
     Error(String),
     /// The agent process exited.

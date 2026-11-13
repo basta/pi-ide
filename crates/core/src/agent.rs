@@ -4,6 +4,7 @@
 use gpui_kit::*;
 
 use crate::changes::{FileChange, Touch};
+use crate::collab::{Pin, ProgressStep, Stop, StopRef};
 use crate::events::{AgentEvent, DialogAnswer, DialogRequest};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,6 +143,12 @@ pub struct Agent {
     pub queue: (Vec<String>, Vec<String>),
     /// Files pi changed in this session, in first-touched order.
     pub changes: Vec<FileChange>,
+    /// What pi pinned for the user (`ide_pin`), in order.
+    pub pins: Vec<Pin>,
+    /// pi's checklist for this session (`ide_progress`), latest version.
+    pub progress: Vec<ProgressStep>,
+    /// The walkthrough's current stop (see [`Agent::stops`]).
+    pub current_stop: Option<StopRef>,
     /// Pending write of `changes` to disk (debounced; dropping cancels).
     persist: Option<Task<()>>,
     /// Tool call id -> path, for file-changing calls still running.
@@ -179,6 +186,9 @@ impl Agent {
             dialogs: Vec::new(),
             _dialog_timers: Vec::new(),
             changes: Vec::new(),
+            pins: Vec::new(),
+            progress: Vec::new(),
+            current_stop: None,
             persist: None,
             pending_touches: Vec::new(),
         }
@@ -243,6 +253,14 @@ impl Agent {
     pub fn set_reviewed(&mut self, path: &std::path::Path, reviewed: bool, cx: &mut Context<Self>) {
         if let Some(c) = self.changes.iter_mut().find(|c| c.path == path) {
             c.reviewed = reviewed;
+            if reviewed {
+                // Reviewed in Changes = walked through.
+                c.seen = true;
+                c.notes.iter_mut().for_each(|n| n.seen = true);
+                for p in self.pins.iter_mut().filter(|p| p.path == path) {
+                    p.seen = true;
+                }
+            }
             self.persist_changes(cx);
             cx.notify();
         }
@@ -253,11 +271,15 @@ impl Agent {
         let Some(session) = self.session_file.clone() else {
             return;
         };
-        let changes = self.changes.clone();
+        let saved = crate::changes::Saved {
+            changes: self.changes.clone(),
+            pins: self.pins.clone(),
+            progress: self.progress.clone(),
+        };
         let bg = cx.background_executor().clone();
         self.persist = Some(cx.background_executor().spawn(async move {
             bg.timer(std::time::Duration::from_millis(300)).await;
-            if let Err(e) = crate::changes::save(&session, &changes) {
+            if let Err(e) = crate::changes::save(&session, &saved) {
                 log::warn!("save change list: {e}");
             }
         }));
@@ -274,11 +296,13 @@ impl Agent {
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let loaded = load.await;
             let _ = this.update(cx, |this, cx| {
-                if !this.changes.is_empty() || loaded.is_empty() {
+                if !this.changes.is_empty() || !this.pins.is_empty() || loaded.is_empty() {
                     return;
                 }
-                let paths: Vec<_> = loaded.iter().map(|c| c.path.clone()).collect();
-                this.changes = loaded;
+                let paths: Vec<_> = loaded.changes.iter().map(|c| c.path.clone()).collect();
+                this.changes = loaded.changes;
+                this.pins = loaded.pins;
+                this.progress = loaded.progress;
                 for p in paths {
                     this.refresh_stats(p, cx);
                 }
@@ -325,18 +349,18 @@ impl Agent {
             let path = path.clone();
             async move {
                 let now = crate::changes::snapshot(&path);
-                let stats = crate::changes::line_stats(
-                    before.as_deref().unwrap_or(""),
-                    now.as_deref().unwrap_or(""),
-                );
-                (stats, now.is_none())
+                let (b, n) = (before.as_deref().unwrap_or(""), now.as_deref().unwrap_or(""));
+                let stats = crate::changes::line_stats(b, n);
+                let first = crate::changes::hunks(b, n).first().map(|h| h.after.start + 1);
+                (stats, now.is_none(), first)
             }
         });
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
-            let (stats, gone) = work.await;
+            let (stats, gone, first) = work.await;
             let _ = this.update(cx, |this, cx| {
                 if let Some(c) = this.changes.iter_mut().find(|c| c.path == path) {
                     c.stats = Some(stats);
+                    c.first_line = first;
                     c.deleted_now = gone && c.before.is_some();
                 }
                 cx.notify();
@@ -466,21 +490,16 @@ impl Agent {
                     Some(c) => {
                         c.touches.push(touch);
                         c.reviewed = false;
+                        c.seen = false;
                         if c.reverted {
                             // Reverted, then touched again: the new baseline is what was on disk now.
                             c.reverted = false;
                             c.before = before.clone();
                         }
                     }
-                    None => self.changes.push(FileChange {
-                        path: path.clone(),
-                        before: before.clone(),
-                        touches: vec![touch],
-                        stats: None,
-                        deleted_now: false,
-                        reviewed: false,
-                        reverted: false,
-                    }),
+                    None => self
+                        .changes
+                        .push(FileChange::new(path.clone(), before.clone(), touch)),
                 }
                 if tool == "bash" {
                     // Reported after the call ended (see agent-pi's bash_watch).
@@ -533,6 +552,63 @@ impl Agent {
                 self.queue = (steering.clone(), follow_up.clone());
                 cx.notify();
             }
+            AgentEvent::Pin(pin) => {
+                self.pins.retain(|p| p.id != pin.id);
+                self.pins.push(pin.clone());
+                self.persist_changes(cx);
+                cx.notify();
+            }
+            AgentEvent::ExplainChange {
+                path,
+                summary,
+                hunks,
+            } => {
+                match self.changes.iter_mut().find(|c| &c.path == path) {
+                    Some(c) => {
+                        c.summary = (!summary.trim().is_empty()).then(|| summary.clone());
+                        c.notes = hunks.clone();
+                        c.seen = false;
+                    }
+                    // No change record (changed outside edit/write/watched bash):
+                    // keep the reasons as pins so they still show and walk (docs/COLLAB.md).
+                    None => {
+                        let n = self.pins.len();
+                        let pins: Vec<Pin> = if hunks.is_empty() {
+                            vec![Pin {
+                                id: format!("explain-{n}"),
+                                path: path.clone(),
+                                anchor: crate::collab::Anchor::new(1, String::new()),
+                                end_line: 1,
+                                note: summary.clone(),
+                                seen: false,
+                                dismissed: false,
+                            }]
+                        } else {
+                            hunks
+                                .iter()
+                                .enumerate()
+                                .map(|(i, h)| Pin {
+                                    id: format!("explain-{n}-{i}"),
+                                    path: path.clone(),
+                                    anchor: h.anchor.clone(),
+                                    end_line: h.anchor.line,
+                                    note: format!("{summary}: {}", h.note),
+                                    seen: false,
+                                    dismissed: false,
+                                })
+                                .collect()
+                        };
+                        self.pins.extend(pins);
+                    }
+                }
+                self.persist_changes(cx);
+                cx.notify();
+            }
+            AgentEvent::Progress(steps) => {
+                self.progress = steps.clone();
+                self.persist_changes(cx);
+                cx.notify();
+            }
             AgentEvent::Status { key, text } => {
                 self.status_items.retain(|(k, _)| k != key);
                 if let Some(t) = text {
@@ -543,6 +619,152 @@ impl Agent {
             _ => {}
         }
         cx.emit(event);
+    }
+}
+
+/// Collaborator mode: the walkthrough over what pi changed and pointed at.
+impl Agent {
+    /// Every place the walkthrough stops at, in order: per changed file (first
+    /// touched first) its hunk notes by line, or one stop at its first change when
+    /// there are none; then that file's pins; then pins on other files.
+    /// Reverted files and dismissed notes are left out.
+    pub fn stops(&self) -> Vec<Stop> {
+        let mut out = Vec::new();
+        let mut pin_done = vec![false; self.pins.len()];
+        for (fi, c) in self.changes.iter().enumerate() {
+            if c.reverted {
+                continue;
+            }
+            let mut file_stops: Vec<Stop> = Vec::new();
+            let live: Vec<(usize, &crate::collab::HunkNote)> = c
+                .notes
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| !n.dismissed)
+                .collect();
+            if live.is_empty() && c.notes.is_empty() {
+                file_stops.push(Stop {
+                    at: StopRef::File(fi),
+                    path: c.path.clone(),
+                    line: c.first_line.unwrap_or(1),
+                    note: String::new(),
+                    summary: c.summary.clone(),
+                    outdated: false,
+                    seen: c.seen,
+                });
+            }
+            for (ni, n) in live {
+                file_stops.push(Stop {
+                    at: StopRef::Hunk { file: fi, note: ni },
+                    path: c.path.clone(),
+                    line: n.anchor.line,
+                    note: n.note.clone(),
+                    summary: c.summary.clone(),
+                    outdated: n.anchor.outdated,
+                    seen: n.seen,
+                });
+            }
+            for (pi, p) in self.pins.iter().enumerate() {
+                if p.path == c.path {
+                    pin_done[pi] = true;
+                    if !p.dismissed {
+                        file_stops.push(self.pin_stop(pi));
+                    }
+                }
+            }
+            file_stops.sort_by_key(|s| s.line);
+            out.extend(file_stops);
+        }
+        for (pi, p) in self.pins.iter().enumerate() {
+            if !pin_done[pi] && !p.dismissed {
+                out.push(self.pin_stop(pi));
+            }
+        }
+        out
+    }
+
+    fn pin_stop(&self, i: usize) -> Stop {
+        let p = &self.pins[i];
+        Stop {
+            at: StopRef::Pin(i),
+            path: p.path.clone(),
+            line: p.anchor.line,
+            note: p.note.clone(),
+            summary: None,
+            outdated: p.anchor.outdated,
+            seen: p.seen,
+        }
+    }
+
+    /// Stops not stepped onto yet.
+    pub fn unseen_stops(&self) -> usize {
+        self.stops().iter().filter(|s| !s.seen).count()
+    }
+
+    /// Has changes or pins you haven't stepped through or reviewed yet.
+    pub fn needs_review(&self) -> bool {
+        self.unseen_stops() > 0
+    }
+
+    /// The walkthrough's next (`delta` 1) or previous (−1) stop from the current
+    /// one; the first unseen stop (else the first) when there is no current one.
+    pub fn step_stop(&self, delta: isize) -> Option<Stop> {
+        let stops = self.stops();
+        if stops.is_empty() {
+            return None;
+        }
+        let cur = self
+            .current_stop
+            .as_ref()
+            .and_then(|c| stops.iter().position(|s| &s.at == c));
+        let i = match cur {
+            None => stops.iter().position(|s| !s.seen).unwrap_or(0),
+            Some(i) => (i as isize + delta).clamp(0, stops.len() as isize - 1) as usize,
+        };
+        stops.into_iter().nth(i)
+    }
+
+    /// The stop the walkthrough is on, if it still exists.
+    pub fn current(&self) -> Option<Stop> {
+        let c = self.current_stop.as_ref()?;
+        self.stops().into_iter().find(|s| &s.at == c)
+    }
+
+    /// Make `at` the current stop and mark it seen.
+    pub fn visit_stop(&mut self, at: &StopRef, cx: &mut Context<Self>) {
+        self.set_stop_flag(at, false);
+        self.current_stop = Some(at.clone());
+        self.persist_changes(cx);
+        cx.notify();
+    }
+
+    /// Hide a pin or hunk note (and count it as seen).
+    pub fn dismiss_stop(&mut self, at: &StopRef, cx: &mut Context<Self>) {
+        self.set_stop_flag(at, true);
+        self.persist_changes(cx);
+        cx.notify();
+    }
+
+    fn set_stop_flag(&mut self, at: &StopRef, dismiss: bool) {
+        match *at {
+            StopRef::Pin(i) => {
+                if let Some(p) = self.pins.get_mut(i) {
+                    p.seen = true;
+                    p.dismissed |= dismiss;
+                }
+            }
+            StopRef::Hunk { file, note } => {
+                if let Some(n) = self.changes.get_mut(file).and_then(|c| c.notes.get_mut(note)) {
+                    n.seen = true;
+                    n.dismissed |= dismiss;
+                }
+            }
+            StopRef::File(i) => {
+                if let Some(c) = self.changes.get_mut(i) {
+                    c.seen = true;
+                }
+            }
+        }
     }
 }
 

@@ -491,3 +491,48 @@ fn extension_source_is_embedded() {
         assert!(src.contains(&format!("name: \"{tool}\"")), "{tool}");
     }
 }
+
+#[test]
+fn collab_events_parse_from_the_recording() {
+    let fixture = include_str!("fixtures/collab_tools_session.jsonl");
+    let events: Vec<AgentEvent> = fixture
+        .lines()
+        .flat_map(pide_agent_pi::wire::parse_line)
+        .filter_map(|r| match r {
+            Inbound::Event(e @ (AgentEvent::Pin(_) | AgentEvent::ExplainChange { .. } | AgentEvent::Progress(_))) => Some(e),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(events.len(), 4);
+    match &events[1] {
+        AgentEvent::Progress(steps) => {
+            assert_eq!(steps.len(), 2);
+            assert!(steps.iter().all(|s| s.done));
+            assert_eq!(steps[0].text, "Guard divide against zero divisor");
+        }
+        e => panic!("{e:?}"),
+    }
+    match &events[2] {
+        AgentEvent::ExplainChange { path, summary, hunks } => {
+            assert_eq!(path, std::path::Path::new("calc.py"));
+            assert!(summary.starts_with("Raise a clear ValueError"));
+            assert_eq!(hunks.len(), 2);
+            assert_eq!((hunks[0].anchor.line, hunks[0].anchor.text.as_str()), (6, "    if b == 0:"));
+            assert_eq!(hunks[1].anchor.line, 12);
+        }
+        e => panic!("{e:?}"),
+    }
+    match &events[3] {
+        AgentEvent::Pin(pin) => {
+            assert_eq!(pin.path, std::path::Path::new("calc.py"));
+            assert_eq!((pin.anchor.line, pin.end_line), (11, 14));
+            assert_eq!(pin.anchor.text, "def mean(xs):");
+            assert_eq!(pin.id, "toolu_01PogxJhsPE9Nfd1b7PAYd3E");
+            assert!(pin.note.contains("empty list"));
+        }
+        e => panic!("{e:?}"),
+    }
+    // A refused pin (over the cap) is an error result: no event.
+    let refused = r#"{"type":"tool_execution_end","toolCallId":"x","toolName":"ide_pin","result":{"content":[{"type":"text","text":"Not pinned"}],"details":{"pide":1,"kind":"refused"}},"isError":true}"#;
+    assert_eq!(pide_agent_pi::wire::parse_line(refused).len(), 1);
+}
