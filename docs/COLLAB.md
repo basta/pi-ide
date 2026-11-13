@@ -212,3 +212,7 @@ app, pushed):
   commit hash (`pide_core::commit_notes`, `state/commit-notes/<project>/<hash>.json`); **Git Log**
   shows them under "Why, per pi" in the commit's details, with a link that reopens the session.
   Tested: a commit of pi's stats.py fix shows pi's reason in the log.
+- **Why This Line? (pi)** (Code menu) answers from what pi already said, without asking it again: a
+  note at or near the line in an open session opens in the note bar; else git blame finds the commit
+  and shows pi's reason kept with it; only if neither exists does it draft a question to pi.
+  Tested: with every session closed, a committed line showed pi's reason from the commit.
