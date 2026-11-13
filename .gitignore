@@ -1,3 +1,12 @@
 target/
 /spike/results-*.md
 .DS_Store
+
+# Secrets and editor/OS junk
+.env
+.env.*
+*.pem
+*.key
+node_modules/
+.idea/
+.vscode/
