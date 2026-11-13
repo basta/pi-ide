@@ -188,3 +188,14 @@ new commands.
 tour); notes for files pi changed outside edit/write/bash; centring the walked-to line in the editor
 (GPUI Kit scrolls it just into view, often to the bottom edge; no API for it, tried a workaround,
 see docs/GAPS.md).
+
+## collab-next (on top of collab-mode)
+
+`collab-mode` is frozen as the merge candidate. `collab-next` continues from it with the follow-ups in
+docs/IDEAS.md; take it instead if you want these too (same rules: reviewed per milestone, tested in the
+app, pushed):
+
+- **ide_diagnostics for files the editor hasn't opened**: pide reads them in the background and hands
+  them to their language server (`LspStore::check_file`), answers "pending" for a few seconds, and the
+  extension asks again. Before, pi's self-check only covered files open in the editor. Tested: an
+  unopened file with a type error came back as pending, then with pyright's error.
