@@ -155,6 +155,7 @@ impl AgentChat {
                     .into_any_element()
             }
             Item::Pin(pin_id) => self.render_pin(pin_id, ix, cx),
+            Item::Tour(call_id) => self.render_tour(call_id, ix, cx),
             Item::Explained(path) => {
                 let agent = self.active(cx);
                 let a = agent.read(cx);

@@ -139,6 +139,7 @@ fn menus() -> Vec<Menu> {
                 cmd("Previous Session", "agent.prev_session"),
                 MenuItem::separator(),
                 cmd("Explain This Code", "agent.explain_this"),
+                cmd("Take a Tour…", "agent.tour"),
                 cmd("Walk Through Changes", "agent.walk_through"),
                 cmd("Next Note", "agent.next_note"),
                 cmd("Previous Note", "agent.previous_note"),

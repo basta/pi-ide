@@ -104,7 +104,16 @@ impl AgentChat {
             // (ide_diagnostics stays a tool card: what pi saw is worth seeing.)
             AgentEvent::ToolStart { name, .. }
                 if name.starts_with("ide_") && name != "ide_diagnostics" => {}
-            AgentEvent::Pin(pin) => items.push(Item::Pin(pin.id.clone())),
+            AgentEvent::Pin(pin) => match pin.id.strip_prefix(pide_core::collab::TOUR_PREFIX) {
+                // A tour's stops: one card for the whole tour.
+                Some(rest) => {
+                    let call = rest.rsplit_once(':').map_or(rest, |(c, _)| c).to_string();
+                    if !items.iter().any(|i| matches!(i, Item::Tour(c) if *c == call)) {
+                        items.push(Item::Tour(call));
+                    }
+                }
+                None => items.push(Item::Pin(pin.id.clone())),
+            },
             AgentEvent::ExplainChange { path, .. } => {
                 if !items
                     .iter()

@@ -21,6 +21,8 @@ pub(crate) enum HistItem {
     Thinking(String),
     /// An `ide_pin` call (its tool call id); the pin itself is saved with the session.
     Pin(String),
+    /// An `ide_tour` call (its tool call id).
+    Tour(String),
 }
 
 /// One-line description of a tool call's arguments.
@@ -171,6 +173,10 @@ pub(crate) fn parse_history(path: &std::path::Path) -> Vec<HistItem> {
                             // pide's own tools show as cards of their own (or not at all).
                             if name == "ide_pin" {
                                 out.push(HistItem::Pin(id.to_string()));
+                                continue;
+                            }
+                            if name == "ide_tour" {
+                                out.push(HistItem::Tour(id.to_string()));
                                 continue;
                             }
                             if name.starts_with("ide_") && name != "ide_diagnostics" {

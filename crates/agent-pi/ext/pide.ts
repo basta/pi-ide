@@ -218,6 +218,68 @@ export default function (pi: any) {
   });
 
   pi.registerTool({
+    name: "ide_tour",
+    label: "Guided tour",
+    description:
+      "Give the user a guided tour of how something works: an ordered list of places in the code, " +
+      "across files, each with a short note on what happens there and how it leads to the next. " +
+      "pide shows it as a walkthrough the user steps through in the editor. Call it once per tour, " +
+      "only when the user asks how something works or asks for a tour; 4 to 15 stops. Lines are 1-based.",
+    promptSnippet: "Give the user a guided tour through the code, stop by stop",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "What the tour shows, a few words" },
+        stops: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              path: { type: "string" },
+              line: { type: "integer", minimum: 1 },
+              end_line: { type: "integer", minimum: 1 },
+              note: { type: "string" },
+            },
+            required: ["path", "line", "note"],
+          },
+        },
+      },
+      required: ["title", "stops"],
+    },
+    async execute(_id: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
+      const stops: any[] = [];
+      const skipped: string[] = [];
+      for (const st of (Array.isArray(params.stops) ? params.stops : []).slice(0, 15)) {
+        const path = abs(ctx.cwd, st.path);
+        const file = lines(path);
+        if (!file) {
+          skipped.push(String(st.path));
+          continue;
+        }
+        const count = file.length > 1 && file[file.length - 1] === "" ? file.length - 1 : file.length;
+        const start = Math.min(Math.max(1, Number(st.line) || 1), count);
+        const end = Math.max(start, Math.min(Number(st.end_line) || start, count));
+        stops.push({
+          path: rel(ctx.cwd, path),
+          line: start,
+          end_line: end,
+          text: file[start - 1] ?? "",
+          snippet: file.slice(start - 1, Math.min(end, start + 7)),
+          note: String(st.note ?? ""),
+        });
+      }
+      if (!stops.length) {
+        return { content: text("No tour: none of the stops' files could be read."), details: { pide: 1, kind: "refused" }, isError: true };
+      }
+      const note = skipped.length ? ` Skipped (can't read): ${skipped.join(", ")}.` : "";
+      return {
+        content: text(`Tour shown with ${stops.length} stops.${note}`),
+        details: { pide: 1, kind: "tour", title: String(params.title ?? "Tour"), stops },
+      };
+    },
+  });
+
+  pi.registerTool({
     name: "ide_progress",
     label: "Progress",
     description:

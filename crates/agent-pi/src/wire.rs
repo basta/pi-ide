@@ -153,9 +153,11 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
             let id = s(&v, "toolCallId");
             let result = v.get("result").cloned().unwrap_or_default();
             let is_error = v.get("isError").and_then(Value::as_bool).unwrap_or(false);
-            let collab = (!is_error)
-                .then(|| collab_event(&id, &result["details"]))
-                .flatten();
+            let collab = if is_error {
+                Vec::new()
+            } else {
+                collab_events(&id, &result["details"])
+            };
             let mut out = ev(AgentEvent::ToolEnd {
                 id,
                 name: s(&v, "toolName"),
@@ -163,7 +165,7 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
                 is_error,
                 duration_ms: v.get("durationMs").and_then(Value::as_u64),
             });
-            out.extend(collab.map(Inbound::Event));
+            out.extend(collab.into_iter().map(Inbound::Event));
             out
         }
         "queue_update" => {
@@ -250,6 +252,47 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
 /// A pide extension tool's result `details` (`ext/pide.ts`, docs/COLLAB.md) as
 /// an event. Paths are as the extension sent them (relative to the project when
 /// inside it); the connection resolves them against pi's working directory.
+pub fn collab_events(tool_call_id: &str, d: &Value) -> Vec<AgentEvent> {
+    if d.get("kind").and_then(Value::as_str) == Some("tour") {
+        return tour_pins(tool_call_id, d).into_iter().map(AgentEvent::Pin).collect();
+    }
+    collab_event(tool_call_id, d).into_iter().collect()
+}
+
+/// An `ide_tour`'s stops as pins, in order: ids `tour:<call id>:<n>`, the first
+/// one's note starting with the tour's title.
+pub fn tour_pins(tool_call_id: &str, d: &Value) -> Vec<pide_core::collab::Pin> {
+    use pide_core::collab::{Anchor, Pin};
+    let title = s(d, "title");
+    let stops = d.get("stops").and_then(Value::as_array).cloned().unwrap_or_default();
+    let n = stops.len();
+    stops
+        .iter()
+        .enumerate()
+        .map(|(i, st)| {
+            let line = st.get("line").and_then(Value::as_u64).unwrap_or(1).max(1) as usize;
+            Pin {
+                id: format!("{}{tool_call_id}:{i}", pide_core::collab::TOUR_PREFIX),
+                path: s(st, "path").into(),
+                anchor: Anchor::new(line, s(st, "text")),
+                end_line: st
+                    .get("end_line")
+                    .and_then(Value::as_u64)
+                    .map_or(line, |e| (e as usize).max(line)),
+                note: format!("{title} · {}/{n}: {}", i + 1, s(st, "note")),
+                snippet: st
+                    .get("snippet")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .unwrap_or_default(),
+                seen: false,
+                dismissed: false,
+            }
+        })
+        .collect()
+}
+
+/// One pide tool result as an event (see [`collab_events`]).
 pub fn collab_event(tool_call_id: &str, d: &Value) -> Option<AgentEvent> {
     use pide_core::collab::{Anchor, HunkNote, Pin, ProgressStep};
     if d.get("pide").and_then(Value::as_u64) != Some(1) {

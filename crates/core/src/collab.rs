@@ -87,6 +87,9 @@ pub struct Pin {
     pub dismissed: bool,
 }
 
+/// Pins from an `ide_tour` have ids `tour:<tool call id>:<n>`.
+pub const TOUR_PREFIX: &str = "tour:";
+
 /// One of `ide_explain_change`'s hunk notes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HunkNote {

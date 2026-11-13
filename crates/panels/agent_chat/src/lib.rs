@@ -32,6 +32,7 @@ mod model_picker;
 mod rename;
 mod sessions_view;
 mod slash;
+mod tour;
 
 use conversation::tool_mut;
 use history::{HistItem, parse_history, result_text, summarize_args};
@@ -117,6 +118,11 @@ pub fn init(cx: &mut App) {
             let agent = active(window, cx);
             pide_core::collab::walk(&agent, -1, window, cx);
         },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.tour", "Agent: Take a Tour…"),
+        move |window, cx| tour::open(sessions(window, cx), window, cx),
     );
     CommandRegistry::register(
         cx,
@@ -246,6 +252,8 @@ enum Item {
     Pin(String),
     /// `ide_explain_change` for this file (absolute path).
     Explained(PathBuf),
+    /// `ide_tour` (its tool call id): the tour's stops, shown from the session's pins.
+    Tour(String),
 }
 
 /// One session's conversation as shown in the panel.
@@ -536,6 +544,7 @@ impl AgentChat {
                             duration_ms: None,
                         },
                         HistItem::Pin(id) => Item::Pin(id),
+                        HistItem::Tour(id) => Item::Tour(id),
                         HistItem::Model { .. } | HistItem::Thinking(_) => {
                             unreachable!("filtered above")
                         }
