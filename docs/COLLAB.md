@@ -65,6 +65,7 @@ Findings:
 | `ide_pin` | `path, start_line, end_line?, note` | pin card in the chat, gutter mark + note bar in the editor |
 | `ide_explain_change` | `path, summary, hunks?: [{line, note}]` | summary under the file in Changes, hunk notes in the editor and the pi diff tab |
 | `ide_progress` | `steps: [{text, done}]` | a checklist at the top of the session, updated in place |
+| `ide_tour` | `title, stops: [{path, line, end_line?, note}]` | a tour card in the chat; the stops walk in the note bar |
 | `ide_diagnostics` | `paths?` | (pi looks) the errors and warnings the editor's language servers report, as a tool card in the chat |
 
 `ide_diagnostics` waits until 2 s after pi's last `edit`/`write`/`bash` before asking, so the language
@@ -91,6 +92,16 @@ is shown above the chat, saved with the session (`Saved::catch_up`), and refresh
   cursor, pi explains without changing anything: 2–5 pins in reading order and a short overview in
   the chat. The pins join the walkthrough (the note bar steps through them). This covers code pi
   didn't just change, which is most of what there is to understand.
+
+## Tours
+
+**pi → Take a Tour…** asks how something works ("how does a session resume after a restart?"). It
+starts a session for the question (a thread of its own), and pi answers without changing code by
+calling `ide_tour` once: 4–15 stops in reading order across files (`path`, `line`, `note`; the
+extension adds each line's text and up to 8 lines of snippet). The stops become pins with ids
+`tour:<call id>:<n>`, so they walk in the note bar in pi's order (a tour session has no changed files,
+so nothing reorders them) and survive a resume like any pin. The chat shows one tour card: the title,
+the numbered stops (click to go there), Start / Continue.
 
 ## Anchors
 
@@ -131,9 +142,13 @@ the saved anchors are re-found in the file on disk; one whose text is gone is ma
 - Advisor's top 3, done and tested in the app: **Ask why** for files pi changed without a reason;
   **Explain This Code** on a selection; Reply quotes the note, and stepping through a file's notes
   ticks it reviewed.
+- Advisor's round 2: the walkthrough logic now lives in `pide_core::walk` as plain functions with 9
+  unit tests (it had taken 10 review fixes untested); **Tours** (Take a Tour…, `ide_tour`), tested in
+  the app on the demo project.
 - WIP gallery (artifact): https://claude.ai/artifact/55ZpVNwYu4UoTALd83LMZ6
 
-**Left / next:** whatever the next advisor round picks; ideas so far in docs/IDEAS.md.
+**Left / next:** advisor's round-2 item 3, project notes that outlive sessions (explanations saved per
+project, shown whatever session is active).
 
 **Needs your decision:**
 
