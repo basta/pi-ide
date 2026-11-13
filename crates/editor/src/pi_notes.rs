@@ -27,6 +27,13 @@ pub(crate) struct PiNotes {
     gutter: Option<GutterDecorationCollection>,
     ruler: Option<OverviewRulerDecorationCollection>,
     line: Option<RangeDecorationCollection>,
+    /// What the marks were last made from; the agent notifies on every streamed
+    /// token, so unchanged notes skip the work.
+    last: Option<(
+        Vec<(pide_core::collab::StopRef, usize, bool, bool)>,
+        Option<pide_core::collab::StopRef>,
+        u64,
+    )>,
     _agent_sub: Option<Subscription>,
     _sessions_sub: Option<Subscription>,
 }
@@ -50,7 +57,13 @@ impl EditorPanel {
         }
         self.pi._agent_sub = Some(cx.observe(&agent, |this, _, cx| this.refresh_pi_marks(cx)));
         self.pi.agent = Some(agent);
+        self.pi_marks_stale();
         self.refresh_pi_marks(cx);
+    }
+
+    /// Make the next refresh redo the marks even if the notes didn't change.
+    pub(crate) fn pi_marks_stale(&mut self) {
+        self.pi.last = None;
     }
 
     /// Recompute this file's stops and their marks. The gutter collection is made
@@ -62,8 +75,6 @@ impl EditorPanel {
         if self.buffer.is_none() {
             return;
         }
-        let rope = self.editor.read(cx).text().clone();
-        let content = rope.to_string();
         let a = agent.read(cx);
         let current = a.current_stop.clone();
         let mut stops: Vec<Stop> = a
@@ -71,6 +82,23 @@ impl EditorPanel {
             .into_iter()
             .filter(|s| s.path == self.path)
             .collect();
+        let key = (
+            stops
+                .iter()
+                .map(|s| (s.at.clone(), s.line, s.seen, s.outdated))
+                .collect::<Vec<_>>(),
+            current.clone(),
+            self.buffer
+                .as_ref()
+                .map(|b| b.read(cx).revision())
+                .unwrap_or(0),
+        );
+        if self.pi.last.as_ref() == Some(&key) {
+            return;
+        }
+        self.pi.last = Some(key);
+        let rope = self.editor.read(cx).text().clone();
+        let content = rope.to_string();
         for s in &mut stops {
             if let Some(text) = a.anchor_text(&s.at)
                 && let Some(n) = Anchor::new(s.line, text).locate(&content)

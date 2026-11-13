@@ -296,13 +296,29 @@ impl Agent {
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let loaded = load.await;
             let _ = this.update(cx, |this, cx| {
-                if !this.changes.is_empty() || !this.pins.is_empty() || loaded.is_empty() {
+                if loaded.is_empty() {
                     return;
                 }
-                let paths: Vec<_> = loaded.changes.iter().map(|c| c.path.clone()).collect();
-                this.changes = loaded.changes;
-                this.pins = loaded.pins;
-                this.progress = loaded.progress;
+                // Merge: something may have arrived while the file was read.
+                let mut paths = Vec::new();
+                if this.changes.is_empty() {
+                    paths = loaded.changes.iter().map(|c| c.path.clone()).collect();
+                    this.changes = loaded.changes;
+                }
+                let mut pins: Vec<Pin> = loaded
+                    .pins
+                    .into_iter()
+                    .filter(|p| !this.pins.iter().any(|q| q.id == p.id))
+                    .collect();
+                if !pins.is_empty() {
+                    pins.append(&mut this.pins);
+                    this.pins = pins;
+                    this.current_stop = None; // pin indices moved
+                }
+                if this.progress.is_empty() {
+                    this.progress = loaded.progress;
+                }
+                this.persist_changes(cx);
                 for p in paths {
                     this.refresh_stats(p, cx);
                 }
@@ -568,19 +584,32 @@ impl Agent {
                 summary,
                 hunks,
             } => {
-                match self.changes.iter_mut().find(|c| &c.path == path) {
-                    Some(c) => {
+                match self.changes.iter().position(|c| &c.path == path) {
+                    Some(fi) => {
+                        let c = &mut self.changes[fi];
                         c.summary = (!summary.trim().is_empty()).then(|| summary.clone());
                         c.notes = hunks.clone();
                         c.seen = false;
+                        // The current stop pointed into the old notes.
+                        if matches!(self.current_stop, Some(StopRef::Hunk { file, .. } | StopRef::File(file)) if file == fi)
+                        {
+                            self.current_stop = None;
+                        }
                     }
                     // No change record (changed outside edit/write/watched bash):
                     // keep the reasons as pins so they still show and walk (docs/COLLAB.md).
                     None => {
+                        // A new explanation replaces the previous one's pins (kept, so
+                        // pin indices stay valid, but hidden).
+                        let prefix = format!("explain:{}:", path.display());
+                        for p in self.pins.iter_mut().filter(|p| p.id.starts_with(&prefix)) {
+                            p.dismissed = true;
+                            p.seen = true;
+                        }
                         let n = self.pins.len();
                         let pins: Vec<Pin> = if hunks.is_empty() {
                             vec![Pin {
-                                id: format!("explain-{n}"),
+                                id: format!("{prefix}{n}"),
                                 path: path.clone(),
                                 anchor: crate::collab::Anchor::new(1, String::new()),
                                 end_line: 1,
@@ -593,7 +622,7 @@ impl Agent {
                                 .iter()
                                 .enumerate()
                                 .map(|(i, h)| Pin {
-                                    id: format!("explain-{n}-{i}"),
+                                    id: format!("{prefix}{n}-{i}"),
                                     path: path.clone(),
                                     anchor: h.anchor.clone(),
                                     end_line: h.anchor.line,
@@ -647,7 +676,7 @@ impl Agent {
                 .enumerate()
                 .filter(|(_, n)| !n.dismissed)
                 .collect();
-            if live.is_empty() && c.notes.is_empty() {
+            if live.is_empty() && c.notes.is_empty() && !c.deleted_now {
                 file_stops.push(Stop {
                     at: StopRef::File(fi),
                     path: c.path.clone(),
@@ -765,6 +794,9 @@ impl Agent {
     /// Hide a pin or hunk note (and count it as seen).
     pub fn dismiss_stop(&mut self, at: &StopRef, cx: &mut Context<Self>) {
         self.set_stop_flag(at, true);
+        if self.current_stop.as_ref() == Some(at) {
+            self.current_stop = None; // the bar moves on to the next unseen note
+        }
         self.persist_changes(cx);
         cx.notify();
     }
