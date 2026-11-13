@@ -588,3 +588,37 @@ fn diagnostics_queries_parse_from_the_recording() {
     }
     assert_eq!((queries, answered), (3, 3));
 }
+
+/// `ide_tour` recorded on pide itself: pi's line numbers were off by one or two
+/// for two stops; the extension snapped every stop to the line containing the
+/// quoted `code`.
+#[test]
+fn tour_stops_land_on_their_quoted_code() {
+    let fixture = include_str!("fixtures/collab_tour_session.jsonl");
+    let mut args = None;
+    let mut pins = Vec::new();
+    for line in fixture.lines() {
+        for rec in pide_agent_pi::wire::parse_line(line) {
+            match rec {
+                Inbound::Event(AgentEvent::ToolStart { name, args: a, .. }) if name == "ide_tour" => {
+                    args = Some(a)
+                }
+                Inbound::Event(AgentEvent::Pin(p)) => pins.push(p),
+                _ => {}
+            }
+        }
+    }
+    let args = args.expect("ide_tour call");
+    let stops = args["stops"].as_array().unwrap();
+    assert_eq!(pins.len(), stops.len());
+    let mut moved = 0;
+    for (pin, st) in pins.iter().zip(stops) {
+        let code = st["code"].as_str().unwrap().trim();
+        assert!(pin.anchor.text.contains(code), "{} {:?} vs {code:?}", pin.id, pin.anchor.text);
+        assert!(pin.id.starts_with("tour:"));
+        if pin.anchor.line as u64 != st["line"].as_u64().unwrap() {
+            moved += 1;
+        }
+    }
+    assert_eq!(moved, 2);
+}

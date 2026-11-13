@@ -48,6 +48,24 @@ export default function (pi: any) {
     }
   };
   const text = (msg: string) => [{ type: "text", text: msg }];
+  /** Lines in a file (a trailing newline's empty element isn't one). */
+  const lineCount = (file: string[]) => (file.length > 1 && file[file.length - 1] === "" ? file.length - 1 : file.length);
+  /** The model's line numbers are often off by a few; the quoted code isn't. The
+   *  1-based line nearest to `line` whose text contains `code` (whitespace at the
+   *  ends ignored), or null if no line does. No `code`: `line`, clamped. */
+  const snap = (file: string[], line: number, code: unknown): number | null => {
+    const count = lineCount(file);
+    const want = Math.min(Math.max(1, Number(line) || 1), count);
+    const needle = typeof code === "string" ? code.trim() : "";
+    if (!needle) return want;
+    let best: number | null = null;
+    for (let i = 0; i < count; i++) {
+      if (file[i].includes(needle) && (best === null || Math.abs(i + 1 - want) < Math.abs(best - want))) best = i + 1;
+    }
+    return best;
+  };
+  const CODE_DOC = "The text of that line (or a distinctive part of it), copied exactly from the file; " +
+    "it places the note even if the line number is off.";
 
   pi.registerTool({
     name: "ide_pin",
@@ -65,10 +83,11 @@ export default function (pi: any) {
       properties: {
         path: { type: "string", description: "File path, relative to the project or absolute" },
         start_line: { type: "integer", minimum: 1, description: "First line (1-based)" },
+        code: { type: "string", description: CODE_DOC },
         end_line: { type: "integer", minimum: 1, description: "Last line (1-based), optional" },
         note: { type: "string", description: "One or two sentences for the user" },
       },
-      required: ["path", "start_line", "note"],
+      required: ["path", "start_line", "code", "note"],
     },
     async execute(_id: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
       if (pins >= MAX_PINS) {
@@ -83,10 +102,18 @@ export default function (pi: any) {
       if (!file) {
         return { content: text(`Not pinned: can't read ${params.path}.`), details: { pide: 1, kind: "refused" }, isError: true };
       }
-      // A trailing newline leaves an empty last element: not a line.
-      const count = file.length > 1 && file[file.length - 1] === "" ? file.length - 1 : file.length;
-      const start = Math.min(Math.max(1, params.start_line), count);
-      const end = Math.max(start, Math.min(params.end_line ?? start, count));
+      const count = lineCount(file);
+      const start = snap(file, params.start_line, params.code);
+      if (start === null) {
+        return {
+          content: text(`Not pinned: no line in ${params.path} contains ${JSON.stringify(params.code)}. Read the file and try again with code copied exactly.`),
+          details: { pide: 1, kind: "refused" },
+          isError: true,
+        };
+      }
+      // The range moves with the snapped start.
+      const shift = start - Math.min(Math.max(1, Number(params.start_line) || 1), count);
+      const end = Math.max(start, Math.min((params.end_line ?? params.start_line) + shift, count));
       pins += 1;
       return {
         content: text(`Pinned ${params.path}:${start} for the user.`),
@@ -129,9 +156,10 @@ export default function (pi: any) {
             type: "object",
             properties: {
               line: { type: "integer", minimum: 1, description: "Line in the current file (1-based)" },
+              code: { type: "string", description: CODE_DOC },
               note: { type: "string" },
             },
-            required: ["line", "note"],
+            required: ["line", "code", "note"],
           },
         },
       },
@@ -140,12 +168,20 @@ export default function (pi: any) {
     async execute(_id: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
       const path = abs(ctx.cwd, params.path);
       const file = lines(path) ?? [];
-      const hunks = (Array.isArray(params.hunks) ? params.hunks : []).slice(0, 12).map((h: any) => {
-        const line = Math.max(1, Number(h.line) || 1);
-        return { line, text: file[line - 1] ?? "", note: String(h.note ?? "") };
+      const missed: string[] = [];
+      const hunks = (Array.isArray(params.hunks) ? params.hunks : []).slice(0, 12).flatMap((h: any) => {
+        const line = file.length ? snap(file, h.line, h.code) : Math.max(1, Number(h.line) || 1);
+        if (line === null) {
+          missed.push(JSON.stringify(h.code));
+          return [];
+        }
+        return [{ line, text: file[line - 1] ?? "", note: String(h.note ?? "") }];
       });
+      const miss = missed.length
+        ? ` Left out notes whose code isn't in the file: ${missed.join(", ")}. Call again with code copied exactly to add them.`
+        : "";
       return {
-        content: text(`Noted for ${params.path}.`),
+        content: text(`Noted for ${params.path}.${miss}`),
         details: { pide: 1, kind: "explain", path: rel(ctx.cwd, path), summary: String(params.summary ?? ""), hunks },
       };
     },
@@ -237,10 +273,11 @@ export default function (pi: any) {
             properties: {
               path: { type: "string" },
               line: { type: "integer", minimum: 1 },
+              code: { type: "string", description: CODE_DOC },
               end_line: { type: "integer", minimum: 1 },
               note: { type: "string" },
             },
-            required: ["path", "line", "note"],
+            required: ["path", "line", "code", "note"],
           },
         },
       },
@@ -256,9 +293,14 @@ export default function (pi: any) {
           skipped.push(String(st.path));
           continue;
         }
-        const count = file.length > 1 && file[file.length - 1] === "" ? file.length - 1 : file.length;
-        const start = Math.min(Math.max(1, Number(st.line) || 1), count);
-        const end = Math.max(start, Math.min(Number(st.end_line) || start, count));
+        const count = lineCount(file);
+        const start = snap(file, st.line, st.code);
+        if (start === null) {
+          skipped.push(`${st.path} (no line contains ${JSON.stringify(st.code)})`);
+          continue;
+        }
+        const shift = start - Math.min(Math.max(1, Number(st.line) || 1), count);
+        const end = Math.max(start, Math.min((Number(st.end_line) || Number(st.line) || start) + shift, count));
         stops.push({
           path: rel(ctx.cwd, path),
           line: start,
@@ -269,9 +311,13 @@ export default function (pi: any) {
         });
       }
       if (!stops.length) {
-        return { content: text("No tour: none of the stops' files could be read."), details: { pide: 1, kind: "refused" }, isError: true };
+        return {
+          content: text(`No tour: no stop could be placed. ${skipped.join("; ")}`),
+          details: { pide: 1, kind: "refused" },
+          isError: true,
+        };
       }
-      const note = skipped.length ? ` Skipped (can't read): ${skipped.join(", ")}.` : "";
+      const note = skipped.length ? ` Left out: ${skipped.join("; ")}.` : "";
       return {
         content: text(`Tour shown with ${stops.length} stops.${note}`),
         details: { pide: 1, kind: "tour", title: String(params.title ?? "Tour"), stops },
