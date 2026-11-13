@@ -172,6 +172,13 @@ the saved anchors are re-found in the file on disk; one whose text is gone is ma
 - Advisor's round 3: anchors snap to the quoted code (fixture: a tour of pide itself); **Tell it as a
   story** (a change retold as a tour); **TOURS** library in the session list. All tested in the app.
 
+- Advisor's round 4 (consolidation): the **Understand** card (empty session and the ? button: the five
+  ways to follow the code, a legend for the marks), Changes header trimmed (ask why on the file rows),
+  Catch Me Up and Tell It as a Story as commands in a grouped pi menu, **◆ n pi notes** in the Commit
+  tool window, a 10-minute script in TRY-IT.md. Dogfooded on the demo project: pi checked its own work
+  with ide_diagnostics unprompted; the review chip jumped into an older session (fixed: active, else
+  newest).
+
 **Left / next:** another advisor round.
 
 **Needs your decision:**
