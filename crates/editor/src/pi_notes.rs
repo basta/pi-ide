@@ -27,16 +27,11 @@ pub(crate) struct PiNotes {
     gutter: Option<GutterDecorationCollection>,
     ruler: Option<OverviewRulerDecorationCollection>,
     line: Option<RangeDecorationCollection>,
-    /// What the marks were last made from; the agent notifies on every streamed
-    /// token, so unchanged notes skip the work.
-    last: Option<(
-        Vec<(pide_core::collab::StopRef, usize, bool, bool, String)>,
-        Option<pide_core::collab::StopRef>,
-        u64,
-    )>,
+    /// What the marks were last made from: every open session's notes revision
+    /// and the active one. Agents notify on every streamed token; this skips that.
+    last: Option<(Vec<(EntityId, u64)>, EntityId)>,
     /// Re-finding the anchors after you type (debounced).
     _typed: Option<Task<()>>,
-    _agent_sub: Option<Subscription>,
     _sessions_sub: Option<Subscription>,
     /// Any session changed (notes of the other open sessions show too, dimmer).
     _sessions_obs: Option<Subscription>,
@@ -62,7 +57,7 @@ impl EditorPanel {
         if self.pi.agent.as_ref() == Some(&agent) {
             return;
         }
-        self.pi._agent_sub = Some(cx.observe(&agent, |this, _, cx| this.refresh_pi_marks(cx)));
+        // (No observer of its own: the Sessions observer fires for every agent.)
         self.pi.agent = Some(agent);
         self.pi_marks_stale();
         self.refresh_pi_marks(cx);
@@ -98,43 +93,17 @@ impl EditorPanel {
         if self.buffer.is_none() {
             return;
         }
-        let a = agent.read(cx);
-        let current = a.current_stop.clone();
-        let mut stops: Vec<Stop> = a
-            .stops()
-            .into_iter()
-            .filter(|s| s.path == self.path)
-            .collect();
-        // Other open sessions' notes on this file: marks only, dimmer.
-        let others: Vec<usize> = self
+        let all: Vec<Entity<Agent>> = self
             .pi
             .sessions
             .as_ref()
-            .map(|sessions| {
-                sessions
-                    .read(cx)
-                    .all()
-                    .iter()
-                    .filter(|a| **a != agent)
-                    .flat_map(|a| a.read(cx).stops())
-                    .filter(|s| s.path == self.path)
-                    .map(|s| s.line)
-                    .collect()
-            })
-            .unwrap_or_default();
+            .map(|s| s.read(cx).all().to_vec())
+            .unwrap_or_else(|| vec![agent.clone()]);
         let key = (
-            stops
-                .iter()
-                .map(|s| (s.at.clone(), s.line, s.seen, s.outdated, s.label()))
-                .chain(others.iter().map(|l| {
-                    (pide_core::collab::StopRef::File(usize::MAX), *l, true, false, String::new())
-                }))
+            all.iter()
+                .map(|a| (a.entity_id(), a.read(cx).notes_rev))
                 .collect::<Vec<_>>(),
-            current.clone(),
-            self.buffer
-                .as_ref()
-                .map(|b| b.read(cx).revision())
-                .unwrap_or(0),
+            agent.entity_id(),
         );
         if self.pi.last.as_ref() == Some(&key) {
             return;
@@ -142,6 +111,30 @@ impl EditorPanel {
         self.pi.last = Some(key);
         let rope = self.editor.read(cx).text().clone();
         let content = rope.to_string();
+        let a = agent.read(cx);
+        let current = a.current_stop.clone();
+        let mut stops: Vec<Stop> = a
+            .stops()
+            .into_iter()
+            .filter(|s| s.path == self.path)
+            .collect();
+        // Other open sessions' notes on this file: marks only, dimmer, re-found too.
+        let others: Vec<usize> = all
+            .iter()
+            .filter(|o| **o != agent)
+            .flat_map(|o| {
+                let o = o.read(cx);
+                o.stops()
+                    .into_iter()
+                    .filter(|s| s.path == self.path)
+                    .map(|s| {
+                        o.anchor_text(&s.at)
+                            .and_then(|t| Anchor::new(s.line, t).locate(&content))
+                            .unwrap_or(s.line)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
         for s in &mut stops {
             if let Some(text) = a.anchor_text(&s.at)
                 && let Some(n) = Anchor::new(s.line, text).locate(&content)

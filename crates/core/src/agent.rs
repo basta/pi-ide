@@ -159,6 +159,9 @@ pub struct Agent {
     pub progress: Vec<ProgressStep>,
     /// The last "catch me up" briefing (collaborator mode).
     pub catch_up: Option<crate::collab::CatchUp>,
+    /// Bumped whenever the changes, pins, notes or the walkthrough change
+    /// (cheap "did anything I draw change?" for views).
+    pub notes_rev: u64,
     /// The walkthrough's current stop (see [`Agent::stops`]).
     pub current_stop: Option<StopRef>,
     /// Pending write of `changes` to disk (debounced; dropping cancels).
@@ -201,6 +204,7 @@ impl Agent {
             pins: Vec::new(),
             progress: Vec::new(),
             current_stop: None,
+            notes_rev: 0,
             catch_up: None,
             persist: None,
             pending_touches: Vec::new(),
@@ -281,6 +285,9 @@ impl Agent {
 
     /// Save the change list next to pi's session, so it survives a restart.
     fn persist_changes(&mut self, cx: &mut Context<Self>) {
+        // Every change to the changes, pins, notes or the walkthrough comes through
+        // here: views that draw them compare this instead of recomputing.
+        self.notes_rev += 1;
         let Some(session) = self.session_file.clone() else {
             return;
         };
@@ -399,6 +406,7 @@ impl Agent {
                 if let Some(c) = this.changes.iter_mut().find(|c| c.path == path) {
                     c.stats = Some(stats);
                     c.first_line = first;
+                    this.notes_rev += 1;
                     c.deleted_now = gone && c.before.is_some();
                 }
                 cx.notify();
