@@ -31,6 +31,8 @@ pub struct BlameLine {
     /// Index into [`Blame::commits`].
     pub commit: usize,
     pub text: String,
+    /// The line's number (1-based) in that commit's version of the file.
+    pub orig_line: usize,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -47,6 +49,11 @@ pub fn blame(workdir: &Path, rel: &str) -> anyhow::Result<Blame> {
 
 /// Who last changed one line (1-based).
 pub fn blame_line(workdir: &Path, rel: &str, line: u32) -> anyhow::Result<(BlameCommit, String)> {
+    blame_line_at(workdir, rel, line).map(|(c, l)| (c, l.text))
+}
+
+/// Like [`blame_line`], with the line's number in that commit ([`BlameLine::orig_line`]).
+pub fn blame_line_at(workdir: &Path, rel: &str, line: u32) -> anyhow::Result<(BlameCommit, BlameLine)> {
     let range = format!("{line},{line}");
     let out = crate::repo::git_out(workdir, &["blame", "--porcelain", "-L", &range, "--", rel])?;
     let b = parse(&out);
@@ -54,19 +61,21 @@ pub fn blame_line(workdir: &Path, rel: &str, line: u32) -> anyhow::Result<(Blame
         .lines
         .first()
         .ok_or_else(|| anyhow::anyhow!("no line {line}"))?;
-    Ok((b.commits[l.commit].clone(), l.text.clone()))
+    Ok((b.commits[l.commit].clone(), l.clone()))
 }
 
 fn parse(out: &str) -> Blame {
     let mut b = Blame::default();
     let mut index: HashMap<String, usize> = HashMap::new();
     let mut current: Option<usize> = None;
+    let mut orig = 0;
     for line in out.lines() {
         if let Some(text) = line.strip_prefix('\t') {
             if let Some(c) = current {
                 b.lines.push(BlameLine {
                     commit: c,
                     text: text.to_string(),
+                    orig_line: orig,
                 });
             }
             continue;
@@ -86,6 +95,8 @@ fn parse(out: &str) -> Blame {
                 b.commits.len() - 1
             });
             current = Some(c);
+            // "<hash> <line in that commit> <line now> [<group size>]"
+            orig = value.split(' ').next().and_then(|n| n.parse().ok()).unwrap_or(0);
             continue;
         }
         let Some(c) = current.and_then(|c| b.commits.get_mut(c)) else {
@@ -147,6 +158,11 @@ filename a.txt
         assert_eq!(b.lines.len(), 3);
         assert_eq!(b.lines[1].commit, 0);
         assert_eq!(b.lines[1].text, "two");
+        // The line's number in the commit that last changed it.
+        assert_eq!(
+            b.lines.iter().map(|l| l.orig_line).collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
         assert_eq!(b.commits[0].author, "Ann");
         assert_eq!(b.commits[0].offset, 9 * 3600);
         assert_eq!(b.commits[0].short(), "1111111");

@@ -63,21 +63,22 @@ pub fn init(cx: &mut App) {
             let task = cx.background_executor().spawn({
                 let root = root.clone();
                 async move {
-                    let (c, text) = blame::blame_line(&root, &rel, line)?;
+                    let (c, bl) = blame::blame_line_at(&root, &rel, line)?;
                     let notes = (!c.uncommitted())
                         .then(|| pide_core::commit_notes::load(&root, &c.hash))
                         .flatten();
-                    anyhow::Ok((c, text, rel, notes))
+                    anyhow::Ok((c, bl.text, bl.orig_line, rel, notes))
                 }
             });
             window
                 .spawn(cx, async move |cx| {
                     let r = task.await;
                     let _ = cx.update(|window, cx| match r {
-                        Ok((c, text, rel, notes)) => {
+                        Ok((c, text, orig_line, rel, notes)) => {
                             let reason = notes.and_then(|n| n.files.into_iter().find(|f| f.path == rel));
                             match reason {
-                                Some(f) => show_reason(&c, &f, line as usize, window, cx),
+                                // Notes carry the commit's line numbers: match on the line's number there.
+                                Some(f) => show_reason(&c, &f, orig_line, window, cx),
                                 None => ask_why(&c, &rel, line, &text, window, cx),
                             }
                         }
@@ -131,15 +132,21 @@ fn show_reason(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let mut text = format!("{} · pi in \u{201c}{}\u{201d}", c.short(), f.session);
-    if let Some(s) = &f.summary {
-        text.push_str(&format!(": {s}"));
+    let mut text = f.summary.clone().unwrap_or_default();
+    // The hunk note nearest the line (both in that commit's line numbers).
+    if let Some((_, note)) = f.notes.iter().min_by_key(|(l, _)| l.abs_diff(line)) {
+        if !text.is_empty() {
+            text.push_str("\n");
+        }
+        text.push_str(note);
     }
-    // The hunk note nearest the line (lines as they were in that commit).
-    if let Some((l, note)) = f.notes.iter().min_by_key(|(l, _)| l.abs_diff(line)) {
-        text.push_str(&format!(" · line {l}: {note}"));
-    }
-    window.push_notification(Notification::info(text), cx);
+    // Stays until closed: it's the answer to a question, not a status.
+    window.push_notification(
+        Notification::info(text)
+            .title(format!("{} · pi in \u{201c}{}\u{201d}", c.short(), f.session))
+            .autohide(false),
+        cx,
+    );
 }
 
 /// Draft "why did this line change?" in the pi box.
