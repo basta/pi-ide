@@ -441,7 +441,18 @@ impl AgentChat {
                     }
                     _ => true,
                 });
+                let first_prompt = hist.iter().find_map(|h| match h {
+                    HistItem::User(t) => Some(t.clone()),
+                    _ => None,
+                });
                 let _ = agent.update(cx, |a, cx| {
+                    // A session pi never named: call it after its first prompt, as new ones are.
+                    if a.name.as_ref() == pide_core::agent::UNNAMED
+                        && let Some(t) = &first_prompt
+                    {
+                        a.name = pide_core::agent::name_from_prompt(t).into();
+                        cx.notify();
+                    }
                     if a.model.is_none() {
                         a.model = model.map(|(provider, id)| pide_core::ModelInfo {
                             provider,
