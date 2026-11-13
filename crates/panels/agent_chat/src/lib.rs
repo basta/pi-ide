@@ -120,6 +120,44 @@ pub fn init(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
+        CommandSpec::new("agent.explain_this", "Agent: Explain This Code"),
+        move |window, cx| {
+            let Some(ctx) = pide_core::context::current(window, cx) else {
+                window.push_notification(
+                    Notification::info("Put the cursor or a selection in a file first."),
+                    cx,
+                );
+                return;
+            };
+            let what = if ctx.start.0 == ctx.end.0 {
+                format!(
+                    "the code around line {} of {} (the function or block it's in)",
+                    ctx.start.0,
+                    ctx.path.display()
+                )
+            } else {
+                format!("lines {}–{} of {}", ctx.start.0, ctx.end.0, ctx.path.display())
+            };
+            let prompt = format!(
+                "Explain {what} to me. I don't write this code by hand, but I want to understand it. \
+                 Don't change anything. Read it (and what it calls, if that matters), then use \
+                 ide_pin on the 2–5 places that matter most for understanding it, in the order I \
+                 should read them, each with a short note on what it does and why. Then reply with a \
+                 short overview: what it's for, how it works, anything surprising."
+            );
+            let agent = active(window, cx);
+            agent.update(cx, |a, cx| {
+                if a.is_busy() {
+                    a.queue(prompt, true, cx);
+                } else {
+                    a.prompt(prompt, cx);
+                }
+            });
+            CommandRegistry::run("agent.ask", window, cx);
+        },
+    );
+    CommandRegistry::register(
+        cx,
         CommandSpec::new("agent.review_next", "Agent: Review Next Session"),
         move |window, cx| {
             pide_core::collab::review_next(window, cx);
