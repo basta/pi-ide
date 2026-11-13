@@ -72,6 +72,11 @@ pub fn is_tour(p: &Pin) -> bool {
     p.id.starts_with(crate::collab::TOUR_PREFIX)
 }
 
+/// A stop that is part of a tour (explains code, isn't a change to review).
+pub fn is_tour_stop(pins: &[Pin], stop: &Stop) -> bool {
+    matches!(stop.at, StopRef::Pin(i) if pins.get(i).is_some_and(is_tour))
+}
+
 /// The stop for `pins[i]`.
 pub fn pin_stop(pins: &[Pin], i: usize) -> Stop {
     let p = &pins[i];
