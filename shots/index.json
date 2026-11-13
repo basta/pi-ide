@@ -1,0 +1,32 @@
+[
+ {
+  "file": "shots/20261114T014400Z-overview.png",
+  "time": "2026-11-14T01:44:00Z",
+  "milestone": "collab MVP",
+  "caption": "Session list with the new TO REVIEW group and the status-bar chip showing one session with notes not yet stepped through."
+ },
+ {
+  "file": "shots/20261114T014300Z-diff-notes.png",
+  "time": "2026-11-14T01:43:00Z",
+  "milestone": "collab MVP",
+  "caption": "pi diff tab listing pi's reason and hunk notes (#1, #2) above the diff, with the hunks numbered on their revert markers."
+ },
+ {
+  "file": "shots/20261114T014200Z-changes-summary.png",
+  "time": "2026-11-14T01:42:00Z",
+  "milestone": "collab MVP",
+  "caption": "Changes view showing pi's one-line reason under calc.py, the note count, the Walk through button and the expanded PLAN checklist."
+ },
+ {
+  "file": "shots/20261114T014100Z-pin-card.png",
+  "time": "2026-11-14T01:41:00Z",
+  "milestone": "collab MVP",
+  "caption": "pi panel after a real run: a PINNED card for calc.py:11 and a line for the explained file, with pi's checklist collapsed at the top."
+ },
+ {
+  "file": "shots/20261114T014000Z-note-bar.png",
+  "time": "2026-11-14T01:40:00Z",
+  "milestone": "collab MVP",
+  "caption": "Editor note bar during a walkthrough: pi's pin on mean() with Reply, Dismiss, Back and Next, magenta gutter and scrollbar marks over the git marks."
+ }
+]
