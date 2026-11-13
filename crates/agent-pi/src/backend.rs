@@ -73,9 +73,17 @@ pub struct PiBackend {
     /// Tags this session's lines in the shared raw log.
     tag: u64,
     abort_deadline: Option<Task<()>>,
+    /// Answers the extension's `pide:query` requests (collaborator mode).
+    queries: Option<pide_core::collab::QueryHandler>,
 }
 
 impl PiBackend {
+    /// Answer pide's extension's questions (e.g. `ide_diagnostics`) with `handler`.
+    pub fn with_queries(mut self, handler: pide_core::collab::QueryHandler) -> Self {
+        self.queries = Some(handler);
+        self
+    }
+
     /// `resume`: an existing pi session file to continue.
     pub fn new(root: PathBuf, resume: Option<PathBuf>) -> Self {
         let shared = Shared {
@@ -89,6 +97,7 @@ impl PiBackend {
             next_id: 0,
             tag: NEXT_SESSION_TAG.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             abort_deadline: None,
+            queries: None,
         }
     }
 
@@ -180,6 +189,7 @@ impl PiBackend {
         // UI side: apply everything pi sends, then handle its exit.
         let shared = self.shared.clone();
         let stats_tx = cmd_tx.clone();
+        let queries = self.queries.clone();
         let tag = self.tag;
         let inbound = cx.spawn(async move |agent: WeakEntity<Agent>, cx| {
             while let Some(rec) = in_rx.recv().await {
@@ -211,6 +221,16 @@ impl PiBackend {
                         ..
                     } => handle_response(&shared, agent, &command, success, error, data, cx),
                     Inbound::Dialog(req) => agent.handle_event(AgentEvent::Dialog(req), cx),
+                    Inbound::Query { id, payload } => {
+                        let answer = match &queries {
+                            Some(q) => q(&payload, cx),
+                            None => json!({"notes": ["This pide window can't answer that."]}),
+                        };
+                        let _ = stats_tx.send(
+                            json!({"type": "extension_ui_response", "id": id, "value": answer.to_string()})
+                                .to_string(),
+                        );
+                    }
                 });
                 if ok.is_err() {
                     return;

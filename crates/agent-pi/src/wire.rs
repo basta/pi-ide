@@ -17,7 +17,16 @@ pub enum Inbound {
     /// A blocking extension dialog (`select`/`confirm`/`input`/`editor`): pi waits for
     /// an `extension_ui_response` (or its own `timeout`).
     Dialog(DialogRequest),
+    /// pide's extension asking pide something (`ctx.ui.input("pide:query", <json>)`,
+    /// docs/COLLAB.md): answered at once with an `extension_ui_response`, never shown.
+    Query {
+        id: String,
+        payload: Value,
+    },
 }
+
+/// The dialog title pide's extension uses for questions to pide (`ext/pide.ts`).
+pub const QUERY_TITLE: &str = "pide:query";
 
 /// Records we know about and deliberately don't surface (yet).
 const QUIET: &[&str] = &[
@@ -195,6 +204,14 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
                 message: s(&v, "message"),
                 error: s(&v, "notifyType") == "error",
             }),
+            "input" if s(&v, "title") == QUERY_TITLE => vec![Inbound::Query {
+                id: s(&v, "id"),
+                payload: v
+                    .get("placeholder")
+                    .and_then(Value::as_str)
+                    .and_then(|p| serde_json::from_str(p).ok())
+                    .unwrap_or(Value::Null),
+            }],
             m @ ("select" | "confirm" | "input" | "editor") => {
                 let opt = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
                 vec![Inbound::Dialog(DialogRequest {
@@ -314,6 +331,16 @@ mod tests {
         );
         assert!(
             matches!(&out[..], [Inbound::Event(AgentEvent::AssistantEnd { error: Some(e) })] if e == "aborted")
+        );
+    }
+
+    #[test]
+    fn pide_queries_are_not_dialogs() {
+        let out = parse_line(
+            r#"{"type":"extension_ui_request","id":"q1","method":"input","title":"pide:query","placeholder":"{\"kind\":\"diagnostics\",\"paths\":[\"a.rs\"]}","timeout":5000}"#,
+        );
+        assert!(
+            matches!(&out[..], [Inbound::Query { id, payload }] if id == "q1" && payload["kind"] == "diagnostics" && payload["paths"][0] == "a.rs")
         );
     }
 

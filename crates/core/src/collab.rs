@@ -102,6 +102,11 @@ pub struct ProgressStep {
     pub done: bool,
 }
 
+/// Answers pide's extension's questions (`{"kind": "diagnostics", ...}`) with JSON.
+/// The app installs one per project (it can see the language servers); runs on
+/// the UI thread, so it must only read in-memory state.
+pub type QueryHandler = std::rc::Rc<dyn Fn(&serde_json::Value, &mut App) -> serde_json::Value>;
+
 /// What a walkthrough stop refers to inside an [`crate::Agent`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StopRef {

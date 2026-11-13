@@ -173,7 +173,7 @@ pub(crate) fn parse_history(path: &std::path::Path) -> Vec<HistItem> {
                                 out.push(HistItem::Pin(id.to_string()));
                                 continue;
                             }
-                            if name.starts_with("ide_") {
+                            if name.starts_with("ide_") && name != "ide_diagnostics" {
                                 continue;
                             }
                             out.push(HistItem::Tool {

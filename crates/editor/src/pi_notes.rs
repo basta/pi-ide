@@ -190,6 +190,10 @@ impl EditorPanel {
                 .child(
                     div()
                         .flex_none()
+                        .max_w(px(220.))
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color)
                         .child(format!("pi · {session}")),

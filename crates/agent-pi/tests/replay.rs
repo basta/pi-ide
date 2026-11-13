@@ -552,3 +552,39 @@ fn collab_events_parse_from_the_recording() {
     let refused = r#"{"type":"tool_execution_end","toolCallId":"x","toolName":"ide_pin","result":{"content":[{"type":"text","text":"Not pinned"}],"details":{"pide":1,"kind":"refused"}},"isError":true}"#;
     assert_eq!(pide_agent_pi::wire::parse_line(refused).len(), 1);
 }
+
+/// `ide_diagnostics` (recorded in pide): the extension asks pide with a
+/// `pide:query` input dialog, pide answers at once, the tool reports it.
+#[test]
+fn diagnostics_queries_parse_from_the_recording() {
+    let fixture = include_str!("fixtures/collab_diagnostics_query.jsonl");
+    let mut queries = 0;
+    let mut answered = 0;
+    for rec in fixture.lines() {
+        let rec: Value = serde_json::from_str(rec).unwrap();
+        let line = rec["line"].as_str().unwrap();
+        if rec["dir"] == "out" {
+            let v: Value = serde_json::from_str(line).unwrap();
+            assert_eq!(v["type"], "extension_ui_response");
+            let answer: Value = serde_json::from_str(v["value"].as_str().unwrap()).unwrap();
+            assert!(answer["diagnostics"].is_array());
+            answered += 1;
+            continue;
+        }
+        for r in pide_agent_pi::wire::parse_line(line) {
+            match r {
+                Inbound::Query { payload, .. } => {
+                    assert_eq!(payload, json!({"kind": "diagnostics", "paths": ["stats.py"]}));
+                    queries += 1;
+                }
+                Inbound::Dialog(d) => panic!("a pide query became a dialog card: {d:?}"),
+                Inbound::Event(AgentEvent::ToolEnd { name, result, .. }) => {
+                    assert_eq!(name, "ide_diagnostics");
+                    assert_eq!(result["details"]["kind"], "diagnostics");
+                }
+                _ => {}
+            }
+        }
+    }
+    assert_eq!((queries, answered), (3, 3));
+}

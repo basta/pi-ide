@@ -21,6 +21,13 @@ export default function (pi: any) {
   pi.on("agent_start", async () => {
     pins = 0;
   });
+  // When pi last changed a file: the editor's language servers need a moment to
+  // re-check it, so ide_diagnostics waits that long first.
+  let lastEdit = 0;
+  pi.on("tool_result", async (event: any) => {
+    if (["edit", "write", "bash"].includes(event.toolName)) lastEdit = Date.now();
+  });
+  const SETTLE_MS = 2000;
 
   const abs = (cwd: string, p: string) => {
     const clean = String(p ?? "").replace(/^@/, "");
@@ -76,8 +83,10 @@ export default function (pi: any) {
       if (!file) {
         return { content: text(`Not pinned: can't read ${params.path}.`), details: { pide: 1, kind: "refused" }, isError: true };
       }
-      const start = Math.min(Math.max(1, params.start_line), file.length);
-      const end = Math.max(start, Math.min(params.end_line ?? start, file.length));
+      // A trailing newline leaves an empty last element: not a line.
+      const count = file.length > 1 && file[file.length - 1] === "" ? file.length - 1 : file.length;
+      const start = Math.min(Math.max(1, params.start_line), count);
+      const end = Math.max(start, Math.min(params.end_line ?? start, count));
       pins += 1;
       return {
         content: text(`Pinned ${params.path}:${start} for the user.`),
@@ -136,6 +145,72 @@ export default function (pi: any) {
       return {
         content: text(`Noted for ${params.path}.`),
         details: { pide: 1, kind: "explain", path: rel(ctx.cwd, path), summary: String(params.summary ?? ""), hunks },
+      };
+    },
+  });
+
+  /** Ask pide for something it knows (its language servers' view, ...). pide answers a
+   *  `ctx.ui.input` titled "pide:query" at once, without showing it, with JSON in `value`
+   *  (docs/rpc-extension-ui.md: dialog requests wait for an extension_ui_response).
+   *  Outside pide nobody answers, so it times out and returns null. */
+  const query = async (ctx: any, payload: any): Promise<any> => {
+    if (!ctx.hasUI) return null;
+    const value = await ctx.ui.input("pide:query", JSON.stringify(payload), { timeout: 5000 });
+    if (typeof value !== "string") return null;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  };
+
+  pi.registerTool({
+    name: "ide_diagnostics",
+    label: "Look at problems",
+    description:
+      "See the errors and warnings the user's editor shows (from its language servers), for given " +
+      "files or for every file it knows about. Use it after changing code to check you didn't leave " +
+      "problems the user would see, instead of guessing. Only files the editor has open or recently " +
+      "opened are covered; it says when a file isn't.",
+    promptSnippet: "See the errors and warnings the user's editor shows for files",
+    promptGuidelines: [
+      "After changing code, call ide_diagnostics on the files you changed and fix new errors before you finish.",
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        paths: {
+          type: "array",
+          items: { type: "string" },
+          description: "Files to check (relative to the project or absolute); omit for all known files",
+        },
+      },
+    },
+    async execute(_id: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
+      const paths = (Array.isArray(params.paths) ? params.paths : []).map((p: any) => rel(ctx.cwd, abs(ctx.cwd, p)));
+      const wait = lastEdit + SETTLE_MS - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      const answer = await query(ctx, { kind: "diagnostics", paths });
+      if (!answer) {
+        return {
+          content: text("No answer from the editor (pide isn't running this session)."),
+          details: { pide: 1, kind: "refused" },
+          isError: true,
+        };
+      }
+      const items: any[] = Array.isArray(answer.diagnostics) ? answer.diagnostics : [];
+      const lines = items.map(
+        (d) => `${d.path}:${d.line}:${d.column} ${d.severity}: ${d.message}${d.source ? ` [${d.source}]` : ""}`,
+      );
+      const notes: string[] = Array.isArray(answer.notes) ? answer.notes : [];
+      const body = [
+        items.length ? `${items.length} problem(s):` : "No problems shown for these files.",
+        ...lines,
+        ...notes,
+      ].join("\n");
+      return {
+        content: text(body),
+        details: { pide: 1, kind: "diagnostics", count: items.length },
       };
     },
   });

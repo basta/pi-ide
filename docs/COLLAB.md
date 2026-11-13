@@ -29,6 +29,13 @@ and state"). Each pide tool validates its input, reads the anchor line from disk
 `crates/agent-pi/tests/fixtures/collab_tools_session.jsonl` (streaming deltas and the system prompt
 dropped to keep it small).
 
+**pi asking pide** (`ide_diagnostics`): the extension calls `ctx.ui.input("pide:query", <json>, {timeout: 5000})`.
+That's a documented blocking dialog (`docs/rpc-extension-ui.md`): pi sends an `extension_ui_request` and
+waits for an `extension_ui_response` with the same id. pide recognizes the title (`wire::QUERY_TITLE`),
+never shows it, and answers at once with JSON in `value` from a `collab::QueryHandler` the app installs
+per project (`app/src/collab_queries.rs`, in-memory state only). Outside pide nobody answers; the dialog
+times out and the tool says so. Recorded: `tests/fixtures/collab_diagnostics_query.jsonl`.
+
 Alternatives looked at and not used:
 
 - `ctx.ui.setWidget` / `setStatus` (fire-and-forget `extension_ui_request`): works, but would carry
@@ -58,6 +65,12 @@ Findings:
 | `ide_pin` | `path, start_line, end_line?, note` | pin card in the chat, gutter mark + note bar in the editor |
 | `ide_explain_change` | `path, summary, hunks?: [{line, note}]` | summary under the file in Changes, hunk notes in the editor and the pi diff tab |
 | `ide_progress` | `steps: [{text, done}]` | a checklist at the top of the session, updated in place |
+| `ide_diagnostics` | `paths?` | (pi looks) the errors and warnings the editor's language servers report, as a tool card in the chat |
+
+`ide_diagnostics` waits until 2 s after pi's last `edit`/`write`/`bash` before asking, so the language
+server has re-checked the file. It only knows files the editor has open (or had open): pide doesn't
+start servers for files nobody opened; a file it doesn't know is named in the answer. A file open with a
+running server and no entry counts as clean (servers drop a file's entry once its problems are gone).
 
 ## Anchors
 
@@ -76,3 +89,20 @@ the saved anchors are re-found in the file on disk; one whose text is gone is ma
   A session "needs review" while it has unseen stops.
 - Only open sessions count for the Overview group and the status-bar chip (closed sessions' data
   isn't loaded).
+
+## Morning summary (kept current)
+
+**Done** (branch `collab-mode`, pushed; screenshots on the orphan branch `wip-shots`, `shots/index.json`):
+
+- MVP, steps 1–7: the extension and transport; pins, explanations and the checklist; core state saved per
+  session and re-anchored on resume; split pi panel with pin cards, checklist, reasons in Changes; editor
+  marks and the note bar (Reply / Dismiss / Back / Next walk across files); hunk notes in the diff tab;
+  TO REVIEW group and the status-bar chip; docs. Reviewed; 7 review findings fixed.
+- `ide_diagnostics`: pi sees what the editor's language servers report (tested with pyright in the app).
+
+**Left / next:** "catch me up" per session; polish from devctl testing.
+
+**Needs your decision:**
+
+- Hunk notes count as "seen" when stepped onto; the Changes "reviewed" checkbox stays separate (ticking
+  it marks the file's notes seen, not the other way round). OK, or should finishing a file's notes tick it?

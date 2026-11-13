@@ -101,7 +101,9 @@ impl AgentChat {
                 }
             }
             // pide's own tools: their results show as pin cards / the checklist / Changes.
-            AgentEvent::ToolStart { name, .. } if name.starts_with("ide_") => {}
+            // (ide_diagnostics stays a tool card: what pi saw is worth seeing.)
+            AgentEvent::ToolStart { name, .. }
+                if name.starts_with("ide_") && name != "ide_diagnostics" => {}
             AgentEvent::Pin(pin) => items.push(Item::Pin(pin.id.clone())),
             AgentEvent::ExplainChange { path, .. } => {
                 if !items

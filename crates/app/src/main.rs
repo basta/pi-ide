@@ -1,5 +1,6 @@
 //! pide: windows (one per project), dock layout, keymap, wiring. `pide [dir]`.
 
+mod collab_queries;
 #[cfg(feature = "devctl")]
 mod devctl;
 mod goto_file;
