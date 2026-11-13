@@ -217,8 +217,8 @@ export default function (pi: any) {
     description:
       "See the errors and warnings the user's editor shows (from its language servers), for given " +
       "files or for every file it knows about. Use it after changing code to check you didn't leave " +
-      "problems the user would see, instead of guessing. Only files the editor has open or recently " +
-      "opened are covered; it says when a file isn't.",
+      "problems the user would see, instead of guessing. Pass the files you changed: files the editor " +
+      "hasn't opened are checked by its language server first (a few seconds).",
     promptSnippet: "See the errors and warnings the user's editor shows for files",
     promptGuidelines: [
       "After changing code, call ide_diagnostics on the files you changed and fix new errors before you finish.",
@@ -237,7 +237,13 @@ export default function (pi: any) {
       const paths = (Array.isArray(params.paths) ? params.paths : []).map((p: any) => rel(ctx.cwd, abs(ctx.cwd, p)));
       const wait = lastEdit + SETTLE_MS - Date.now();
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-      const answer = await query(ctx, { kind: "diagnostics", paths });
+      // Files the editor hasn't opened go to their language server first; pide
+      // says they're pending until it has had a moment to check them.
+      let answer = await query(ctx, { kind: "diagnostics", paths });
+      for (let i = 0; i < 4 && answer && Array.isArray(answer.pending) && answer.pending.length; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        answer = await query(ctx, { kind: "diagnostics", paths });
+      }
       if (!answer) {
         return {
           content: text("No answer from the editor (pide isn't running this session)."),
@@ -250,6 +256,9 @@ export default function (pi: any) {
         (d) => `${d.path}:${d.line}:${d.column} ${d.severity}: ${d.message}${d.source ? ` [${d.source}]` : ""}`,
       );
       const notes: string[] = Array.isArray(answer.notes) ? answer.notes : [];
+      if (Array.isArray(answer.pending) && answer.pending.length) {
+        notes.push(`Still being checked (ask again shortly): ${answer.pending.join(", ")}.`);
+      }
       const body = [
         items.length ? `${items.length} problem(s):` : "No problems shown for these files.",
         ...lines,

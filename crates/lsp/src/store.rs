@@ -253,6 +253,11 @@ impl LspStore {
         let Some(spec) = registry::spec_for(&self.specs, &path).cloned() else {
             return;
         };
+        // Already open in the server (checked for pi without an editor): just update it.
+        if self.docs.get(&path).is_some_and(|d| d.opened) {
+            self.sync_text(&path, &text);
+            return;
+        }
         self.docs.insert(
             path.clone(),
             Doc {
@@ -264,6 +269,33 @@ impl LspStore {
         );
         self.ensure_server(spec.id, cx);
         self.open_docs(spec.id);
+    }
+
+    /// Have the language server check a file no editor has open (pi's
+    /// `ide_diagnostics` asks about files it changed): track it with `text`, as
+    /// read from disk, starting the server if needed; or update a file tracked
+    /// this way. False if no server handles it. Diagnostics arrive later.
+    pub fn check_file(&mut self, path: &Path, text: String, cx: &mut Context<Self>) -> bool {
+        let rope = Rope::from(text.as_str());
+        if self.docs.contains_key(path) {
+            self.sync_text(path, &rope);
+            return true;
+        }
+        let Some(spec) = registry::spec_for(&self.specs, path).cloned() else {
+            return false;
+        };
+        self.docs.insert(
+            path.to_path_buf(),
+            Doc {
+                server: spec.id,
+                version: 1,
+                text: rope,
+                opened: false,
+            },
+        );
+        self.ensure_server(spec.id, cx);
+        self.open_docs(spec.id);
+        true
     }
 
     /// Bring the server's copy of `path` up to date with `text` (no-op if equal).
