@@ -46,7 +46,7 @@ pub fn init(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
-        CommandSpec::new("git.why_line", "Git: Why This Line? (Ask pi)"),
+        CommandSpec::new("git.why_line", "Git: Why This Line? (pi)"),
         |window, cx| {
             let Some(ctx) = pide_core::context::current(window, cx) else {
                 return;
@@ -54,14 +54,33 @@ pub fn init(cx: &mut App) {
             let root = root(window, cx);
             let rel = ctx.path.display().to_string();
             let line = ctx.start.0;
-            let task = cx
-                .background_executor()
-                .spawn(async move { blame::blame_line(&root, &rel, line).map(|b| (b, rel)) });
+            // 1. A note pi left at (or near) this line in an open session: show it in
+            //    the note bar, where you can reply.
+            if note_near(&root.join(&ctx.path), line as usize, window, cx) {
+                return;
+            }
+            // 2. Committed: pi's reason kept with that commit. 3. Else ask pi.
+            let task = cx.background_executor().spawn({
+                let root = root.clone();
+                async move {
+                    let (c, text) = blame::blame_line(&root, &rel, line)?;
+                    let notes = (!c.uncommitted())
+                        .then(|| pide_core::commit_notes::load(&root, &c.hash))
+                        .flatten();
+                    anyhow::Ok((c, text, rel, notes))
+                }
+            });
             window
                 .spawn(cx, async move |cx| {
                     let r = task.await;
                     let _ = cx.update(|window, cx| match r {
-                        Ok(((c, text), rel)) => ask_why(&c, &rel, line, &text, window, cx),
+                        Ok((c, text, rel, notes)) => {
+                            let reason = notes.and_then(|n| n.files.into_iter().find(|f| f.path == rel));
+                            match reason {
+                                Some(f) => show_reason(&c, &f, line as usize, window, cx),
+                                None => ask_why(&c, &rel, line, &text, window, cx),
+                            }
+                        }
                         Err(e) => window
                             .push_notification(Notification::error(format!("{e:#}")), cx),
                     });
@@ -73,6 +92,54 @@ pub fn init(cx: &mut App) {
 
 fn root(window: &Window, cx: &App) -> PathBuf {
     Services::of(window, cx).workspace.read(cx).root().to_path_buf()
+}
+
+/// Lines away from a note that still count as "this line".
+const NEAR: usize = 3;
+
+/// Go to the nearest note on `path` within [`NEAR`] lines of `line` (1-based)
+/// from an open session (the active one first). False if there is none.
+fn note_near(path: &Path, line: usize, window: &mut Window, cx: &mut App) -> bool {
+    let sessions = Services::of(window, cx).sessions;
+    let (active, all) = {
+        let s = sessions.read(cx);
+        (s.active(), s.all().to_vec())
+    };
+    let mut agents = vec![active.clone()];
+    agents.extend(all.into_iter().filter(|a| *a != active));
+    for agent in agents {
+        let stop = agent
+            .read(cx)
+            .stops()
+            .into_iter()
+            .filter(|s| s.path == path && s.line.abs_diff(line) <= NEAR)
+            .min_by_key(|s| s.line.abs_diff(line));
+        if let Some(stop) = stop {
+            sessions.update(cx, |s, cx| s.activate(&agent, cx));
+            pide_core::collab::go_to(&agent, stop, window, cx);
+            return true;
+        }
+    }
+    false
+}
+
+/// pi's reason for the commit that last changed the line, as kept with it.
+fn show_reason(
+    c: &BlameCommit,
+    f: &pide_core::commit_notes::FileReason,
+    line: usize,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let mut text = format!("{} · pi in \u{201c}{}\u{201d}", c.short(), f.session);
+    if let Some(s) = &f.summary {
+        text.push_str(&format!(": {s}"));
+    }
+    // The hunk note nearest the line (lines as they were in that commit).
+    if let Some((l, note)) = f.notes.iter().min_by_key(|(l, _)| l.abs_diff(line)) {
+        text.push_str(&format!(" · line {l}: {note}"));
+    }
+    window.push_notification(Notification::info(text), cx);
 }
 
 /// Draft "why did this line change?" in the pi box.
