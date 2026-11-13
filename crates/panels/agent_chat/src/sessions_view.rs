@@ -42,6 +42,12 @@ impl AgentChat {
                     .timer(std::time::Duration::from_millis(100))
                     .await;
             }
+            let _ = cx.update(|window, cx| {
+                window.push_notification(
+                    Notification::info("That tour's stops aren't there any more."),
+                    cx,
+                )
+            });
         })
         .detach();
     }

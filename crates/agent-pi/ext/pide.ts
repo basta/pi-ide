@@ -56,13 +56,24 @@ export default function (pi: any) {
   const snap = (file: string[], line: number, code: unknown): number | null => {
     const count = lineCount(file);
     const want = Math.min(Math.max(1, Number(line) || 1), count);
-    const needle = typeof code === "string" ? code.trim() : "";
+    // Several lines quoted: the first non-blank one. Too short to be distinctive
+    // ("}", "")): trust the line number instead.
+    const first = typeof code === "string" ? code.split("\n").map((l) => l.trim()).find((l) => l) ?? "" : "";
+    const needle = first.length >= 3 ? first : "";
     if (!needle) return want;
     let best: number | null = null;
     for (let i = 0; i < count; i++) {
       if (file[i].includes(needle) && (best === null || Math.abs(i + 1 - want) < Math.abs(best - want))) best = i + 1;
     }
     return best;
+  };
+  /** The 1-based range starting at `start` that is as long as the model's
+   *  [line, end_line] (one line when end_line is missing or before line). */
+  const rangeEnd = (file: string[], start: number, line: unknown, endLine: unknown): number => {
+    const a = Number(line) || 0;
+    const b = Number(endLine) || 0;
+    const len = a > 0 && b > a ? b - a : 0;
+    return Math.min(start + len, lineCount(file));
   };
   const CODE_DOC = "The text of that line (or a distinctive part of it), copied exactly from the file; " +
     "it places the note even if the line number is off.";
@@ -111,9 +122,7 @@ export default function (pi: any) {
           isError: true,
         };
       }
-      // The range moves with the snapped start.
-      const shift = start - Math.min(Math.max(1, Number(params.start_line) || 1), count);
-      const end = Math.max(start, Math.min((params.end_line ?? params.start_line) + shift, count));
+      const end = rangeEnd(file, start, params.start_line, params.end_line);
       pins += 1;
       return {
         content: text(`Pinned ${params.path}:${start} for the user.`),
@@ -299,8 +308,7 @@ export default function (pi: any) {
           skipped.push(`${st.path} (no line contains ${JSON.stringify(st.code)})`);
           continue;
         }
-        const shift = start - Math.min(Math.max(1, Number(st.line) || 1), count);
-        const end = Math.max(start, Math.min((Number(st.end_line) || Number(st.line) || start) + shift, count));
+        const end = rangeEnd(file, start, st.line, st.end_line);
         stops.push({
           path: rel(ctx.cwd, path),
           line: start,
