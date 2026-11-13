@@ -1,5 +1,17 @@
 [
  {
+  "file": "shots/20261113T172759Z-tour-resumed.png",
+  "time": "2026-11-13T17:27:59Z",
+  "milestone": "tours library",
+  "caption": "Clicking a saved tour resumed its session without starting pi and jumped to its first unseen stop, 3/5 in calc.py."
+ },
+ {
+  "file": "shots/20261113T172758Z-tours-library.png",
+  "time": "2026-11-13T17:27:58Z",
+  "milestone": "tours library",
+  "caption": "The session list's new TOURS group: every tour in the project, from open and saved sessions, with how many stops you've seen."
+ },
+ {
   "file": "shots/20261113T1725Z-change-story.png",
   "time": "2026-11-13T17:25:32Z",
   "milestone": "change story",
