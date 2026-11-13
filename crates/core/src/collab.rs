@@ -90,6 +90,22 @@ pub struct Pin {
 /// Pins from an `ide_tour` have ids `tour:<tool call id>:<n>`.
 pub const TOUR_PREFIX: &str = "tour:";
 
+/// A tour stop's note is "<title> · <i>/<n>: <note>"; split it into (title, note)
+/// at the first " · i/n: " (either part may contain " · " or ": " itself).
+pub fn split_tour_note(text: &str) -> (&str, &str) {
+    for (at, sep) in text.match_indices(" · ") {
+        let rest = &text[at + sep.len()..];
+        let Some((count, body)) = rest.split_once(": ") else {
+            continue;
+        };
+        let numeric = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
+        if count.split_once('/').is_some_and(|(i, n)| numeric(i) && numeric(n)) {
+            return (&text[..at], body);
+        }
+    }
+    ("", text)
+}
+
 /// One of `ide_explain_change`'s hunk notes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HunkNote {
@@ -257,6 +273,12 @@ pub fn review_next(window: &mut Window, cx: &mut App) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn tour_notes_split_at_the_counter() {
+        assert_eq!(split_tour_note("Resume: flow · 2/8: reads a · b: c"), ("Resume: flow", "reads a · b: c"));
+        assert_eq!(split_tour_note("plain note"), ("", "plain note"));
+    }
 
     #[::core::prelude::v1::test]
     fn anchors_follow_their_text() {

@@ -253,7 +253,9 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
 /// an event. Paths are as the extension sent them (relative to the project when
 /// inside it); the connection resolves them against pi's working directory.
 pub fn collab_events(tool_call_id: &str, d: &Value) -> Vec<AgentEvent> {
-    if d.get("kind").and_then(Value::as_str) == Some("tour") {
+    if d.get("pide").and_then(Value::as_u64) == Some(1)
+        && d.get("kind").and_then(Value::as_str) == Some("tour")
+    {
         return tour_pins(tool_call_id, d).into_iter().map(AgentEvent::Pin).collect();
     }
     collab_event(tool_call_id, d).into_iter().collect()

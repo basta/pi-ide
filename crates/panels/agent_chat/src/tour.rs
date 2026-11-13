@@ -108,7 +108,10 @@ impl AgentChat {
         let seen = stops.iter().filter(|s| s.seen).count();
         let total = stops.len();
         // "Title · 1/8: note" → title, and each stop's own note.
-        let title = stops[0].note.split(" · ").next().unwrap_or("Tour").to_string();
+        let title = match pide_core::collab::split_tour_note(&stops[0].note).0 {
+            "" => "Tour".to_string(),
+            t => t.to_string(),
+        };
         let first = stops.iter().find(|s| !s.seen).unwrap_or(&stops[0]).clone();
         let agent_start = agent.clone();
         v_flex()
@@ -136,7 +139,7 @@ impl AgentChat {
             )
             .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
             .children(stops.into_iter().enumerate().map(|(i, st)| {
-                let note = st.note.split_once(": ").map_or(st.note.as_str(), |(_, n)| n).to_string();
+                let note = pide_core::collab::split_tour_note(&st.note).1.to_string();
                 let location = st.location(&root);
                 let agent = agent.clone();
                 let seen = st.seen;

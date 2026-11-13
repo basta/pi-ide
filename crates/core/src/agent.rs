@@ -604,8 +604,12 @@ impl Agent {
                 cx.notify();
             }
             AgentEvent::Pin(pin) => {
-                self.pins.retain(|p| p.id != pin.id);
-                self.pins.push(pin.clone());
+                // Same id again (a reused tool call id): update it in place, so
+                // pin indices (walkthrough stops) stay valid.
+                match self.pins.iter_mut().find(|p| p.id == pin.id) {
+                    Some(p) => *p = pin.clone(),
+                    None => self.pins.push(pin.clone()),
+                }
                 self.persist_changes(cx);
                 cx.notify();
             }

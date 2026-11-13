@@ -48,7 +48,8 @@ pub fn stops(changes: &[FileChange], pins: &[Pin]) -> Vec<Stop> {
             });
         }
         for (pi, p) in pins.iter().enumerate() {
-            if p.path == c.path {
+            // Tour stops keep the tour's order: never regrouped into a file.
+            if p.path == c.path && !is_tour(p) {
                 pin_done[pi] = true;
                 if !p.dismissed {
                     file_stops.push(pin_stop(pins, pi));
@@ -64,6 +65,11 @@ pub fn stops(changes: &[FileChange], pins: &[Pin]) -> Vec<Stop> {
         }
     }
     out
+}
+
+/// A stop of an `ide_tour` (walked in the tour's own order).
+pub fn is_tour(p: &Pin) -> bool {
+    p.id.starts_with(crate::collab::TOUR_PREFIX)
 }
 
 /// The stop for `pins[i]`.
@@ -219,9 +225,10 @@ fn path_of(changes: &[FileChange], pins: &[Pin], at: &StopRef) -> Option<PathBuf
 /// All of a changed file's stops are seen: tick it reviewed (the reverse holds
 /// too: ticking a file marks its stops seen, `Agent::set_reviewed`).
 fn review_if_walked(changes: &mut [FileChange], pins: &[Pin], path: &Path) {
+    let tour = |s: &Stop| matches!(s.at, StopRef::Pin(i) if pins.get(i).is_some_and(is_tour));
     if stops(changes, pins)
         .iter()
-        .filter(|s| s.path == path)
+        .filter(|s| s.path == path && !tour(s))
         .all(|s| s.seen)
         && let Some(c) = changes.iter_mut().find(|c| c.path == path && !c.reverted)
     {
@@ -406,6 +413,21 @@ mod tests {
         assert_eq!(s[0].note, "s2");
         assert_eq!(pins.len(), 2); // the old one is hidden, not removed (indices stay valid)
         assert_ne!(pins[0].id, pins[1].id);
+    }
+
+    #[::core::prelude::v1::test]
+    fn tour_stops_keep_their_order() {
+        let mut a = change("/a");
+        a.notes = vec![note(1, "x")];
+        let pins = vec![
+            pin("tour:c:0", "/a", 9),
+            pin("tour:c:1", "/b", 2),
+            pin("tour:c:2", "/a", 3),
+        ];
+        assert_eq!(
+            at(&stops(&[a], &pins)),
+            [("/a", 1), ("/a", 9), ("/b", 2), ("/a", 3)].map(|(p, l)| (p.to_string(), l))
+        );
     }
 
     #[::core::prelude::v1::test]
