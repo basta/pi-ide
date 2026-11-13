@@ -327,7 +327,7 @@ export default function (pi: any) {
       }
       const note = skipped.length ? ` Left out: ${skipped.join("; ")}.` : "";
       return {
-        content: text(`Tour shown with ${stops.length} stops.${note}`),
+        content: text(`Tour ready with ${stops.length} stops: the user starts it from the tour card in pide's chat (it isn't open yet).${note}`),
         details: { pide: 1, kind: "tour", title: String(params.title ?? "Tour"), stops },
       };
     },

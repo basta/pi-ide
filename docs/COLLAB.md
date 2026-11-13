@@ -166,7 +166,10 @@ Try it with the 10-minute script in docs/TRY-IT.md ("Ten minutes with collaborat
 comes back after a restart" placed all 12 stops correctly (1 line number snapped); a real small change
 was explained, walked and shown in Commit. Found and fixed on the way: the review chip opened an older
 session; `ide_diagnostics` didn't say the language server was down. Found and not a bug: devctl shots
-of a just-opened tab can be empty (documented in AGENTS.md).
+of a just-opened tab can be empty (documented in AGENTS.md). A cold run of the TRY-IT script on a
+fresh project and state, with pyright on, worked step by step: pi's ide_diagnostics saw pyright's real
+error, fixed it, and checked again ("no problems"); story, catch-up and Commit's marker worked from the
+new commands.
 
 **Decisions for you** (defaults in bold):
 
