@@ -1,5 +1,17 @@
 [
  {
+  "file": "shots/20261113T181624Z-next-tour-updated.png",
+  "time": "2026-11-13T18:16:24Z",
+  "milestone": "collab-next",
+  "caption": "collab-next: Update tour gave a new 7-stop tour matching the current code; pi also noticed the rename broke the function bodies."
+ },
+ {
+  "file": "shots/20261113T181623Z-next-tour-outdated.png",
+  "time": "2026-11-13T18:16:23Z",
+  "milestone": "collab-next",
+  "caption": "collab-next: a tour card counts 3 outdated stops after a rename in calc.py and offers Update tour."
+ },
+ {
   "file": "shots/20261113T180541Z-rehearsal-story-commit.png",
   "time": "2026-11-13T18:05:41Z",
   "milestone": "rehearsal",
