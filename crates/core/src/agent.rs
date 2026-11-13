@@ -543,6 +543,8 @@ impl Agent {
                         c.touches.push(touch);
                         c.reviewed = false;
                         c.seen = false;
+                        // Changed again: its notes need another look (or a new explanation).
+                        c.notes.iter_mut().for_each(|n| n.seen = false);
                         if c.reverted {
                             // Reverted, then touched again: the new baseline is what was on disk now.
                             c.reverted = false;
@@ -832,11 +834,14 @@ impl Agent {
     /// Stepping through all of a changed file's notes counts as reviewing it
     /// (ticks it in Changes); the reverse already holds (ticking marks them seen).
     fn review_if_walked(&mut self, at: &StopRef) {
-        let stops = self.stops();
-        let Some(path) = stops.iter().find(|s| &s.at == at).map(|s| s.path.clone()) else {
-            return;
-        };
-        if stops.iter().filter(|s| s.path == path).all(|s| s.seen)
+        if let Some(path) = self.stops().into_iter().find(|s| &s.at == at).map(|s| s.path) {
+            self.review_path_if_walked(&path);
+        }
+    }
+
+    fn review_path_if_walked(&mut self, path: &std::path::Path) {
+        let path = path.to_path_buf();
+        if self.stops().iter().filter(|s| s.path == path).all(|s| s.seen)
             && let Some(c) = self.changes.iter_mut().find(|c| c.path == path && !c.reverted)
         {
             c.reviewed = true;
@@ -845,7 +850,12 @@ impl Agent {
 
     /// Hide a pin or hunk note (and count it as seen).
     pub fn dismiss_stop(&mut self, at: &StopRef, cx: &mut Context<Self>) {
+        // The path first: a dismissed stop leaves `stops()`.
+        let path = self.stops().into_iter().find(|s| &s.at == at).map(|s| s.path);
         self.set_stop_flag(at, true);
+        if let Some(path) = path {
+            self.review_path_if_walked(&path);
+        }
         if self.current_stop.as_ref() == Some(at) {
             self.current_stop = None; // the bar moves on to the next unseen note
         }
