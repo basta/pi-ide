@@ -454,13 +454,14 @@ pub(crate) fn ask_why_prompt(files: &[String]) -> String {
 
 /// What "Tell it as a story" asks pi.
 pub(crate) fn story_prompt() -> String {
-    "Don't change any code. Walk me through the change you made in \
-                                 this session as a story: call ide_tour once, titled \"The change, step by \
-                                 step\", with stops at the places you changed (and any unchanged code needed \
-                                 to follow it), in the order that explains the change from its entry point \
-                                 onward, not file by file. Each note says what changed there, why, and how \
-                                 it leads to the next stop."
-        .to_string()
+    format!(
+        "Don't change any code. Walk me through the change you made in this session as a story: \
+         call ide_tour once, titled \"{}\", with stops at the places you changed (and any \
+         unchanged code needed to follow it), in the order that explains the change from its entry \
+         point onward, not file by file. Each note says what changed there, why, and how it leads to \
+         the next stop.",
+        pide_core::collab::STORY_TITLE
+    )
 }
 
 /// Send `prompt` to `agent` now, or after its current run.

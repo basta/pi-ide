@@ -87,6 +87,10 @@ pub struct Pin {
     pub dismissed: bool,
 }
 
+/// The title "Tell it as a story" asks pi to give its tour; Walk Through Changes
+/// follows the newest such tour when there is one.
+pub const STORY_TITLE: &str = "The change, step by step";
+
 /// Pins from an `ide_tour` have ids `tour:<tool call id>:<n>`.
 pub const TOUR_PREFIX: &str = "tour:";
 
@@ -247,6 +251,10 @@ pub fn walk(agent: &Entity<crate::Agent>, delta: isize, window: &mut Window, cx:
 /// Start the walkthrough of `agent` from its first unseen stop (or the first).
 pub fn start_walk(agent: &Entity<crate::Agent>, window: &mut Window, cx: &mut App) -> bool {
     agent.update(cx, |a, _| a.current_stop = None);
+    // The change told as a story walks in the story's order, while it has stops to see.
+    if let Some(story) = crate::walk::story_with_unseen(&agent.read(cx).pins) {
+        return start_tour(agent, &story, window, cx);
+    }
     walk(agent, 1, window, cx)
 }
 

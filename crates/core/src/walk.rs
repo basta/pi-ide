@@ -172,6 +172,16 @@ pub fn dismiss(
     }
 }
 
+/// The call id of the newest story tour (titled [`crate::collab::STORY_TITLE`])
+/// that still has unseen stops.
+pub fn story_with_unseen(pins: &[Pin]) -> Option<String> {
+    crate::notes::tours(pins)
+        .into_iter()
+        .rev()
+        .find(|t| t.title == crate::collab::STORY_TITLE && t.seen < t.stops)
+        .map(|t| t.call_id)
+}
+
 /// Hide every stop of the tour made by tool call `call_id` (a newer tour replaced it).
 /// Kept, not removed, so pin indices stay valid.
 pub fn dismiss_tour(pins: &mut [Pin], current: &mut Option<StopRef>, call_id: &str) {
@@ -485,6 +495,28 @@ mod tests {
         assert_eq!(pick_review(&2, &[1, 2, 3]), Some(2));
         assert_eq!(pick_review(&9, &[1, 2, 3]), Some(3));
         assert_eq!(pick_review(&9, &[] as &[i32]), None);
+    }
+
+    #[::core::prelude::v1::test]
+    fn the_newest_unfinished_story_is_walked_first() {
+        let story = |id: &str, n: usize, seen: bool| {
+            let mut p = pin(id, "/a", 1);
+            p.note = format!("{} · {n}/2: x", crate::collab::STORY_TITLE);
+            p.seen = seen;
+            p
+        };
+        let mut pins = vec![story("tour:s1:0", 1, false), story("tour:s1:1", 2, false)];
+        assert_eq!(story_with_unseen(&pins).as_deref(), Some("s1"));
+        pins.push(story("tour:s2:0", 1, true));
+        pins.push(story("tour:s2:1", 2, false));
+        assert_eq!(story_with_unseen(&pins).as_deref(), Some("s2"));
+        pins[2].seen = true;
+        pins[3].seen = true;
+        assert_eq!(story_with_unseen(&pins).as_deref(), Some("s1"));
+        pins.push(pin("tour:other:0", "/a", 3)); // a tour with another title
+        pins[0].seen = true;
+        pins[1].seen = true;
+        assert_eq!(story_with_unseen(&pins), None);
     }
 
     #[::core::prelude::v1::test]
