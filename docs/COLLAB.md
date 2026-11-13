@@ -181,4 +181,5 @@ of a just-opened tab can be empty (documented in AGENTS.md).
 
 **Not done / ideas:** a change story that reorders the main walkthrough itself (today it's a separate
 tour); notes for files pi changed outside edit/write/bash; centring the walked-to line in the editor
-(GPUI Kit scrolls it just into view, often to the bottom edge).
+(GPUI Kit scrolls it just into view, often to the bottom edge; no API for it, tried a workaround,
+see docs/GAPS.md).
