@@ -173,7 +173,9 @@ of a just-opened tab can be empty (documented in AGENTS.md).
 1. Merge `collab-mode` into main **as one merge** (it's 43 small commits, all green), or squash per feature?
 2. Stepping through all of a file's notes **ticks it reviewed** (and ticking marks its notes seen). Keep
    **yes**, or keep the two separate?
-3. The extension loads into **every** pi pide starts. Keep **yes**, or add a setting to turn it off?
+3. The extension loads into every pi pide starts; **Settings → pi's collaborator tools** (`agent.collab`,
+   default **on**) turns it off for sessions started afterwards, so the merge is reversible without a
+   revert. Keep it on by default?
 4. Pins are capped at **5 per prompt** (tours: 15 stops). Keep **yes**, or raise?
 5. Dim marks for other sessions' notes: keep **yes**, or show only the active session's?
 

@@ -144,11 +144,17 @@ impl PiBackend {
         };
 
         let mut args = vec!["--mode".to_string(), "rpc".to_string()];
-        // pide's own extension (collaborator tools); `supervise` writes the file before spawning.
-        args.extend([
-            "-e".to_string(),
-            extension_path().to_string_lossy().into_owned(),
-        ]);
+        // pide's own extension (collaborator tools; setting `agent.collab`, default on);
+        // `supervise` writes the file before spawning.
+        let collab = cx
+            .try_global::<pide_core::settings::Settings>()
+            .is_none_or(|s| s.collab);
+        if collab {
+            args.extend([
+                "-e".to_string(),
+                extension_path().to_string_lossy().into_owned(),
+            ]);
+        }
         // Extra flags for every pi process, e.g. PIDE_PI_ARGS="-e dev/pi-ask-test.ts" or "--model …".
         if let Ok(extra) = std::env::var("PIDE_PI_ARGS") {
             args.extend(extra.split_whitespace().map(str::to_string));
@@ -755,7 +761,9 @@ async fn supervise(
     kill: oneshot::Receiver<()>,
     exit: oneshot::Sender<(Option<i32>, Vec<String>, Option<String>)>,
 ) {
-    write_extension();
+    if args.iter().any(|a| *a == extension_path().to_string_lossy()) {
+        write_extension();
+    }
     // pi is a node script (`#!/usr/bin/env node`); make sure node's dir is on PATH.
     let mut path = pi
         .parent()

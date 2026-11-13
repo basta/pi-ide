@@ -34,6 +34,13 @@ const ROWS: &[Row] = &[
         |s, v| s.save_before_send = v,
     ),
     (
+        "agent.collab",
+        "pi's collaborator tools",
+        "pi can pin code, explain its changes, give tours and see your editor's errors. Applies to pi sessions started after the change.",
+        |s| s.collab,
+        |s, v| s.collab = v,
+    ),
+    (
         "agent.notify",
         "Notify when pi finishes",
         "A macOS notification when pi is done or asks something while you're in another app.",
