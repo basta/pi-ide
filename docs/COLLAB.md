@@ -103,6 +103,12 @@ extension adds each line's text and up to 8 lines of snippet). The stops become 
 so nothing reorders them) and survive a resume like any pin. The chat shows one tour card: the title,
 the numbered stops (click to go there), Start / Continue.
 
+**Tell it as a story** (Changes) asks pi, in the session, to retell its change as a tour ("The change, step
+by step") in the order that explains it, from the entry point onward, instead of file by file.
+**TOURS** in the session list (▾) lists every tour in the project, from open sessions and saved ones;
+click one to open its session (a saved one is resumed; pi itself starts only on your next message) and
+walk from its first unseen stop.
+
 ## Notes across sessions
 
 pi's notes belong to the session that made them, but the code is shared. **pi → pi's Notes in This
@@ -114,8 +120,11 @@ session's saved state is the source.
 
 ## Anchors
 
-Pins and hunk notes are anchored by 1-based line plus that line's text (read by the extension when
-the tool ran). The editor re-finds the text near the line in the current buffer. On load (resume),
+pi's line numbers are often off by a few, so `ide_pin`, `ide_tour` stops and hunk notes also take
+`code`: the line's text copied from the file. The extension snaps to the nearest line containing it; a
+pin whose code isn't in the file is refused, a tour stop or hunk note is left out, and pi is told why
+(recorded tour of pide itself: 2 of 8 line numbers were off and snapped). Pins and hunk notes are
+then anchored by 1-based line plus that line's text. The editor re-finds the text near the line in the current buffer. On load (resume),
 the saved anchors are re-found in the file on disk; one whose text is gone is marked outdated
 (the note still shows, at the old line, labelled "outdated").
 
@@ -159,6 +168,9 @@ the saved anchors are re-found in the file on disk; one whose text is gone is ma
 - Notes across sessions (advisor's round-2 item 3): pi's Notes in This File, and dim marks for other
   open sessions' notes. Fixed on the way: Cargo.lock was missing `lsp-types` for the app since
   ide_diagnostics (`--locked` builds of the branch failed in between).
+
+- Advisor's round 3: anchors snap to the quoted code (fixture: a tour of pide itself); **Tell it as a
+  story** (a change retold as a tour); **TOURS** library in the session list. All tested in the app.
 
 **Left / next:** another advisor round.
 
