@@ -39,6 +39,70 @@ use history::{HistItem, parse_history, result_text, summarize_args};
 
 pub const PANEL_NAME: &str = "agent_chat";
 
+/// Every session's notes on the current file (open sessions now, closed ones
+/// from their saved state, off the UI thread), as a list of locations.
+fn notes_in_file(window: &mut Window, cx: &mut App) {
+    use pide_core::notes::{FileNote, saved_notes};
+    let Some(ctx) = pide_core::context::current(window, cx) else {
+        window.push_notification(Notification::info("Open a file first."), cx);
+        return;
+    };
+    let services = Services::of(window, cx);
+    let root = services.workspace.read(cx).root().to_path_buf();
+    let path = root.join(&ctx.path);
+    let mut notes: Vec<FileNote> = Vec::new();
+    let mut open_files = Vec::new();
+    for agent in services.sessions.read(cx).all() {
+        let a = agent.read(cx);
+        open_files.extend(a.session_file.clone());
+        for stop in a.stops().iter().filter(|s| s.path == path) {
+            notes.push(FileNote::from_stop(stop, &a.name));
+        }
+    }
+    let load = cx.background_executor().spawn({
+        let (root, path) = (root.clone(), path.clone());
+        async move { saved_notes(&root, &path, &open_files) }
+    });
+    let title: SharedString = format!(
+        "pi's notes in {}",
+        ctx.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+    )
+    .into();
+    window
+        .spawn(cx, async move |cx| {
+            notes.extend(load.await);
+            notes.sort_by_key(|n| n.line);
+            let _ = cx.update(|window, cx| {
+                if notes.is_empty() {
+                    window.push_notification(
+                        Notification::info("pi hasn't left notes on this file in any session."),
+                        cx,
+                    );
+                    return;
+                }
+                let locations = notes
+                    .into_iter()
+                    .map(|n| {
+                        let head = format!(
+                            "{}{}: ",
+                            n.session,
+                            if n.outdated { " (outdated)" } else { "" }
+                        );
+                        pide_core::opener::Location {
+                            path: path.clone(),
+                            line: n.line.saturating_sub(1) as u32,
+                            character: 0,
+                            range: 0..head.len(),
+                            text: format!("{head}{}", n.note.replace('\n', " ")),
+                        }
+                    })
+                    .collect();
+                pide_core::opener::show_locations(title, locations, window, cx);
+            });
+        })
+        .detach();
+}
+
 actions!(pide_chat, [QueueFollowUp, CompleteSlash, BackToEditor]);
 /// At this width or more the panel shows the session sidebar instead of tabs.
 const SIDEBAR_MIN_WIDTH: f32 = 640.;
@@ -118,6 +182,11 @@ pub fn init(cx: &mut App) {
             let agent = active(window, cx);
             pide_core::collab::walk(&agent, -1, window, cx);
         },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.notes_in_file", "Agent: pi's Notes in This File"),
+        move |window, cx| notes_in_file(window, cx),
     );
     CommandRegistry::register(
         cx,

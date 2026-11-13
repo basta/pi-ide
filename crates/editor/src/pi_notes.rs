@@ -38,6 +38,9 @@ pub(crate) struct PiNotes {
     _typed: Option<Task<()>>,
     _agent_sub: Option<Subscription>,
     _sessions_sub: Option<Subscription>,
+    /// Any session changed (notes of the other open sessions show too, dimmer).
+    _sessions_obs: Option<Subscription>,
+    sessions: Option<Entity<pide_core::Sessions>>,
 }
 
 impl EditorPanel {
@@ -49,6 +52,8 @@ impl EditorPanel {
             let active = sessions.read(cx).active();
             this.follow_agent(active, cx);
         }));
+        self.pi._sessions_obs = Some(cx.observe(&sessions, |this, _, cx| this.refresh_pi_marks(cx)));
+        self.pi.sessions = Some(sessions.clone());
         let active = sessions.read(cx).active();
         self.follow_agent(active, cx);
     }
@@ -100,10 +105,30 @@ impl EditorPanel {
             .into_iter()
             .filter(|s| s.path == self.path)
             .collect();
+        // Other open sessions' notes on this file: marks only, dimmer.
+        let others: Vec<usize> = self
+            .pi
+            .sessions
+            .as_ref()
+            .map(|sessions| {
+                sessions
+                    .read(cx)
+                    .all()
+                    .iter()
+                    .filter(|a| **a != agent)
+                    .flat_map(|a| a.read(cx).stops())
+                    .filter(|s| s.path == self.path)
+                    .map(|s| s.line)
+                    .collect()
+            })
+            .unwrap_or_default();
         let key = (
             stops
                 .iter()
                 .map(|s| (s.at.clone(), s.line, s.seen, s.outdated, s.label()))
+                .chain(others.iter().map(|l| {
+                    (pide_core::collab::StopRef::File(usize::MAX), *l, true, false, String::new())
+                }))
                 .collect::<Vec<_>>(),
             current.clone(),
             self.buffer
@@ -126,9 +151,14 @@ impl EditorPanel {
         }
         let shown = shown_stop(&stops, current.as_ref()).cloned();
         let color = pide_core::colors::pi_note(cx);
-        let gutter: Vec<GutterDecoration> = stops
+        let gutter: Vec<GutterDecoration> = others
             .iter()
-            .map(|s| GutterDecoration::new(line_range(&rope, s.line)).with_color(color))
+            .map(|l| GutterDecoration::new(line_range(&rope, *l)).with_color(color.opacity(0.4)))
+            .chain(
+                stops
+                    .iter()
+                    .map(|s| GutterDecoration::new(line_range(&rope, s.line)).with_color(color)),
+            )
             .collect();
         let ruler: Vec<OverviewRulerDecoration> = stops
             .iter()
