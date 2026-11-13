@@ -143,8 +143,9 @@ the saved anchors are re-found in the file on disk; one whose text is gone is ma
 
 ## Morning summary (kept current)
 
-Branch `collab-mode` (43 commits on top of main, which hasn't moved; `cargo test --workspace --locked`
-green). Screenshots: orphan branch `wip-shots` and the gallery https://claude.ai/artifact/55ZpVNwYu4UoTALd83LMZ6.
+Branch `collab-mode` (on top of main, which hasn't moved, so the merge is a fast-forward). A fresh
+clone of the pushed branch passes `cargo test --workspace --locked` (checked at the end of the night;
+it reused this machine's `target/` for the dependencies; no release build was made, to save disk). Screenshots: orphan branch `wip-shots` and the gallery https://claude.ai/artifact/55ZpVNwYu4UoTALd83LMZ6.
 Try it with the 10-minute script in docs/TRY-IT.md ("Ten minutes with collaborator mode").
 
 **What you get** (each built, reviewed by a second agent, fixed, and tested in the app via devctl):
@@ -178,7 +179,8 @@ new commands.
    **yes**, or keep the two separate?
 3. The extension loads into every pi pide starts; **Settings → pi's collaborator tools** (`agent.collab`,
    default **on**) turns it off for sessions started afterwards, so the merge is reversible without a
-   revert. Keep it on by default?
+   revert (checked: with it off, pi starts with plain `--mode rpc` and a session works normally; the
+   collaborator UI just stays empty). Keep it on by default?
 4. Pins are capped at **5 per prompt** (tours: 15 stops). Keep **yes**, or raise?
 5. Dim marks for other sessions' notes: keep **yes**, or show only the active session's?
 

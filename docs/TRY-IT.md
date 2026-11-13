@@ -49,7 +49,8 @@ You don't write the code; this is how you keep up with it. Details: docs/COLLAB.
    the chat. When it's done, each changed file has a one-line reason in **Changes**, and pi may pin a
    spot it wants you to decide on (a PINNED card in the chat, with the code).
 4. **Review it where it happened.** Click **◆ n to review** in the status bar (or **Walk Through
-   Changes**): the editor goes to pi's first note; magenta marks in the gutter are pi's notes,
+   Changes**): the editor goes to pi's first note (the line often lands at the top or bottom edge of
+   the view; GPUI Kit can't centre it yet); magenta marks in the gutter are pi's notes,
    blue/green are git's. **Next** steps through every note across files; stepping through a file's
    last note ticks it reviewed. **Reply** puts "file:line (about your note "…"): " in the pi box, so
    you answer in place. A file pi changed without saying why says **no reason given · ask why**.
