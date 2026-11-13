@@ -118,6 +118,33 @@ pub struct GitPanel {
 
 impl EventEmitter<PanelEvent> for GitPanel {}
 
+/// Keep pi's reasons with the commit just made (right after it, in the same
+/// background step, so the hash is that commit's); `before` = the notes of an
+/// amended commit, for files this one doesn't explain anew.
+fn save_commit_notes(
+    workdir: &std::path::Path,
+    root: &std::path::Path,
+    mut notes: pide_core::commit_notes::CommitNotes,
+    before: Option<pide_core::commit_notes::CommitNotes>,
+) {
+    for old in before.map(|b| b.files).unwrap_or_default() {
+        if !notes.files.iter().any(|f| f.path == old.path) {
+            notes.files.push(old);
+        }
+    }
+    if notes.is_empty() {
+        return;
+    }
+    match repo::git_out(workdir, &["rev-parse", "HEAD"]) {
+        Ok(hash) => {
+            if let Err(e) = pide_core::commit_notes::save(root, hash.trim(), &notes) {
+                ::log::warn!("save pi's commit notes: {e}");
+            }
+        }
+        Err(e) => ::log::warn!("commit hash for pi's notes: {e:#}"),
+    }
+}
+
 impl GitPanel {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let workspace = Services::of(window, cx).workspace;
@@ -499,23 +526,17 @@ impl GitPanel {
         self.run(
             window,
             cx,
-            move |w| repo::commit_selection(&w, &message, amend, &full, &partial),
+            move |w| {
+                // An amend carries the amended commit's notes over to the new hash.
+                let before = amend
+                    .then(|| repo::git_out(&w, &["rev-parse", "HEAD"]).ok())
+                    .flatten()
+                    .and_then(|h| pide_core::commit_notes::load(&root, h.trim()));
+                let summary = repo::commit_selection(&w, &message, amend, &full, &partial)?;
+                save_commit_notes(&w, &root, notes, before);
+                Ok(summary)
+            },
             move |this, summary, window, cx| {
-                if !notes.is_empty() {
-                    let (root, notes) = (root.clone(), notes.clone());
-                    cx.background_executor()
-                        .spawn(async move {
-                            match repo::git_out(&root, &["rev-parse", "HEAD"]) {
-                                Ok(hash) => {
-                                    if let Err(e) = pide_core::commit_notes::save(&root, hash.trim(), &notes) {
-                                        ::log::warn!("save pi's commit notes: {e}");
-                                    }
-                                }
-                                Err(e) => ::log::warn!("commit hash for pi's notes: {e:#}"),
-                            }
-                        })
-                        .detach();
-                }
                 this.amend = false;
                 this.include.clear();
                 this.message.update(cx, |m, cx| m.set_value("", window, cx));
