@@ -22,6 +22,15 @@ pub(crate) fn tour_prompt(question: &str) -> String {
     )
 }
 
+/// What "Update tour" asks pi.
+pub(crate) fn update_tour_prompt(title: &str, outdated: usize, total: usize) -> String {
+    format!(
+        "The code changed since your tour \"{title}\": {outdated} of its {total} stops no longer match. \
+         Don't change any code. Read the code as it is now and call ide_tour again for the same \
+         question, with stops that match the current code, then say in one or two sentences what changed."
+    )
+}
+
 /// Agent: Take a Tour… — ask the question, start a session for it.
 pub(crate) fn open(sessions: Entity<Sessions>, window: &mut Window, cx: &mut App) {
     if window.has_active_dialog(cx) {
@@ -112,6 +121,8 @@ impl AgentChat {
         let root = self.workspace.read(cx).root().to_path_buf();
         let seen = stops.iter().filter(|s| s.seen).count();
         let total = stops.len();
+        // Stops whose code changed since the tour was given (found again on resume).
+        let outdated = stops.iter().filter(|s| s.outdated).count();
         // "Title · 1/8: note" → title, and each stop's own note.
         let title = match pide_core::collab::split_tour_note(&stops[0].note).0 {
             "" => "Tour".to_string(),
@@ -132,7 +143,37 @@ impl AgentChat {
                     .text_xs()
                     .child(div().font_weight(FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("TOUR"))
                     .child(div().text_color(theme.muted_foreground).child(format!("{seen}/{total} seen")))
+                    .when(outdated > 0, |this| {
+                        this.child(
+                            div()
+                                .text_color(theme.warning)
+                                .child(format!("{outdated} outdated")),
+                        )
+                    })
                     .child(div().flex_1())
+                    .when(outdated > 0, |this| {
+                        let (agent, title) = (agent_start.clone(), title.clone());
+                        let call = call_id.to_string();
+                        this.child(
+                            Button::new(("tour-update", ix))
+                                .xsmall()
+                                .ghost()
+                                .label("Update tour")
+                                .tooltip("The code changed since this tour: ask pi to redo it against the code as it is now")
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.replacing_tour.insert(agent.entity_id(), call.clone());
+                                    crate::changes_view::send_or_queue(
+                                        &agent,
+                                        update_tour_prompt(&title, outdated, total),
+                                        cx,
+                                    );
+                                    // Not inside this panel's own update (it reads the panel).
+                                    window.defer(cx, |window, cx| {
+                                        CommandRegistry::run("agent.ask", window, cx);
+                                    });
+                                })),
+                        )
+                    })
                     .child(
                         Button::new(("tour-start", ix))
                             .xsmall()

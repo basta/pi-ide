@@ -377,6 +377,8 @@ pub fn existing(window: &Window, cx: &App) -> Option<Entity<AgentChat>> {
 }
 
 pub struct AgentChat {
+    /// Update tour was asked in this session: the next tour pi gives replaces this one (its call id).
+    replacing_tour: HashMap<EntityId, String>,
     /// The Understand card is shown on top of the conversation (the ? button).
     show_help: bool,
     /// Sessions a "catch me up" briefing is being written for.
@@ -491,6 +493,7 @@ impl AgentChat {
         ];
         let mut this = Self {
             progress_open: false,
+            replacing_tour: HashMap::new(),
             show_help: false,
             catching_up: Default::default(),
             catch_up_open: true,

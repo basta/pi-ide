@@ -706,6 +706,13 @@ impl Agent {
         cx.notify();
     }
 
+    /// Hide a tour a newer one replaced (see [`crate::walk::dismiss_tour`]).
+    pub fn dismiss_tour(&mut self, call_id: &str, cx: &mut Context<Self>) {
+        crate::walk::dismiss_tour(&mut self.pins, &mut self.current_stop, call_id);
+        self.persist_changes(cx);
+        cx.notify();
+    }
+
     /// Hide a pin or hunk note (see [`crate::walk::dismiss`]).
     pub fn dismiss_stop(&mut self, at: &StopRef, cx: &mut Context<Self>) {
         crate::walk::dismiss(&mut self.changes, &mut self.pins, &mut self.current_stop, at);

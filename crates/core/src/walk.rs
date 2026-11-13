@@ -172,6 +172,21 @@ pub fn dismiss(
     }
 }
 
+/// Hide every stop of the tour made by tool call `call_id` (a newer tour replaced it).
+/// Kept, not removed, so pin indices stay valid.
+pub fn dismiss_tour(pins: &mut [Pin], current: &mut Option<StopRef>, call_id: &str) {
+    let prefix = format!("{}{call_id}:", crate::collab::TOUR_PREFIX);
+    for (i, p) in pins.iter_mut().enumerate() {
+        if p.id.starts_with(&prefix) {
+            p.dismissed = true;
+            p.seen = true;
+            if *current == Some(StopRef::Pin(i)) {
+                *current = None;
+            }
+        }
+    }
+}
+
 /// pi changed a file again: it needs another look (unticked, its notes unseen).
 pub fn touched_again(c: &mut FileChange) {
     c.reviewed = false;
@@ -470,6 +485,15 @@ mod tests {
         assert_eq!(pick_review(&2, &[1, 2, 3]), Some(2));
         assert_eq!(pick_review(&9, &[1, 2, 3]), Some(3));
         assert_eq!(pick_review(&9, &[] as &[i32]), None);
+    }
+
+    #[::core::prelude::v1::test]
+    fn a_replaced_tour_leaves_the_walk() {
+        let mut pins = vec![pin("tour:old:0", "/a", 1), pin("tour:new:0", "/a", 2)];
+        let mut cur = Some(StopRef::Pin(0));
+        dismiss_tour(&mut pins, &mut cur, "old");
+        assert_eq!(cur, None);
+        assert_eq!(at(&stops(&[], &pins)), [("/a".to_string(), 2)]);
     }
 
     #[::core::prelude::v1::test]
