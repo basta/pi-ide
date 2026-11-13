@@ -103,6 +103,15 @@ extension adds each line's text and up to 8 lines of snippet). The stops become 
 so nothing reorders them) and survive a resume like any pin. The chat shows one tour card: the title,
 the numbered stops (click to go there), Start / Continue.
 
+## Notes across sessions
+
+pi's notes belong to the session that made them, but the code is shared. **pi → pi's Notes in This
+File** lists every session's notes on the current file: open sessions from memory, closed ones from
+their saved state (`pide_core::notes`, re-anchored against the file, read off the UI thread), shown
+in the locations list with the session's name. In the editor, other open sessions' notes are dimmer
+gutter marks (the bar and the walkthrough stay with the active session). No new store: each
+session's saved state is the source.
+
 ## Anchors
 
 Pins and hunk notes are anchored by 1-based line plus that line's text (read by the extension when
@@ -147,8 +156,11 @@ the saved anchors are re-found in the file on disk; one whose text is gone is ma
   the app on the demo project.
 - WIP gallery (artifact): https://claude.ai/artifact/55ZpVNwYu4UoTALd83LMZ6
 
-**Left / next:** advisor's round-2 item 3, project notes that outlive sessions (explanations saved per
-project, shown whatever session is active).
+- Notes across sessions (advisor's round-2 item 3): pi's Notes in This File, and dim marks for other
+  open sessions' notes. Fixed on the way: Cargo.lock was missing `lsp-types` for the app since
+  ide_diagnostics (`--locked` builds of the branch failed in between).
+
+**Left / next:** another advisor round.
 
 **Needs your decision:**
 
