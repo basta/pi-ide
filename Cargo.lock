@@ -6400,6 +6400,7 @@ dependencies = [
  "gpui-kit",
  "ignore",
  "log",
+ "lsp-types",
  "nucleo-matcher",
  "pide-agent-chat",
  "pide-agent-pi",
