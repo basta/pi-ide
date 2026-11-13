@@ -10,6 +10,6 @@ Things that came up while building, deliberately not built yet (spec rule 8).
 Collaborator mode, after the merge (from tonight's advisor rounds and testing; docs/COLLAB.md):
 
 - **Centre the walked-to line**: needs a GPUI Kit API (docs/GAPS.md); ask upstream.
-- **Explanations for files pi changed outside edit/write/watched bash** (kept as pins today).
+- **Explanations for files pi changed outside edit/write/watched bash** (kept as pins today, which show and walk). A real change record needs a "before" text; taking it from HEAD would make Revert drop your own uncommitted edits, so it'd need a no-revert kind of change. Rare in practice; skipped on collab-next.
 - **Tours library as its own view**: search and delete (re-running an outdated tour is done: Update tour, on collab-next).
 - **Per-project notes index** if listing every saved session's notes gets slow on big histories (`pide_core::notes` reads them all on demand).
