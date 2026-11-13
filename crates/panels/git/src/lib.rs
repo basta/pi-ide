@@ -113,6 +113,7 @@ pub struct GitPanel {
     /// (relative path → how many, and the session), and what that was computed from.
     pi_unseen: HashMap<String, Vec<(Entity<pide_core::Agent>, usize)>>,
     pi_revs: Vec<(EntityId, u64)>,
+    sessions: Entity<pide_core::Sessions>,
 }
 
 impl EventEmitter<PanelEvent> for GitPanel {}
@@ -178,6 +179,7 @@ impl GitPanel {
             _subs: subs,
             pi_unseen: HashMap::new(),
             pi_revs: Vec::new(),
+            sessions: sessions.clone(),
         };
         this._subs
             .push(cx.observe(&sessions, |this, sessions, cx| this.refresh_pi_unseen(&sessions, cx)));
@@ -486,11 +488,34 @@ impl GitPanel {
         let message = self.message.read(cx).value().to_string();
         let amend = self.amend;
         let (full, partial) = self.selection();
+        // pi's reasons for the files going in, kept with the commit (Git Log shows them).
+        let rels: Vec<String> = full
+            .iter()
+            .cloned()
+            .chain(partial.iter().map(|(r, _)| r.clone()))
+            .collect();
+        let notes = pide_core::commit_notes::collect(self.sessions.read(cx), &self.root, &rels, cx);
+        let root = self.root.clone();
         self.run(
             window,
             cx,
             move |w| repo::commit_selection(&w, &message, amend, &full, &partial),
             move |this, summary, window, cx| {
+                if !notes.is_empty() {
+                    let (root, notes) = (root.clone(), notes.clone());
+                    cx.background_executor()
+                        .spawn(async move {
+                            match repo::git_out(&root, &["rev-parse", "HEAD"]) {
+                                Ok(hash) => {
+                                    if let Err(e) = pide_core::commit_notes::save(&root, hash.trim(), &notes) {
+                                        ::log::warn!("save pi's commit notes: {e}");
+                                    }
+                                }
+                                Err(e) => ::log::warn!("commit hash for pi's notes: {e:#}"),
+                            }
+                        })
+                        .detach();
+                }
                 this.amend = false;
                 this.include.clear();
                 this.message.update(cx, |m, cx| m.set_value("", window, cx));

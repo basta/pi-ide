@@ -8,6 +8,7 @@ pub mod changes;
 pub mod collab;
 pub mod colors;
 pub mod commands;
+pub mod commit_notes;
 pub mod context;
 pub mod events;
 pub mod fswatch;
