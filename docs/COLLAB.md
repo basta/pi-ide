@@ -110,7 +110,12 @@ the saved anchors are re-found in the file on disk; one whose text is gone is ma
 - `ide_diagnostics`: pi sees what the editor's language servers report (tested with pyright in the app).
 - Catch me up: a briefing per session written on the side (tested in the app). Second review: 3 findings fixed.
 
-**Left / next:** polish from devctl testing, then the next most useful work for following pi's code.
+- Polish from devctl testing: pin cards show the pinned lines; the note bar gives the note a full-width
+  row; resumed sessions pi never named are named after their first prompt; catch-up gives up after 2 min.
+- Testing note: `dev/pidectl quit` sends SIGTERM, which skips the layout save; use
+  `dev/pidectl run app.quit` to keep open sessions across relaunches.
+
+**Left / next:** the next most useful work for following pi's code (picked with an advisor; see below as it lands).
 
 **Needs your decision:**
 
