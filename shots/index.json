@@ -1,5 +1,17 @@
 [
  {
+  "file": "shots/20261113T180541Z-rehearsal-story-commit.png",
+  "time": "2026-11-13T18:05:41Z",
+  "milestone": "rehearsal",
+  "caption": "Same rehearsal: Tell It as a Story and Catch Me Up run from the menu commands, and the Commit window marks stats.py with 1 pi note."
+ },
+ {
+  "file": "shots/20261113T180540Z-rehearsal-diagnostics.png",
+  "time": "2026-11-13T18:05:40Z",
+  "milestone": "rehearsal",
+  "caption": "Cold rehearsal with pyright on: pi saw the real type error through ide_diagnostics, fixed summary(), checked again and got no problems; the note bar shows its reason."
+ },
+ {
   "file": "shots/20261113T175528Z-pide-change.png",
   "time": "2026-11-13T17:55:28Z",
   "milestone": "dogfood on pide",
