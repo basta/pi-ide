@@ -217,7 +217,7 @@ pub fn init(cx: &mut App) {
     CommandRegistry::register(
         cx,
         CommandSpec::new("agent.notes_in_file", "Agent: pi's Notes in This File"),
-        move |window, cx| notes_in_file(window, cx),
+        notes_in_file,
     );
     CommandRegistry::register(
         cx,

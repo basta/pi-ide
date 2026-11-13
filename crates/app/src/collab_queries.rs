@@ -128,9 +128,8 @@ fn diagnostics(
                         pending.push(rel(&root, p));
                         return None;
                     }
-                    if diags.is_none() {
-                        return None; // checked a while ago, nothing reported: clean
-                    }
+                    // Checked a while ago and nothing reported: clean.
+                    diags?;
                 }
                 match store.diagnostics_for(p) {
                 Some(d) => Some((p.clone(), d)),

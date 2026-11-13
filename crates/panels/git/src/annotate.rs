@@ -136,7 +136,7 @@ fn show_reason(
     // The hunk note nearest the line (both in that commit's line numbers).
     if let Some((_, note)) = f.notes.iter().min_by_key(|(l, _)| l.abs_diff(line)) {
         if !text.is_empty() {
-            text.push_str("\n");
+            text.push('\n');
         }
         text.push_str(note);
     }
