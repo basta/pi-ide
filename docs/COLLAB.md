@@ -216,3 +216,12 @@ app, pushed):
   note at or near the line in an open session opens in the note bar; else git blame finds the commit
   and shows pi's reason kept with it; only if neither exists does it draft a question to pi.
   Tested: with every session closed, a committed line showed pi's reason from the commit.
+
+Checked as one chain on a project that is a subfolder of its repo: pi changed and explained a file,
+it was committed from the Commit panel, amended, every session closed, pide restarted; Why This
+Line on a changed line still showed pi's reason (paths stay project-relative; the amend carried
+the notes). `cargo test --workspace --locked` passes; clippy is clean for collab-next's code.
+
+Limits: commit notes are keyed by commit hash, so a rebase or cherry-pick (new hashes) leaves them
+behind under the old hash; a partial commit keeps the whole file's notes, including ones about hunks
+that weren't committed.
