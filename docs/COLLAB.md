@@ -94,7 +94,9 @@ the saved anchors are re-found in the file on disk; one whose text is gone is ma
   `write` and watched `bash`) is kept as pins on that file, so it isn't lost and still walks.
 - The walkthrough steps through every stop of the session: per changed file its hunk notes (or one
   stop at its first changed line when pi gave none), then pins, files in first-touched order.
-  Stepping onto a stop marks it seen; ticking a file reviewed in Changes marks its stops seen.
+  Stepping onto a stop marks it seen; ticking a file reviewed in Changes marks its stops seen, and
+  stepping onto the last unseen stop of a file ticks it reviewed. Reply (note bar, pin card) drafts
+  "file:line (about your note "…"): " so pi knows which note you answer.
   A session "needs review" while it has unseen stops.
 - Only open sessions count for the Overview group and the status-bar chip (closed sessions' data
   isn't loaded).
@@ -119,5 +121,5 @@ the saved anchors are re-found in the file on disk; one whose text is gone is ma
 
 **Needs your decision:**
 
-- Hunk notes count as "seen" when stepped onto; the Changes "reviewed" checkbox stays separate (ticking
-  it marks the file's notes seen, not the other way round). OK, or should finishing a file's notes tick it?
+- (Decided, advisor's pick, easy to undo:) stepping through all of a file's notes now ticks it
+  reviewed in Changes, and ticking a file marks its notes seen. Say if you'd rather keep them separate.

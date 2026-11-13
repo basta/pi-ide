@@ -581,7 +581,7 @@ impl AgentChat {
         let root = self.workspace.read(cx).root().to_path_buf();
         let location = stop.location(&root);
         let (agent_open, stop_open) = (agent.clone(), stop.clone());
-        let reply_to = location.clone();
+        let reply_to = stop.reply_prefix(&root);
         v_flex()
             .gap_1()
             .px_2()
@@ -656,7 +656,7 @@ impl AgentChat {
                         .label("Reply")
                         .tooltip("Answer pi about this spot")
                         .on_click(move |_, window, cx| {
-                            pide_core::opener::ask_agent(format!("{reply_to}: "), window, cx)
+                            pide_core::opener::ask_agent(reply_to.clone(), window, cx)
                         }),
                 ),
             )

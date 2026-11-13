@@ -171,6 +171,17 @@ impl Stop {
         }
     }
 
+    /// The start of a reply about this stop: where, and which note it answers.
+    pub fn reply_prefix(&self, root: &std::path::Path) -> String {
+        let note = self.label();
+        let note = if note.chars().count() > 160 {
+            format!("{}…", note.chars().take(160).collect::<String>())
+        } else {
+            note
+        };
+        format!("{} (about your note \"{}\"): ", self.location(root), note.replace('\n', " "))
+    }
+
     /// "path:line" relative to `root`, for a reply's location prefix.
     pub fn location(&self, root: &std::path::Path) -> String {
         let rel = self.path.strip_prefix(root).unwrap_or(&self.path);

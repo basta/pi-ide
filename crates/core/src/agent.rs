@@ -824,8 +824,23 @@ impl Agent {
     pub fn visit_stop(&mut self, at: &StopRef, cx: &mut Context<Self>) {
         self.set_stop_flag(at, false);
         self.current_stop = Some(at.clone());
+        self.review_if_walked(at);
         self.persist_changes(cx);
         cx.notify();
+    }
+
+    /// Stepping through all of a changed file's notes counts as reviewing it
+    /// (ticks it in Changes); the reverse already holds (ticking marks them seen).
+    fn review_if_walked(&mut self, at: &StopRef) {
+        let stops = self.stops();
+        let Some(path) = stops.iter().find(|s| &s.at == at).map(|s| s.path.clone()) else {
+            return;
+        };
+        if stops.iter().filter(|s| s.path == path).all(|s| s.seen)
+            && let Some(c) = self.changes.iter_mut().find(|c| c.path == path && !c.reverted)
+        {
+            c.reviewed = true;
+        }
     }
 
     /// Hide a pin or hunk note (and count it as seen).

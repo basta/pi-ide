@@ -188,7 +188,7 @@ impl EditorPanel {
         let total = all.len();
         let session = a.name.clone();
         let root = self.workspace.read(cx).root().to_path_buf();
-        let location = stop.location(&root);
+        let reply = stop.reply_prefix(&root);
         let theme = cx.theme();
         let color = pide_core::colors::pi_note(cx);
         let (a_reply, a_dismiss, a_back, a_next) =
@@ -227,7 +227,7 @@ impl EditorPanel {
                     .tooltip("Answer pi in this session, about this spot")
                     .on_click(move |_, window, cx| {
                         a_reply.update(cx, |a, cx| a.visit_stop(&at_reply, cx));
-                        pide_core::opener::ask_agent(format!("{location}: "), window, cx);
+                        pide_core::opener::ask_agent(reply.clone(), window, cx);
                     }),
             )
             .child(
