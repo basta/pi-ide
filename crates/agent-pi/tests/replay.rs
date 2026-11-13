@@ -472,7 +472,12 @@ fn collab_tool_results_carry_details() {
     let mut kinds = Vec::new();
     for line in fixture.lines() {
         for rec in pide_agent_pi::wire::parse_line(line) {
-            if let Inbound::Event(AgentEvent::ToolEnd { name, result, is_error, .. }) = rec
+            if let Inbound::Event(AgentEvent::ToolEnd {
+                name,
+                result,
+                is_error,
+                ..
+            }) = rec
                 && name.starts_with("ide_")
             {
                 assert!(!is_error);
@@ -499,7 +504,11 @@ fn collab_events_parse_from_the_recording() {
         .lines()
         .flat_map(pide_agent_pi::wire::parse_line)
         .filter_map(|r| match r {
-            Inbound::Event(e @ (AgentEvent::Pin(_) | AgentEvent::ExplainChange { .. } | AgentEvent::Progress(_))) => Some(e),
+            Inbound::Event(
+                e @ (AgentEvent::Pin(_)
+                | AgentEvent::ExplainChange { .. }
+                | AgentEvent::Progress(_)),
+            ) => Some(e),
             _ => None,
         })
         .collect();
@@ -513,11 +522,18 @@ fn collab_events_parse_from_the_recording() {
         e => panic!("{e:?}"),
     }
     match &events[2] {
-        AgentEvent::ExplainChange { path, summary, hunks } => {
+        AgentEvent::ExplainChange {
+            path,
+            summary,
+            hunks,
+        } => {
             assert_eq!(path, std::path::Path::new("calc.py"));
             assert!(summary.starts_with("Raise a clear ValueError"));
             assert_eq!(hunks.len(), 2);
-            assert_eq!((hunks[0].anchor.line, hunks[0].anchor.text.as_str()), (6, "    if b == 0:"));
+            assert_eq!(
+                (hunks[0].anchor.line, hunks[0].anchor.text.as_str()),
+                (6, "    if b == 0:")
+            );
             assert_eq!(hunks[1].anchor.line, 12);
         }
         e => panic!("{e:?}"),

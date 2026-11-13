@@ -134,7 +134,10 @@ impl PiBackend {
 
         let mut args = vec!["--mode".to_string(), "rpc".to_string()];
         // pide's own extension (collaborator tools); `supervise` writes the file before spawning.
-        args.extend(["-e".to_string(), extension_path().to_string_lossy().into_owned()]);
+        args.extend([
+            "-e".to_string(),
+            extension_path().to_string_lossy().into_owned(),
+        ]);
         // Extra flags for every pi process, e.g. PIDE_PI_ARGS="-e dev/pi-ask-test.ts" or "--model …".
         if let Ok(extra) = std::env::var("PIDE_PI_ARGS") {
             args.extend(extra.split_whitespace().map(str::to_string));
@@ -661,7 +664,9 @@ fn write_extension() {
         let _ = std::fs::create_dir_all(dir);
     }
     let tmp = path.with_extension("ts.tmp");
-    if let Err(e) = std::fs::write(&tmp, EXTENSION_SOURCE).and_then(|_| std::fs::rename(&tmp, &path)) {
+    if let Err(e) =
+        std::fs::write(&tmp, EXTENSION_SOURCE).and_then(|_| std::fs::rename(&tmp, &path))
+    {
         log::warn!("write {}: {e}", path.display());
     }
 }

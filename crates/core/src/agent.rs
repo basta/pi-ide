@@ -349,9 +349,14 @@ impl Agent {
             let path = path.clone();
             async move {
                 let now = crate::changes::snapshot(&path);
-                let (b, n) = (before.as_deref().unwrap_or(""), now.as_deref().unwrap_or(""));
+                let (b, n) = (
+                    before.as_deref().unwrap_or(""),
+                    now.as_deref().unwrap_or(""),
+                );
                 let stats = crate::changes::line_stats(b, n);
-                let first = crate::changes::hunks(b, n).first().map(|h| h.after.start + 1);
+                let first = crate::changes::hunks(b, n)
+                    .first()
+                    .map(|h| h.after.start + 1);
                 (stats, now.is_none(), first)
             }
         });
@@ -773,7 +778,11 @@ impl Agent {
                 }
             }
             StopRef::Hunk { file, note } => {
-                if let Some(n) = self.changes.get_mut(file).and_then(|c| c.notes.get_mut(note)) {
+                if let Some(n) = self
+                    .changes
+                    .get_mut(file)
+                    .and_then(|c| c.notes.get_mut(note))
+                {
                     n.seen = true;
                     n.dismissed |= dismiss;
                 }

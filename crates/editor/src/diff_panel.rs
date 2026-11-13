@@ -346,6 +346,97 @@ impl Panel for DiffPanel {
     }
 }
 
+impl DiffPanel {
+    /// pi's reason and hunk notes for this file (collaborator mode), from the
+    /// session that changed it (the active one first). Live diffs only.
+    fn render_pi_notes(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let req = self.req.as_ref()?;
+        if req.after.is_some() {
+            return None;
+        }
+        let services = pide_core::Services::for_window(self.window_id, cx)?;
+        let sessions = services.sessions.read(cx);
+        let active = sessions.active();
+        let mut agents = vec![active.clone()];
+        agents.extend(sessions.all().iter().filter(|a| **a != active).cloned());
+        let (agent, change) = agents.into_iter().find_map(|a| {
+            let c = a
+                .read(cx)
+                .changes
+                .iter()
+                .find(|c| c.path == req.path && (c.summary.is_some() || !c.notes.is_empty()))
+                .cloned()?;
+            Some((a, c))
+        })?;
+        let stops: Vec<pide_core::collab::Stop> = agent
+            .read(cx)
+            .stops()
+            .into_iter()
+            .filter(|s| {
+                s.path == req.path && matches!(s.at, pide_core::collab::StopRef::Hunk { .. })
+            })
+            .collect();
+        let theme = cx.theme();
+        let color = pide_core::colors::pi_note(cx);
+        let hunk_of = |line: usize| {
+            self.hunks.iter().position(|h| {
+                h.after.contains(&(line.saturating_sub(1)))
+                    || (h.after.is_empty() && h.after.start + 1 == line)
+            })
+        };
+        Some(
+            v_flex()
+                .gap_0p5()
+                .px_3()
+                .py_1p5()
+                .border_b_1()
+                .border_color(theme.border)
+                .bg(color.opacity(0.06))
+                .text_sm()
+                .when_some(change.summary.clone(), |this, s| {
+                    this.child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(color)
+                                    .child("pi"),
+                            )
+                            .child(div().child(s)),
+                    )
+                })
+                .children(stops.into_iter().enumerate().map(|(i, st)| {
+                    let label = match hunk_of(st.line) {
+                        Some(h) => format!("#{} · line {}", h + 1, st.line),
+                        None => format!("line {}", st.line),
+                    };
+                    let agent = agent.clone();
+                    let note = st.note.clone();
+                    h_flex()
+                        .id(("pi-hunk-note", i))
+                        .gap_2()
+                        .cursor_pointer()
+                        .hover(|s| s.bg(theme.list_hover))
+                        .on_click(move |_, window, cx| {
+                            pide_core::collab::go_to(&agent, st.clone(), window, cx)
+                        })
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_xs()
+                                .font_family(theme.mono_font_family.clone())
+                                .text_color(theme.muted_foreground)
+                                .child(label),
+                        )
+                        .child(div().child(note))
+                }))
+                .into_any_element(),
+        )
+    }
+}
+
 impl Render for DiffPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
@@ -417,6 +508,7 @@ impl Render for DiffPanel {
                         ),
                 )
             })
+            .children(self.render_pi_notes(cx))
             .when_some(self.error.clone(), |this, e| {
                 this.child(
                     div()
@@ -473,7 +565,8 @@ impl Render for DiffPanel {
                                         Button::new(marker.id().clone())
                                             .ghost()
                                             .xsmall()
-                                            .label("↶")
+                                            // Numbered, so pi's hunk notes above can say which.
+                                            .label(format!("{} ↶", ix + 1))
                                             .tooltip(marker.label().clone())
                                             .on_click(move |_, window, cx| {
                                                 let panel = panel.clone();

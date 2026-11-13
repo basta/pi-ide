@@ -10,6 +10,7 @@ pub mod latex;
 mod lsp;
 mod minimal;
 mod nav;
+mod pi_notes;
 mod rename;
 mod signature;
 mod symbols;
@@ -663,6 +664,8 @@ pub struct EditorPanel {
     gutter: Option<gpui_kit::component::input::GutterDecorationCollection>,
     _git_task: Option<Task<()>>,
     _git_marks: Option<Task<()>>,
+    /// Collaborator mode: the active pi session's notes on this file.
+    pi: pi_notes::PiNotes,
     _subs: Vec<Subscription>,
     _load: Option<Task<()>>,
 }
@@ -731,6 +734,7 @@ impl EditorPanel {
             gutter: None,
             _git_task: None,
             _git_marks: None,
+            pi: Default::default(),
             _subs: Vec::new(),
             _load: None,
         };
@@ -787,6 +791,7 @@ impl EditorPanel {
         }
         self.attach_lsp(window, cx);
         self.load_git_base(cx);
+        self.watch_pi(window, cx);
         if let Some((line, character)) = self.pending_cursor.take() {
             self.go_to(line, character, window, cx);
         }
@@ -1130,7 +1135,10 @@ impl EditorPanel {
     }
 
     fn bar(&self, cx: &App, error: bool, text: impl Into<SharedString>) -> Div {
-        let (bg, fg) = (pide_core::colors::notice_bg(error, cx), cx.theme().foreground);
+        let (bg, fg) = (
+            pide_core::colors::notice_bg(error, cx),
+            cx.theme().foreground,
+        );
         h_flex()
             .w_full()
             .gap_2()
@@ -1294,6 +1302,7 @@ impl Render for EditorPanel {
                         .child(Diff::new(&diff).line_number(true).syntax_highlight(true)),
                 )
             })
+            .children(self.render_pi_bar(cx))
             .children(self.render_signature(cx))
             .child(
                 div().flex_1().w_full().overflow_hidden().child(

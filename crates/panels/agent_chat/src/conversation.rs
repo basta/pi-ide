@@ -162,13 +162,14 @@ impl AgentChat {
                     return div().into_any_element();
                 };
                 let root = self.workspace.read(cx).root().to_path_buf();
-                let rel = path.strip_prefix(&root).unwrap_or(path).display().to_string();
+                let rel = path
+                    .strip_prefix(&root)
+                    .unwrap_or(path)
+                    .display()
+                    .to_string();
                 let summary = change.summary.clone().unwrap_or_default();
                 let notes = change.notes.len();
-                let first = a
-                    .stops()
-                    .into_iter()
-                    .find(|st| &st.path == path);
+                let first = a.stops().into_iter().find(|st| &st.path == path);
                 h_flex()
                     .id(("explained", ix))
                     .gap_2()
@@ -177,7 +178,12 @@ impl AgentChat {
                     .hover(|s| s.bg(theme.list_hover))
                     .rounded(theme.radius)
                     .px_1()
-                    .child(div().flex_none().text_color(pide_core::colors::accent(cx)).child("✎"))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_color(pide_core::colors::accent(cx))
+                            .child("✎"),
+                    )
                     .child(
                         div()
                             .flex_none()
@@ -199,7 +205,10 @@ impl AgentChat {
                             div()
                                 .flex_none()
                                 .text_color(theme.muted_foreground)
-                                .child(format!("{notes} note{}", if notes == 1 { "" } else { "s" })),
+                                .child(format!(
+                                    "{notes} note{}",
+                                    if notes == 1 { "" } else { "s" }
+                                )),
                         )
                     })
                     .on_click(move |_, window, cx| {
@@ -645,7 +654,11 @@ impl AgentChat {
                                 .child(format!("{done}/{} done", steps.len())),
                         )
                         .child(div().flex_1())
-                        .child(div().text_color(theme.muted_foreground).child(if open { "▾" } else { "▸" })),
+                        .child(div().text_color(theme.muted_foreground).child(if open {
+                            "▾"
+                        } else {
+                            "▸"
+                        })),
                 )
                 .when(open, |this| {
                     this.children(steps.into_iter().map(|st| {
