@@ -76,6 +76,9 @@ pub struct Pin {
     /// Last line of the range (1-based), as given.
     pub end_line: usize,
     pub note: String,
+    /// The pinned lines as they were (at most 8), to show with the note.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub snippet: Vec<String>,
     /// You stepped onto it (walkthrough) or opened it.
     #[serde(default)]
     pub seen: bool,

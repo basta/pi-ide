@@ -368,6 +368,7 @@ mod tests {
             anchor: crate::collab::Anchor::new(1, "fn a".into()),
             end_line: 2,
             note: "look".into(),
+            snippet: vec!["fn a".into()],
             seen: false,
             dismissed: false,
         };

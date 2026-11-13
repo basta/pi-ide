@@ -649,6 +649,7 @@ impl Agent {
                                 anchor: crate::collab::Anchor::new(1, String::new()),
                                 end_line: 1,
                                 note: summary.clone(),
+                                snippet: Vec::new(),
                                 seen: false,
                                 dismissed: false,
                             }]
@@ -662,6 +663,7 @@ impl Agent {
                                     anchor: h.anchor.clone(),
                                     end_line: h.anchor.line,
                                     note: format!("{summary}: {}", h.note),
+                                    snippet: vec![h.anchor.text.clone()],
                                     seen: false,
                                     dismissed: false,
                                 })

@@ -265,6 +265,11 @@ pub fn collab_event(tool_call_id: &str, d: &Value) -> Option<AgentEvent> {
                 anchor: Anchor::new(start, s(d, "text")),
                 end_line: line(d, "end_line").max(start),
                 note: s(d, "note"),
+                snippet: d
+                    .get("snippet")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .unwrap_or_default(),
                 seen: false,
                 dismissed: false,
             }))

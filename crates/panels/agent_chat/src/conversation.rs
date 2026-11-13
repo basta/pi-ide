@@ -570,6 +570,14 @@ impl AgentChat {
         let Some(stop) = agent.read(cx).pin_stop_by_id(pin_id) else {
             return div().into_any_element();
         };
+        let snippet = agent
+            .read(cx)
+            .pins
+            .iter()
+            .find(|p| p.id == pin_id)
+            .map(|p| p.snippet.clone())
+            .unwrap_or_default();
+        let first_line = stop.line;
         let root = self.workspace.read(cx).root().to_path_buf();
         let location = stop.location(&root);
         let (agent_open, stop_open) = (agent.clone(), stop.clone());
@@ -614,6 +622,31 @@ impl AgentChat {
                         this.child(div().text_color(theme.muted_foreground).child("· seen"))
                     }),
             )
+            // The lines pi pinned, as they were then (numbered like the editor).
+            .when(!snippet.is_empty(), |this| {
+                let width = (first_line + snippet.len()).to_string().len();
+                this.child(
+                    v_flex()
+                        .px_2()
+                        .py_1()
+                        .rounded(theme.radius)
+                        .bg(theme.secondary)
+                        .text_xs()
+                        .font_family(theme.mono_font_family.clone())
+                        .overflow_hidden()
+                        .children(snippet.into_iter().enumerate().map(|(i, l)| {
+                            h_flex()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .text_color(theme.muted_foreground)
+                                        .child(format!("{:>width$}", first_line + i)),
+                                )
+                                .child(div().whitespace_nowrap().child(l.replace('\t', "    ")))
+                        })),
+                )
+            })
             .child(div().text_sm().child(stop.note.clone()))
             .child(
                 h_flex().gap_1().child(

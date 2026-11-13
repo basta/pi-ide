@@ -177,7 +177,7 @@ impl AgentChat {
             v_flex()
                 .id(("catch-up", id.as_u64()))
                 .flex_shrink_0()
-                .max_h(px(320.))
+                .max_h(px(220.))
                 .overflow_y_scroll()
                 .gap_1()
                 .px_3()

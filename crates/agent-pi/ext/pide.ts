@@ -97,6 +97,8 @@ export default function (pi: any) {
           line: start,
           end_line: end,
           text: file[start - 1] ?? "",
+          // The pinned lines (at most 8), shown with the note in pide's chat.
+          snippet: file.slice(start - 1, Math.min(end, start + 7)),
           note: String(params.note ?? ""),
         },
       };

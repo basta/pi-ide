@@ -10,7 +10,7 @@ use gpui_kit::component::input::{
     OverviewRulerDecorationCollection, OverviewRulerLane, Position, RangeDecoration,
     RangeDecorationCollection, RangeDecorationStyle, Rope, RopeExt as _,
 };
-use gpui_kit::component::{ActiveTheme, Sizable as _, h_flex};
+use gpui_kit::component::{ActiveTheme, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use pide_core::collab::{Anchor, Stop};
@@ -195,87 +195,87 @@ impl EditorPanel {
             (agent.clone(), agent.clone(), agent.clone(), agent.clone());
         let at = stop.at.clone();
         let at_reply = stop.at.clone();
+        // Who and where on top (with the buttons), the note itself below at full width.
+        let head = h_flex()
+            .w_full()
+            .gap_2()
+            .child(
+                div()
+                    .flex_none()
+                    .max_w(px(220.))
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .whitespace_nowrap()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(color)
+                    .child(format!("pi · {session}")),
+            )
+            .child(div().flex_1())
+            .when_some(index, |this, i| {
+                this.child(
+                    div()
+                        .flex_none()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(format!("{}/{total}", i + 1)),
+                )
+            })
+            .child(
+                Button::new("pi-note-reply")
+                    .xsmall()
+                    .label("Reply")
+                    .tooltip("Answer pi in this session, about this spot")
+                    .on_click(move |_, window, cx| {
+                        a_reply.update(cx, |a, cx| a.visit_stop(&at_reply, cx));
+                        pide_core::opener::ask_agent(format!("{location}: "), window, cx);
+                    }),
+            )
+            .child(
+                Button::new("pi-note-dismiss")
+                    .xsmall()
+                    .ghost()
+                    .label("Dismiss")
+                    .on_click(move |_, _, cx| {
+                        a_dismiss.update(cx, |a, cx| a.dismiss_stop(&at, cx));
+                    }),
+            )
+            .child(
+                Button::new("pi-note-back")
+                    .xsmall()
+                    .ghost()
+                    .label("Back")
+                    .on_click(move |_, window, cx| {
+                        pide_core::collab::walk(&a_back, -1, window, cx);
+                    }),
+            )
+            .child(
+                Button::new("pi-note-next")
+                    .xsmall()
+                    .ghost()
+                    .label("Next")
+                    .on_click(move |_, window, cx| {
+                        pide_core::collab::walk(&a_next, 1, window, cx);
+                    }),
+            );
         Some(
-            h_flex()
+            v_flex()
                 .w_full()
-                .gap_2()
+                .gap_0p5()
                 .px_3()
                 .py_1()
                 .text_sm()
                 .bg(color.opacity(0.12))
                 .border_b_1()
                 .border_color(theme.border)
-                .child(
-                    div()
-                        .flex_none()
-                        .max_w(px(220.))
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .whitespace_nowrap()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(color)
-                        .child(format!("pi · {session}")),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(stop.label())
-                        .when(stop.outdated, |d| {
-                            d.child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .child("outdated: the line it was about changed"),
-                            )
-                        }),
-                )
-                .when_some(index, |this, i| {
-                    this.child(
+                .child(head)
+                .child(div().w_full().child(stop.label()).when(stop.outdated, |d| {
+                    d.child(
                         div()
-                            .flex_none()
                             .text_xs()
                             .text_color(theme.muted_foreground)
-                            .child(format!("{}/{total}", i + 1)),
+                            .child("outdated: the line it was about changed"),
                     )
-                })
-                .child(
-                    Button::new("pi-note-reply")
-                        .xsmall()
-                        .label("Reply")
-                        .tooltip("Answer pi in this session, about this spot")
-                        .on_click(move |_, window, cx| {
-                            a_reply.update(cx, |a, cx| a.visit_stop(&at_reply, cx));
-                            pide_core::opener::ask_agent(format!("{location}: "), window, cx);
-                        }),
-                )
-                .child(
-                    Button::new("pi-note-dismiss")
-                        .xsmall()
-                        .ghost()
-                        .label("Dismiss")
-                        .on_click(move |_, _, cx| {
-                            a_dismiss.update(cx, |a, cx| a.dismiss_stop(&at, cx));
-                        }),
-                )
-                .child(
-                    Button::new("pi-note-back")
-                        .xsmall()
-                        .ghost()
-                        .label("Back")
-                        .on_click(move |_, window, cx| {
-                            pide_core::collab::walk(&a_back, -1, window, cx);
-                        }),
-                )
-                .child(
-                    Button::new("pi-note-next")
-                        .xsmall()
-                        .ghost()
-                        .label("Next")
-                        .on_click(move |_, window, cx| {
-                            pide_core::collab::walk(&a_next, 1, window, cx);
-                        }),
-                )
+                }))
                 .into_any_element(),
         )
     }
