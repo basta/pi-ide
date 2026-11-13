@@ -1,7 +1,7 @@
 [
  {
-  "file": "shots/20261113T1715Z-ide-diagnostics.png",
-  "time": "2026-11-13T17:15:00Z",
+  "file": "shots/20261113T1655Z-ide-diagnostics.png",
+  "time": "2026-11-13T16:55:00Z",
   "milestone": "ide_diagnostics",
   "caption": "pi called ide_diagnostics on stats.py, saw pyright's error, fixed it with an f-string, and the walkthrough bar shows its note on the changed line."
  },
