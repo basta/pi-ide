@@ -1,5 +1,10 @@
 # Collaborator mode
 
+> **Guiding principle.** pide sits between hands-off vibecoding and writing code by hand. The user no
+> longer writes code by hand, but wants to understand the codebase. When choosing, favor what helps
+> them understand and follow pi's code (clear explanations, walkthroughs, reviewable changes) over
+> manual-editing features or autonomy that skips them.
+
 pi's work lands in the code, where you can follow it and answer it. Each pi session is a thread.
 When pi finishes, its changes come with a reason per file and per hunk; you step through them in
 the editor and reply in place.
