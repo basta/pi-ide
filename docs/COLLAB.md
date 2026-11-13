@@ -143,45 +143,40 @@ the saved anchors are re-found in the file on disk; one whose text is gone is ma
 
 ## Morning summary (kept current)
 
-**Done** (branch `collab-mode`, pushed; screenshots on the orphan branch `wip-shots`, `shots/index.json`):
+Branch `collab-mode` (43 commits on top of main, which hasn't moved; `cargo test --workspace --locked`
+green). Screenshots: orphan branch `wip-shots` and the gallery https://claude.ai/artifact/55ZpVNwYu4UoTALd83LMZ6.
+Try it with the 10-minute script in docs/TRY-IT.md ("Ten minutes with collaborator mode").
 
-- MVP, steps 1–7: the extension and transport; pins, explanations and the checklist; core state saved per
-  session and re-anchored on resume; split pi panel with pin cards, checklist, reasons in Changes; editor
-  marks and the note bar (Reply / Dismiss / Back / Next walk across files); hunk notes in the diff tab;
-  TO REVIEW group and the status-bar chip; docs. Reviewed; 7 review findings fixed.
-- `ide_diagnostics`: pi sees what the editor's language servers report (tested with pyright in the app).
-- Catch me up: a briefing per session written on the side (tested in the app). Second review: 3 findings fixed.
+**What you get** (each built, reviewed by a second agent, fixed, and tested in the app via devctl):
 
-- Polish from devctl testing: pin cards show the pinned lines; the note bar gives the note a full-width
-  row; resumed sessions pi never named are named after their first prompt; catch-up gives up after 2 min.
-- Testing note: `dev/pidectl quit` sends SIGTERM, which skips the layout save; use
-  `dev/pidectl run app.quit` to keep open sessions across relaunches.
+| Feature | Where | Keep? (my recommendation) |
+| --- | --- | --- |
+| pide's pi extension: pins, explanations, checklist, tours, diagnostics; anchors snap to quoted code | `crates/agent-pi/ext/pide.ts` | keep (the base of everything) |
+| Walkthrough: note bar (Reply / Dismiss / Back / Next), magenta gutter + scrollbar marks | editor | keep |
+| Changes: reason per file, "no reason given · ask why", Walk through, Tell it as a story | pi panel | keep |
+| Tours: Take a Tour…, tour cards, TOURS in the session list | pi panel | keep (most useful for understanding) |
+| Explain This Code | Code / pi menu | keep |
+| Catch Me Up (one side call, session untouched) | pi toolbar | keep |
+| `ide_diagnostics` (pi sees your editor's errors; it now checks its own work unprompted) | extension + app | keep |
+| Overview: TO REVIEW group, "◆ n to review" chip, "◆ n pi notes" in Commit | session list, status bar, Commit | keep |
+| pi's Notes in This File, dim marks for other sessions | pi menu, editor | optional: cut if the dim marks feel noisy |
+| Understand card (? and empty sessions) | pi panel | keep (the map of the above) |
 
-- Advisor's top 3, done and tested in the app: **Ask why** for files pi changed without a reason;
-  **Explain This Code** on a selection; Reply quotes the note, and stepping through a file's notes
-  ticks it reviewed.
-- Advisor's round 2: the walkthrough logic now lives in `pide_core::walk` as plain functions with 9
-  unit tests (it had taken 10 review fixes untested); **Tours** (Take a Tour…, `ide_tour`), tested in
-  the app on the demo project.
-- WIP gallery (artifact): https://claude.ai/artifact/55ZpVNwYu4UoTALd83LMZ6
+**Validated on pide itself** (a worktree in /tmp, rust-analyzer off): a 12-stop tour of "how a session
+comes back after a restart" placed all 12 stops correctly (1 line number snapped); a real small change
+was explained, walked and shown in Commit. Found and fixed on the way: the review chip opened an older
+session; `ide_diagnostics` didn't say the language server was down. Found and not a bug: devctl shots
+of a just-opened tab can be empty (documented in AGENTS.md).
 
-- Notes across sessions (advisor's round-2 item 3): pi's Notes in This File, and dim marks for other
-  open sessions' notes. Fixed on the way: Cargo.lock was missing `lsp-types` for the app since
-  ide_diagnostics (`--locked` builds of the branch failed in between).
+**Decisions for you** (defaults in bold):
 
-- Advisor's round 3: anchors snap to the quoted code (fixture: a tour of pide itself); **Tell it as a
-  story** (a change retold as a tour); **TOURS** library in the session list. All tested in the app.
+1. Merge `collab-mode` into main **as one merge** (it's 43 small commits, all green), or squash per feature?
+2. Stepping through all of a file's notes **ticks it reviewed** (and ticking marks its notes seen). Keep
+   **yes**, or keep the two separate?
+3. The extension loads into **every** pi pide starts. Keep **yes**, or add a setting to turn it off?
+4. Pins are capped at **5 per prompt** (tours: 15 stops). Keep **yes**, or raise?
+5. Dim marks for other sessions' notes: keep **yes**, or show only the active session's?
 
-- Advisor's round 4 (consolidation): the **Understand** card (empty session and the ? button: the five
-  ways to follow the code, a legend for the marks), Changes header trimmed (ask why on the file rows),
-  Catch Me Up and Tell It as a Story as commands in a grouped pi menu, **◆ n pi notes** in the Commit
-  tool window, a 10-minute script in TRY-IT.md. Dogfooded on the demo project: pi checked its own work
-  with ide_diagnostics unprompted; the review chip jumped into an older session (fixed: active, else
-  newest).
-
-**Left / next:** another advisor round.
-
-**Needs your decision:**
-
-- (Decided, advisor's pick, easy to undo:) stepping through all of a file's notes now ticks it
-  reviewed in Changes, and ticking a file marks its notes seen. Say if you'd rather keep them separate.
+**Not done / ideas:** a change story that reorders the main walkthrough itself (today it's a separate
+tour); notes for files pi changed outside edit/write/bash; centring the walked-to line in the editor
+(GPUI Kit scrolls it just into view, often to the bottom edge).
