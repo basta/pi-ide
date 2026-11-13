@@ -17,8 +17,24 @@ const MAX_ITEMS: usize = 200;
 /// diagnostics yet); after that, no entry means no problems.
 const SETTLE: std::time::Duration = std::time::Duration::from_secs(6);
 
-/// Files checked without an editor, and since when.
-type Checking = std::rc::Rc<std::cell::RefCell<std::collections::HashMap<PathBuf, std::time::Instant>>>;
+/// Files checked without an editor: when their text last changed (or was first
+/// handed over), the hash of that text, and when the last read from disk finished.
+#[derive(Clone, Copy)]
+struct Check {
+    since: std::time::Instant,
+    hash: u64,
+    read_at: Option<std::time::Instant>,
+}
+
+/// An answer for a file checked without an editor is only current if a read
+/// from disk finished this recently (each question starts a new one; pi asks
+/// again every 2 s while files are pending).
+const READ_RECENT: std::time::Duration = std::time::Duration::from_secs(3);
+type Checking = std::rc::Rc<std::cell::RefCell<std::collections::HashMap<PathBuf, Check>>>;
+
+/// After a file's text changes, its old diagnostics may still be the server's
+/// last word for this long.
+const FRESH: std::time::Duration = std::time::Duration::from_millis(2500);
 
 pub fn handler(workspace: WeakEntity<Workspace>) -> pide_core::collab::QueryHandler {
     let checking: Checking = Default::default();
@@ -69,14 +85,30 @@ fn diagnostics(
             .filter_map(|p| {
                 let open = ws.buffer_for(p, cx).is_some();
                 // Not open in the editor but a server handles it: (re)check it from disk.
-                if !open && store.server_of(p).is_some_and(|s| !matches!(s.state, pide_lsp::ServerState::Crashed { .. } | pide_lsp::ServerState::NotInstalled { .. })) && p.is_file() {
+                let server = store.server_of(p).filter(|s| {
+                    !matches!(
+                        s.state,
+                        pide_lsp::ServerState::Crashed { .. } | pide_lsp::ServerState::NotInstalled { .. }
+                    )
+                });
+                if !open && let Some(server) = server {
+                    // Re-read it for every question (pi may have changed it since).
                     to_check.push(p.clone());
-                    let since = *checking.borrow_mut().entry(p.clone()).or_insert(now);
-                    if store.diagnostics_for(p).is_none() && now.duration_since(since) < SETTLE {
+                    let c = *checking
+                        .borrow_mut()
+                        .entry(p.clone())
+                        .or_insert(Check { since: now, hash: 0, read_at: None });
+                    let age = now.duration_since(c.since);
+                    let diags = store.diagnostics_for(p);
+                    let wait = c.read_at.is_none_or(|t| now.duration_since(t) > READ_RECENT)
+                        || !server.is_running()
+                        || age < FRESH
+                        || (diags.is_none() && age < SETTLE);
+                    if wait {
                         pending.push(rel(&root, p));
                         return None;
                     }
-                    if store.diagnostics_for(p).is_none() {
+                    if diags.is_none() {
                         return None; // checked a while ago, nothing reported: clean
                     }
                 }
@@ -142,6 +174,7 @@ fn diagnostics(
     // Hand the files no editor has open to their server, from disk (off the UI thread).
     for path in to_check {
         let store = store_entity.downgrade();
+        let checking = checking.clone();
         cx.spawn(async move |cx| {
             let read = cx
                 .background_executor()
@@ -151,7 +184,16 @@ fn diagnostics(
                 })
                 .await;
             if let Some(text) = read {
+                let hash = pide_core::buffer::hash_bytes(text.as_bytes());
                 let _ = store.update(cx, |s, cx| s.check_file(&path, text, cx));
+                if let Some(c) = checking.borrow_mut().get_mut(&path) {
+                    if c.hash != hash {
+                        // New text: the server needs a moment before its answer is current.
+                        c.hash = hash;
+                        c.since = std::time::Instant::now();
+                    }
+                    c.read_at = Some(std::time::Instant::now());
+                }
             }
         })
         .detach();

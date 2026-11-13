@@ -240,7 +240,7 @@ export default function (pi: any) {
       // Files the editor hasn't opened go to their language server first; pide
       // says they're pending until it has had a moment to check them.
       let answer = await query(ctx, { kind: "diagnostics", paths });
-      for (let i = 0; i < 4 && answer && Array.isArray(answer.pending) && answer.pending.length; i++) {
+      for (let i = 0; i < 8 && answer && Array.isArray(answer.pending) && answer.pending.length; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         answer = await query(ctx, { kind: "diagnostics", paths });
       }

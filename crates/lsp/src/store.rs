@@ -87,6 +87,8 @@ struct Doc {
     version: i32,
     text: Rope,
     opened: bool,
+    /// Tracked for pi without an editor (`check_file`); an editor buffer takes it over.
+    headless: bool,
 }
 
 /// A server asked us to apply an edit (`workspace/applyEdit`). Whoever applies
@@ -253,8 +255,11 @@ impl LspStore {
         let Some(spec) = registry::spec_for(&self.specs, &path).cloned() else {
             return;
         };
-        // Already open in the server (checked for pi without an editor): just update it.
-        if self.docs.get(&path).is_some_and(|d| d.opened) {
+        // Already open in the server (checked for pi without an editor): the editor takes it over.
+        if let Some(d) = self.docs.get_mut(&path)
+            && d.opened
+        {
+            d.headless = false;
             self.sync_text(&path, &text);
             return;
         }
@@ -265,6 +270,7 @@ impl LspStore {
                 version: 1,
                 text,
                 opened: false,
+                headless: false,
             },
         );
         self.ensure_server(spec.id, cx);
@@ -277,8 +283,11 @@ impl LspStore {
     /// this way. False if no server handles it. Diagnostics arrive later.
     pub fn check_file(&mut self, path: &Path, text: String, cx: &mut Context<Self>) -> bool {
         let rope = Rope::from(text.as_str());
-        if self.docs.contains_key(path) {
-            self.sync_text(path, &rope);
+        if let Some(doc) = self.docs.get(path) {
+            // An editor's buffer is the source of truth for its file: never overwrite it from disk.
+            if doc.headless {
+                self.sync_text(path, &rope);
+            }
             return true;
         }
         let Some(spec) = registry::spec_for(&self.specs, path).cloned() else {
@@ -291,6 +300,7 @@ impl LspStore {
                 version: 1,
                 text: rope,
                 opened: false,
+                headless: true,
             },
         );
         self.ensure_server(spec.id, cx);
