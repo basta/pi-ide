@@ -239,10 +239,11 @@ export default function (pi: any) {
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       // Files the editor hasn't opened go to their language server first; pide
       // says they're pending until it has had a moment to check them.
-      let answer = await query(ctx, { kind: "diagnostics", paths });
-      for (let i = 0; i < 8 && answer && Array.isArray(answer.pending) && answer.pending.length; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        answer = await query(ctx, { kind: "diagnostics", paths });
+      // attempt 0 makes pide re-read them; later attempts only trust those reads.
+      let answer = await query(ctx, { kind: "diagnostics", paths, attempt: 0 });
+      for (let i = 1; i <= 8 && answer && Array.isArray(answer.pending) && answer.pending.length; i++) {
+        await new Promise((r) => setTimeout(r, i === 1 ? 700 : 2000));
+        answer = await query(ctx, { kind: "diagnostics", paths, attempt: i });
       }
       if (!answer) {
         return {

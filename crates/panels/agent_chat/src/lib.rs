@@ -377,8 +377,8 @@ pub fn existing(window: &Window, cx: &App) -> Option<Entity<AgentChat>> {
 }
 
 pub struct AgentChat {
-    /// Update tour was asked in this session: the next tour pi gives replaces this one (its call id).
-    replacing_tour: HashMap<EntityId, String>,
+    /// Update tour was asked in this session: the next tour pi gives replaces these (call ids).
+    replacing_tour: HashMap<EntityId, Vec<String>>,
     /// The Understand card is shown on top of the conversation (the ? button).
     show_help: bool,
     /// Sessions a "catch me up" briefing is being written for.

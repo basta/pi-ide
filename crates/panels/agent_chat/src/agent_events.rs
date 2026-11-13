@@ -111,12 +111,15 @@ impl AgentChat {
                     if !items.iter().any(|i| matches!(i, Item::Tour(c) if *c == call)) {
                         items.push(Item::Tour(call.clone()));
                         // An "Update tour" answer: hide the tour it replaces.
-                        if let Some(old) = self.replacing_tour.get(&agent.entity_id()).cloned()
-                            && old != call
-                        {
-                            self.replacing_tour.remove(&agent.entity_id());
+                        if let Some(old) = self.replacing_tour.remove(&agent.entity_id()) {
                             let agent = agent.clone();
-                            cx.defer(move |cx| agent.update(cx, |a, cx| a.dismiss_tour(&old, cx)));
+                            cx.defer(move |cx| {
+                                agent.update(cx, |a, cx| {
+                                    for id in old.iter().filter(|id| **id != call) {
+                                        a.dismiss_tour(id, cx);
+                                    }
+                                })
+                            });
                         }
                     }
                 }

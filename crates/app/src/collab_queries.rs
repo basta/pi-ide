@@ -24,12 +24,13 @@ struct Check {
     since: std::time::Instant,
     hash: u64,
     read_at: Option<std::time::Instant>,
+    /// When this tool call's first question came (its reads are the current ones).
+    round: std::time::Instant,
+    /// The last read failed (deleted, unreadable).
+    missing: bool,
 }
 
-/// An answer for a file checked without an editor is only current if a read
-/// from disk finished this recently (each question starts a new one; pi asks
-/// again every 2 s while files are pending).
-const READ_RECENT: std::time::Duration = std::time::Duration::from_secs(3);
+
 type Checking = std::rc::Rc<std::cell::RefCell<std::collections::HashMap<PathBuf, Check>>>;
 
 /// After a file's text changes, its old diagnostics may still be the server's
@@ -94,13 +95,31 @@ fn diagnostics(
                 if !open && let Some(server) = server {
                     // Re-read it for every question (pi may have changed it since).
                     to_check.push(p.clone());
-                    let c = *checking
-                        .borrow_mut()
-                        .entry(p.clone())
-                        .or_insert(Check { since: now, hash: 0, read_at: None });
+                    // pi's tool asks again while files are pending: attempt 0 starts a
+                    // round, and only reads that finished after its start count.
+                    let first = payload.get("attempt").and_then(Value::as_u64).unwrap_or(0) == 0;
+                    let c = {
+                        let mut map = checking.borrow_mut();
+                        let c = map.entry(p.clone()).or_insert(Check {
+                            since: now,
+                            hash: 0,
+                            read_at: None,
+                            round: now,
+                            missing: false,
+                        });
+                        if first {
+                            c.round = now;
+                        }
+                        *c
+                    };
+                    if c.missing && !first {
+                        notes.push(format!("{}: can't read it.", rel(&root, p)));
+                        return None;
+                    }
                     let age = now.duration_since(c.since);
                     let diags = store.diagnostics_for(p);
-                    let wait = c.read_at.is_none_or(|t| now.duration_since(t) > READ_RECENT)
+                    let wait = first
+                        || c.read_at.is_none_or(|t| t < c.round)
                         || !server.is_running()
                         || age < FRESH
                         || (diags.is_none() && age < SETTLE);
@@ -183,7 +202,14 @@ fn diagnostics(
                     async move { std::fs::read_to_string(&path).ok() }
                 })
                 .await;
-            if let Some(text) = read {
+            let Some(text) = read else {
+                if let Some(c) = checking.borrow_mut().get_mut(&path) {
+                    c.missing = true;
+                    c.read_at = Some(std::time::Instant::now());
+                }
+                return;
+            };
+            {
                 let hash = pide_core::buffer::hash_bytes(text.as_bytes());
                 let _ = store.update(cx, |s, cx| s.check_file(&path, text, cx));
                 if let Some(c) = checking.borrow_mut().get_mut(&path) {
@@ -193,6 +219,7 @@ fn diagnostics(
                         c.since = std::time::Instant::now();
                     }
                     c.read_at = Some(std::time::Instant::now());
+                    c.missing = false;
                 }
             }
         })

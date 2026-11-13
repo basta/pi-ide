@@ -161,7 +161,10 @@ impl AgentChat {
                                 .label("Update tour")
                                 .tooltip("The code changed since this tour: ask pi to redo it against the code as it is now")
                                 .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.replacing_tour.insert(agent.entity_id(), call.clone());
+                                    let ids = this.replacing_tour.entry(agent.entity_id()).or_default();
+                                    if !ids.contains(&call) {
+                                        ids.push(call.clone());
+                                    }
                                     crate::changes_view::send_or_queue(
                                         &agent,
                                         update_tour_prompt(&title, outdated, total),
