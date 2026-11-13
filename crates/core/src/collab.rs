@@ -188,6 +188,26 @@ pub fn start_walk(agent: &Entity<crate::Agent>, window: &mut Window, cx: &mut Ap
     walk(agent, 1, window, cx)
 }
 
+/// Open sessions with changes or pins you haven't stepped through yet.
+pub fn sessions_to_review(sessions: &crate::Sessions, cx: &App) -> Vec<Entity<crate::Agent>> {
+    sessions
+        .all()
+        .iter()
+        .filter(|a| a.read(cx).needs_review())
+        .cloned()
+        .collect()
+}
+
+/// Show the first session that needs review and start its walkthrough.
+pub fn review_next(window: &mut Window, cx: &mut App) -> bool {
+    let sessions = crate::Services::of(window, cx).sessions;
+    let Some(agent) = sessions_to_review(sessions.read(cx), cx).into_iter().next() else {
+        return false;
+    };
+    sessions.update(cx, |s, cx| s.activate(&agent, cx));
+    start_walk(&agent, window, cx)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

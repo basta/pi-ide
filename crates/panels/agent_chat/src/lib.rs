@@ -92,6 +92,38 @@ pub fn init(cx: &mut App) {
         CommandSpec::new("agent.abort", "Agent: Stop").key("cmd-f2"),
         move |window, cx| active(window, cx).update(cx, |a, cx| a.abort(cx)),
     );
+    // Collaborator mode: the walkthrough over pi's changes and notes.
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.walk_through", "Agent: Walk Through Changes"),
+        move |window, cx| {
+            let agent = active(window, cx);
+            pide_core::collab::start_walk(&agent, window, cx);
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.next_note", "Agent: Next Note"),
+        move |window, cx| {
+            let agent = active(window, cx);
+            pide_core::collab::walk(&agent, 1, window, cx);
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.previous_note", "Agent: Previous Note"),
+        move |window, cx| {
+            let agent = active(window, cx);
+            pide_core::collab::walk(&agent, -1, window, cx);
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.review_next", "Agent: Review Next Session"),
+        move |window, cx| {
+            pide_core::collab::review_next(window, cx);
+        },
+    );
     CommandRegistry::register(
         cx,
         CommandSpec::new("agent.rename", "Agent: Rename Session…"),

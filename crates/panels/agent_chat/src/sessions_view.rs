@@ -139,10 +139,57 @@ impl AgentChat {
         let sessions = self.sessions.read(cx);
         let active = sessions.active_index();
         let open_files: Vec<PathBuf> = sessions.open_files(cx);
+        // Collaborator mode: sessions with changes you haven't stepped through go first.
+        let review: Vec<AnyElement> = sessions
+            .all()
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| a.read(cx).needs_review())
+            .map(|(i, agent)| {
+                let a = agent.read(cx);
+                let unseen = a.unseen_stops();
+                let files = a.changes.iter().filter(|c| !c.reverted).count();
+                let agent = agent.clone();
+                h_flex()
+                    .id(("review-session", i))
+                    .w_full()
+                    .gap_2()
+                    .items_center()
+                    .px_3()
+                    .py_2()
+                    .cursor_pointer()
+                    .hover(|this| this.bg(theme.list_hover))
+                    .when(i == active, |this| this.bg(theme.list_active))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.sessions.update(cx, |s, cx| s.set_active(i, cx));
+                        pide_core::collab::start_walk(&agent, window, cx);
+                    }))
+                    .child(div().text_color(pide_core::colors::pi_note(cx)).child("◆"))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .child(a.name.clone()),
+                    )
+                    .child(div().text_xs().text_color(theme.muted_foreground).child(format!(
+                        "{unseen} to step through{}",
+                        match files {
+                            0 => String::new(),
+                            1 => " · 1 file".to_string(),
+                            n => format!(" · {n} files"),
+                        }
+                    )))
+                    .into_any_element()
+            })
+            .collect();
         let open: Vec<AnyElement> = sessions
             .all()
             .iter()
             .enumerate()
+            .filter(|(_, a)| !a.read(cx).needs_review())
             .map(|(i, agent)| {
                 let a = agent.read(cx);
                 let label = match a.status() {
@@ -260,7 +307,10 @@ impl AgentChat {
             .size_full()
             .overflow_y_scroll()
             .text_sm()
-            .child(heading("OPEN"))
+            .when(!review.is_empty(), |this| {
+                this.child(heading("TO REVIEW")).children(review)
+            })
+            .when(!open.is_empty(), |this| this.child(heading("OPEN")))
             .children(open)
             .child(heading("SAVED IN THIS PROJECT"))
             .when(saved.is_empty(), |this| {
