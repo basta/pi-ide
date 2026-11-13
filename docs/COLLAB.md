@@ -72,6 +72,15 @@ server has re-checked the file. It only knows files the editor has open (or had 
 start servers for files nobody opened; a file it doesn't know is named in the answer. A file open with a
 running server and no entry counts as clean (servers drop a file's entry once its problems are gone).
 
+## Catch me up
+
+**Catch me up** (pi panel toolbar) asks for a short briefing on the session: Asked / Done (by file) /
+Needs you / Start here. The panel writes down what it knows (prompts, pi's replies clipped, tool calls,
+changed files with pi's reasons and hunk notes, pins, the plan; at most 24k characters, newest kept) and
+the backend asks the model once on the side (`AgentBackend::ask_aside`: `pi -p --no-session --no-tools
+--thinking low --model <the session's>`). The session's context and history are untouched. The briefing
+is shown above the chat, saved with the session (`Saved::catch_up`), and refreshed on demand.
+
 ## Anchors
 
 Pins and hunk notes are anchored by 1-based line plus that line's text (read by the extension when
@@ -99,8 +108,9 @@ the saved anchors are re-found in the file on disk; one whose text is gone is ma
   marks and the note bar (Reply / Dismiss / Back / Next walk across files); hunk notes in the diff tab;
   TO REVIEW group and the status-bar chip; docs. Reviewed; 7 review findings fixed.
 - `ide_diagnostics`: pi sees what the editor's language servers report (tested with pyright in the app).
+- Catch me up: a briefing per session written on the side (tested in the app). Second review: 3 findings fixed.
 
-**Left / next:** "catch me up" per session; polish from devctl testing.
+**Left / next:** polish from devctl testing, then the next most useful work for following pi's code.
 
 **Needs your decision:**
 
