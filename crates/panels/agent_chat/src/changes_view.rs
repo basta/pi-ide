@@ -339,6 +339,8 @@ impl AgentChat {
             .map(|c| c.path.strip_prefix(&root).unwrap_or(&c.path).display().to_string())
             .collect();
         let agent_explain = agent.clone();
+        let agent_story = agent.clone();
+        let story_files = changes.iter().filter(|c| !c.reverted).count();
         let header = h_flex()
             .flex_wrap() // the buttons go to a second row in a narrow panel
             .gap_2()
@@ -371,6 +373,30 @@ impl AgentChat {
                             agent_explain.update(cx, |a, cx| {
                                 if a.is_busy() {
                                     a.queue(prompt, true, cx); // after the current run
+                                } else {
+                                    a.prompt(prompt, cx);
+                                }
+                            });
+                        })),
+                )
+            })
+            .when(story_files > 0, |this| {
+                this.child(
+                    Button::new("change-story")
+                        .xsmall()
+                        .label("Tell it as a story")
+                        .tooltip("Ask pi to walk you through its change in the order that explains it, as a tour")
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            let prompt = "Don't change any code. Walk me through the change you made in \
+                                 this session as a story: call ide_tour once, titled \"The change, step by \
+                                 step\", with stops at the places you changed (and any unchanged code needed \
+                                 to follow it), in the order that explains the change from its entry point \
+                                 onward, not file by file. Each note says what changed there, why, and how \
+                                 it leads to the next stop."
+                                .to_string();
+                            agent_story.update(cx, |a, cx| {
+                                if a.is_busy() {
+                                    a.queue(prompt, true, cx);
                                 } else {
                                     a.prompt(prompt, cx);
                                 }
