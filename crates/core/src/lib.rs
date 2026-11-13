@@ -20,6 +20,7 @@ pub mod recent;
 pub mod sessions;
 pub mod settings;
 pub mod toolwindow;
+pub mod walk;
 pub mod workspace;
 
 pub use agent::{

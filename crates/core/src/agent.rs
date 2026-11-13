@@ -541,10 +541,7 @@ impl Agent {
                 match self.changes.iter_mut().find(|c| &c.path == path) {
                     Some(c) => {
                         c.touches.push(touch);
-                        c.reviewed = false;
-                        c.seen = false;
-                        // Changed again: its notes need another look (or a new explanation).
-                        c.notes.iter_mut().for_each(|n| n.seen = false);
+                        crate::walk::touched_again(c);
                         if c.reverted {
                             // Reverted, then touched again: the new baseline is what was on disk now.
                             c.reverted = false;
@@ -617,63 +614,19 @@ impl Agent {
                 summary,
                 hunks,
             } => {
-                match self.changes.iter().position(|c| &c.path == path) {
-                    Some(fi) => {
-                        let c = &mut self.changes[fi];
-                        c.summary = (!summary.trim().is_empty()).then(|| summary.clone());
-                        c.notes = hunks.clone();
-                        c.seen = false;
-                        // The current stop pointed into the old notes.
-                        if matches!(self.current_stop, Some(StopRef::Hunk { file, .. } | StopRef::File(file)) if file == fi)
-                        {
-                            self.current_stop = None;
-                        }
-                    }
-                    // No change record (changed outside edit/write/watched bash):
-                    // keep the reasons as pins so they still show and walk (docs/COLLAB.md).
-                    None => {
-                        // A new explanation replaces the previous one's pins (kept, so
-                        // pin indices stay valid, but hidden).
-                        let prefix = format!("explain:{}:", path.display());
-                        for p in self.pins.iter_mut().filter(|p| p.id.starts_with(&prefix)) {
-                            p.dismissed = true;
-                            p.seen = true;
-                        }
-                        // Unique across saves too (a saved pin may have any earlier number).
-                        let n = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_millis())
-                            .unwrap_or(0);
-                        let pins: Vec<Pin> = if hunks.is_empty() {
-                            vec![Pin {
-                                id: format!("{prefix}{n}"),
-                                path: path.clone(),
-                                anchor: crate::collab::Anchor::new(1, String::new()),
-                                end_line: 1,
-                                note: summary.clone(),
-                                snippet: Vec::new(),
-                                seen: false,
-                                dismissed: false,
-                            }]
-                        } else {
-                            hunks
-                                .iter()
-                                .enumerate()
-                                .map(|(i, h)| Pin {
-                                    id: format!("{prefix}{n}-{i}"),
-                                    path: path.clone(),
-                                    anchor: h.anchor.clone(),
-                                    end_line: h.anchor.line,
-                                    note: format!("{summary}: {}", h.note),
-                                    snippet: vec![h.anchor.text.clone()],
-                                    seen: false,
-                                    dismissed: false,
-                                })
-                                .collect()
-                        };
-                        self.pins.extend(pins);
-                    }
-                }
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0);
+                crate::walk::explain(
+                    &mut self.changes,
+                    &mut self.pins,
+                    &mut self.current_stop,
+                    path,
+                    summary,
+                    hunks,
+                    now_ms,
+                );
                 self.persist_changes(cx);
                 cx.notify();
             }
@@ -695,97 +648,22 @@ impl Agent {
     }
 }
 
-/// Collaborator mode: the walkthrough over what pi changed and pointed at.
+/// Collaborator mode: the walkthrough (logic in [`crate::walk`], on plain data).
 impl Agent {
-    /// Every place the walkthrough stops at, in order: per changed file (first
-    /// touched first) its hunk notes by line, or one stop at its first change when
-    /// there are none; then that file's pins; then pins on other files.
-    /// Reverted files and dismissed notes are left out.
+    /// See [`crate::walk::stops`].
     pub fn stops(&self) -> Vec<Stop> {
-        let mut out = Vec::new();
-        let mut pin_done = vec![false; self.pins.len()];
-        for (fi, c) in self.changes.iter().enumerate() {
-            if c.reverted {
-                continue;
-            }
-            let mut file_stops: Vec<Stop> = Vec::new();
-            let live: Vec<(usize, &crate::collab::HunkNote)> = c
-                .notes
-                .iter()
-                .enumerate()
-                .filter(|(_, n)| !n.dismissed)
-                .collect();
-            if live.is_empty() && c.notes.is_empty() && !c.deleted_now {
-                file_stops.push(Stop {
-                    at: StopRef::File(fi),
-                    path: c.path.clone(),
-                    line: c.first_line.unwrap_or(1),
-                    note: String::new(),
-                    summary: c.summary.clone(),
-                    outdated: false,
-                    seen: c.seen,
-                });
-            }
-            for (ni, n) in live {
-                file_stops.push(Stop {
-                    at: StopRef::Hunk { file: fi, note: ni },
-                    path: c.path.clone(),
-                    line: n.anchor.line,
-                    note: n.note.clone(),
-                    summary: c.summary.clone(),
-                    outdated: n.anchor.outdated,
-                    seen: n.seen,
-                });
-            }
-            for (pi, p) in self.pins.iter().enumerate() {
-                if p.path == c.path {
-                    pin_done[pi] = true;
-                    if !p.dismissed {
-                        file_stops.push(self.pin_stop(pi));
-                    }
-                }
-            }
-            file_stops.sort_by_key(|s| s.line);
-            out.extend(file_stops);
-        }
-        for (pi, p) in self.pins.iter().enumerate() {
-            if !pin_done[pi] && !p.dismissed {
-                out.push(self.pin_stop(pi));
-            }
-        }
-        out
-    }
-
-    fn pin_stop(&self, i: usize) -> Stop {
-        let p = &self.pins[i];
-        Stop {
-            at: StopRef::Pin(i),
-            path: p.path.clone(),
-            line: p.anchor.line,
-            note: p.note.clone(),
-            summary: None,
-            outdated: p.anchor.outdated,
-            seen: p.seen,
-        }
+        crate::walk::stops(&self.changes, &self.pins)
     }
 
     /// The anchor text behind a stop (to re-find it in an edited buffer).
     pub fn anchor_text(&self, at: &StopRef) -> Option<String> {
-        match *at {
-            StopRef::Pin(i) => self.pins.get(i).map(|p| p.anchor.text.clone()),
-            StopRef::Hunk { file, note } => self
-                .changes
-                .get(file)
-                .and_then(|c| c.notes.get(note))
-                .map(|n| n.anchor.text.clone()),
-            StopRef::File(_) => None,
-        }
+        crate::walk::anchor_text(&self.changes, &self.pins, at)
     }
 
     /// The stop of the pin made by tool call `id`.
     pub fn pin_stop_by_id(&self, id: &str) -> Option<Stop> {
         let i = self.pins.iter().position(|p| p.id == id)?;
-        Some(self.pin_stop(i))
+        Some(crate::walk::pin_stop(&self.pins, i))
     }
 
     /// Stops not stepped onto yet.
@@ -798,22 +676,9 @@ impl Agent {
         self.unseen_stops() > 0
     }
 
-    /// The walkthrough's next (`delta` 1) or previous (−1) stop from the current
-    /// one; the first unseen stop (else the first) when there is no current one.
+    /// See [`crate::walk::step`].
     pub fn step_stop(&self, delta: isize) -> Option<Stop> {
-        let stops = self.stops();
-        if stops.is_empty() {
-            return None;
-        }
-        let cur = self
-            .current_stop
-            .as_ref()
-            .and_then(|c| stops.iter().position(|s| &s.at == c));
-        let i = match cur {
-            None => stops.iter().position(|s| !s.seen).unwrap_or(0),
-            Some(i) => (i as isize + delta).clamp(0, stops.len() as isize - 1) as usize,
-        };
-        stops.into_iter().nth(i)
+        crate::walk::step(&self.stops(), self.current_stop.as_ref(), delta)
     }
 
     /// The stop the walkthrough is on, if it still exists.
@@ -822,71 +687,18 @@ impl Agent {
         self.stops().into_iter().find(|s| &s.at == c)
     }
 
-    /// Make `at` the current stop and mark it seen.
+    /// Make `at` the current stop and mark it seen (see [`crate::walk::visit`]).
     pub fn visit_stop(&mut self, at: &StopRef, cx: &mut Context<Self>) {
-        self.set_stop_flag(at, false);
-        self.current_stop = Some(at.clone());
-        self.review_if_walked(at);
+        crate::walk::visit(&mut self.changes, &mut self.pins, &mut self.current_stop, at);
         self.persist_changes(cx);
         cx.notify();
     }
 
-    /// Stepping through all of a changed file's notes counts as reviewing it
-    /// (ticks it in Changes); the reverse already holds (ticking marks them seen).
-    fn review_if_walked(&mut self, at: &StopRef) {
-        if let Some(path) = self.stops().into_iter().find(|s| &s.at == at).map(|s| s.path) {
-            self.review_path_if_walked(&path);
-        }
-    }
-
-    fn review_path_if_walked(&mut self, path: &std::path::Path) {
-        let path = path.to_path_buf();
-        if self.stops().iter().filter(|s| s.path == path).all(|s| s.seen)
-            && let Some(c) = self.changes.iter_mut().find(|c| c.path == path && !c.reverted)
-        {
-            c.reviewed = true;
-        }
-    }
-
-    /// Hide a pin or hunk note (and count it as seen).
+    /// Hide a pin or hunk note (see [`crate::walk::dismiss`]).
     pub fn dismiss_stop(&mut self, at: &StopRef, cx: &mut Context<Self>) {
-        // The path first: a dismissed stop leaves `stops()`.
-        let path = self.stops().into_iter().find(|s| &s.at == at).map(|s| s.path);
-        self.set_stop_flag(at, true);
-        if let Some(path) = path {
-            self.review_path_if_walked(&path);
-        }
-        if self.current_stop.as_ref() == Some(at) {
-            self.current_stop = None; // the bar moves on to the next unseen note
-        }
+        crate::walk::dismiss(&mut self.changes, &mut self.pins, &mut self.current_stop, at);
         self.persist_changes(cx);
         cx.notify();
-    }
-
-    fn set_stop_flag(&mut self, at: &StopRef, dismiss: bool) {
-        match *at {
-            StopRef::Pin(i) => {
-                if let Some(p) = self.pins.get_mut(i) {
-                    p.seen = true;
-                    p.dismissed |= dismiss;
-                }
-            }
-            StopRef::Hunk { file, note } => {
-                if let Some(n) = self
-                    .changes
-                    .get_mut(file)
-                    .and_then(|c| c.notes.get_mut(note))
-                {
-                    n.seen = true;
-                    n.dismissed |= dismiss;
-                }
-            }
-            StopRef::File(i) => {
-                if let Some(c) = self.changes.get_mut(i) {
-                    c.seen = true;
-                }
-            }
-        }
     }
 }
 
