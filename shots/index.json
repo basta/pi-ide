@@ -1,5 +1,11 @@
 [
  {
+  "file": "shots/20261113T1725Z-change-story.png",
+  "time": "2026-11-13T17:25:32Z",
+  "milestone": "change story",
+  "caption": "Tell it as a story: pi retold its change as a 4-stop tour starting at the unchanged entry point summary() and following the flow into calc.py, instead of file by file."
+ },
+ {
   "file": "shots/20261113T1719Z-notes-in-file.png",
   "time": "2026-11-13T17:19:36Z",
   "milestone": "notes across sessions",
