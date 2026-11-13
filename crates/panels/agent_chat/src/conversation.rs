@@ -347,6 +347,19 @@ impl AgentChat {
                                 }
                             })),
                     )
+                    .child(
+                        Button::new("understand-help")
+                            .xsmall()
+                            .ghost()
+                            .label("?")
+                            .map(|b| pide_core::colors::toggle(b, self.show_help, cx))
+                            .tooltip("Ways to follow pi's code, and what the marks mean")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.show_help = !this.show_help;
+                                this.show_changes = false;
+                                cx.notify();
+                            })),
+                    )
                     .child(div().flex_1())
                     .when_some(stats, |this, st| {
                         let cost = if st.cost < 0.01 { format!("${:.3}", st.cost) } else { format!("${:.2}", st.cost) };
@@ -404,13 +417,7 @@ impl AgentChat {
                         .p_3()
                         .gap_3()
                         .text_sm()
-                        .when(empty, |this| {
-                            this.child(
-                                div()
-                                    .text_color(theme.muted_foreground)
-                                    .child("Ask pi about this project. It starts on your first message."),
-                            )
-                        })
+                        .when(empty || self.show_help, |this| this.child(self.render_understand(cx)))
                         .children(items),
                 ),
             ))

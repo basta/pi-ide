@@ -33,6 +33,7 @@ mod rename;
 mod sessions_view;
 mod slash;
 mod tour;
+mod understand;
 
 use conversation::tool_mut;
 use history::{HistItem, parse_history, result_text, summarize_args};
@@ -181,6 +182,36 @@ pub fn init(cx: &mut App) {
         move |window, cx| {
             let agent = active(window, cx);
             pide_core::collab::walk(&agent, -1, window, cx);
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.change_story", "Agent: Tell It as a Story"),
+        move |window, cx| {
+            let agent = active(window, cx);
+            if agent.read(cx).changes.iter().all(|c| c.reverted) {
+                window.push_notification(
+                    Notification::info("pi hasn't changed anything in this session yet."),
+                    cx,
+                );
+                return;
+            }
+            changes_view::send_or_queue(&agent, changes_view::story_prompt(), cx);
+            CommandRegistry::run("agent.ask", window, cx);
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.catch_up", "Agent: Catch Me Up"),
+        move |window, cx| {
+            CommandRegistry::run("agent.ask", window, cx);
+            if let Some(chat) = existing(window, cx) {
+                chat.update(cx, |c, cx| {
+                    c.show_changes = false;
+                    c.catch_up_open = true;
+                    c.catch_up(cx)
+                });
+            }
         },
     );
     CommandRegistry::register(
@@ -346,6 +377,8 @@ pub fn existing(window: &Window, cx: &App) -> Option<Entity<AgentChat>> {
 }
 
 pub struct AgentChat {
+    /// The Understand card is shown on top of the conversation (the ? button).
+    show_help: bool,
     /// Sessions a "catch me up" briefing is being written for.
     catching_up: std::collections::HashSet<EntityId>,
     /// The briefing card is shown (it hides with ×; Catch me up shows it again).
@@ -458,6 +491,7 @@ impl AgentChat {
         ];
         let mut this = Self {
             progress_open: false,
+            show_help: false,
             catching_up: Default::default(),
             catch_up_open: true,
             catch_up_md: HashMap::new(),

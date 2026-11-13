@@ -154,6 +154,13 @@ impl AgentChat {
                     .collect::<Vec<_>>()
             })
             .collect();
+        // Files pi changed without saying why (it skipped ide_explain_change).
+        let unexplained: Vec<String> = changes
+            .iter()
+            .filter(|c| !c.reverted && c.summary.is_none() && c.notes.is_empty())
+            .map(|c| c.path.strip_prefix(&root).unwrap_or(&c.path).display().to_string())
+            .collect();
+        let agent_explain = agent.clone();
         let rows: Vec<AnyElement> = changes
             .iter()
             .enumerate()
@@ -254,11 +261,20 @@ impl AgentChat {
                             .pl(px(20.))
                             .text_xs()
                             .text_color(theme.muted_foreground)
+                            // No reason from pi: one click asks it about every such file.
                             .when(!c.reverted && c.summary.is_none() && c.notes.is_empty(), |this| {
+                                let (agent, files) = (agent_explain.clone(), unexplained.clone());
                                 this.child(
                                     div()
+                                        .id(("ask-why", i))
                                         .text_color(pide_core::colors::pi_note(cx))
-                                        .child("no reason given"),
+                                        .cursor_pointer()
+                                        .hover(|s| s.underline())
+                                        .on_click(move |_, _, cx| {
+                                            cx.stop_propagation();
+                                            send_or_queue(&agent, ask_why_prompt(&files), cx);
+                                        })
+                                        .child("no reason given · ask why"),
                                 )
                             })
                             .child(div().flex_1().child(if c.reverted {
@@ -332,13 +348,7 @@ impl AgentChat {
             (a.stops().len(), a.unseen_stops())
         };
         let agent_walk = agent.clone();
-        // Files pi changed without saying why (it skipped ide_explain_change).
-        let unexplained: Vec<String> = changes
-            .iter()
-            .filter(|c| !c.reverted && c.summary.is_none() && c.notes.is_empty())
-            .map(|c| c.path.strip_prefix(&root).unwrap_or(&c.path).display().to_string())
-            .collect();
-        let agent_explain = agent.clone();
+
         let agent_story = agent.clone();
         let story_files = changes.iter().filter(|c| !c.reverted).count();
         let header = h_flex()
@@ -356,30 +366,6 @@ impl AgentChat {
                 if changes.len() == 1 { "" } else { "s" },
                 unreviewed
             )))
-            .when(!unexplained.is_empty(), |this| {
-                let n = unexplained.len();
-                this.child(
-                    Button::new("explain-missing")
-                        .xsmall()
-                        .label(format!("Ask why · {n}"))
-                        .tooltip("Ask pi, in this session, to explain the files it changed without saying why")
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            let prompt = format!(
-                                "Don't change any code. For each of these files you changed, call \
-                                 ide_explain_change with a one-line summary of why, and hunk notes \
-                                 where the reason isn't obvious: {}",
-                                unexplained.join(", ")
-                            );
-                            agent_explain.update(cx, |a, cx| {
-                                if a.is_busy() {
-                                    a.queue(prompt, true, cx); // after the current run
-                                } else {
-                                    a.prompt(prompt, cx);
-                                }
-                            });
-                        })),
-                )
-            })
             .when(story_files > 0, |this| {
                 this.child(
                     Button::new("change-story")
@@ -387,13 +373,7 @@ impl AgentChat {
                         .label("Tell it as a story")
                         .tooltip("Ask pi to walk you through its change in the order that explains it, as a tour")
                         .on_click(cx.listener(move |_, _, _, cx| {
-                            let prompt = "Don't change any code. Walk me through the change you made in \
-                                 this session as a story: call ide_tour once, titled \"The change, step by \
-                                 step\", with stops at the places you changed (and any unchanged code needed \
-                                 to follow it), in the order that explains the change from its entry point \
-                                 onward, not file by file. Each note says what changed there, why, and how \
-                                 it leads to the next stop."
-                                .to_string();
+                            let prompt = story_prompt();
                             agent_story.update(cx, |a, cx| {
                                 if a.is_busy() {
                                     a.queue(prompt, true, cx);
@@ -423,6 +403,7 @@ impl AgentChat {
                 this.child(
                     Button::new("review-all")
                         .xsmall()
+                        .ghost()
                         .label("Mark all reviewed")
                         .on_click(cx.listener(move |_, _, _, cx| {
                             let paths: Vec<PathBuf> = agent_all
@@ -443,6 +424,7 @@ impl AgentChat {
                 this.child(
                     Button::new("revert-all")
                         .xsmall()
+                        .ghost()
                         .label("Revert all…")
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.confirm_revert_all(agent_rev.clone(), open.clone(), window, cx)
@@ -458,4 +440,36 @@ impl AgentChat {
             .children(rows)
             .into_any_element()
     }
+}
+
+/// What "ask why" asks pi about files it changed without a reason.
+pub(crate) fn ask_why_prompt(files: &[String]) -> String {
+    format!(
+        "Don't change any code. For each of these files you changed, call \
+         ide_explain_change with a one-line summary of why, and hunk notes \
+         where the reason isn't obvious: {}",
+        files.join(", ")
+    )
+}
+
+/// What "Tell it as a story" asks pi.
+pub(crate) fn story_prompt() -> String {
+    "Don't change any code. Walk me through the change you made in \
+                                 this session as a story: call ide_tour once, titled \"The change, step by \
+                                 step\", with stops at the places you changed (and any unchanged code needed \
+                                 to follow it), in the order that explains the change from its entry point \
+                                 onward, not file by file. Each note says what changed there, why, and how \
+                                 it leads to the next stop."
+        .to_string()
+}
+
+/// Send `prompt` to `agent` now, or after its current run.
+pub(crate) fn send_or_queue(agent: &Entity<Agent>, prompt: String, cx: &mut App) {
+    agent.update(cx, |a, cx| {
+        if a.is_busy() {
+            a.queue(prompt, true, cx);
+        } else {
+            a.prompt(prompt, cx);
+        }
+    });
 }
