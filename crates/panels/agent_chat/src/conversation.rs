@@ -154,6 +154,61 @@ impl AgentChat {
                     })
                     .into_any_element()
             }
+            Item::Pin(pin_id) => self.render_pin(pin_id, ix, cx),
+            Item::Explained(path) => {
+                let agent = self.active(cx);
+                let a = agent.read(cx);
+                let Some(change) = a.changes.iter().find(|c| &c.path == path) else {
+                    return div().into_any_element();
+                };
+                let root = self.workspace.read(cx).root().to_path_buf();
+                let rel = path.strip_prefix(&root).unwrap_or(path).display().to_string();
+                let summary = change.summary.clone().unwrap_or_default();
+                let notes = change.notes.len();
+                let first = a
+                    .stops()
+                    .into_iter()
+                    .find(|st| &st.path == path);
+                h_flex()
+                    .id(("explained", ix))
+                    .gap_2()
+                    .text_xs()
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme.list_hover))
+                    .rounded(theme.radius)
+                    .px_1()
+                    .child(div().flex_none().text_color(pide_core::colors::accent(cx)).child("✎"))
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_family(theme.mono_font_family.clone())
+                            .child(rel),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .text_color(theme.muted_foreground)
+                            .child(summary),
+                    )
+                    .when(notes > 0, |this| {
+                        this.child(
+                            div()
+                                .flex_none()
+                                .text_color(theme.muted_foreground)
+                                .child(format!("{notes} note{}", if notes == 1 { "" } else { "s" })),
+                        )
+                    })
+                    .on_click(move |_, window, cx| {
+                        if let Some(st) = first.clone() {
+                            pide_core::collab::go_to(&agent, st, window, cx);
+                        }
+                    })
+                    .into_any_element()
+            }
             Item::Notice { text, error } => div()
                 .text_sm()
                 .text_color(if *error {
@@ -313,6 +368,7 @@ impl AgentChat {
                             }),
                     ),
             )
+            .when_some(self.render_progress(cx), |this, p| this.child(p))
             .when(show_changes, |this| this.child(div().flex_1().min_h_0().child(self.render_changes(&agent, cx))))
             .when(!show_changes, |this| this.child(
                 div().id(("chat-scroll", id.as_u64())).flex_1().min_h_0().overflow_y_scroll().track_scroll(&scroll).child(
@@ -476,6 +532,146 @@ impl AgentChat {
                         ))
                     })),
             )
+    }
+}
+
+impl AgentChat {
+    /// An `ide_pin` card: where, pi's note, and Open / Reply.
+    fn render_pin(&self, pin_id: &str, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme();
+        let agent = self.active(cx);
+        let Some(stop) = agent.read(cx).pin_stop_by_id(pin_id) else {
+            return div().into_any_element();
+        };
+        let root = self.workspace.read(cx).root().to_path_buf();
+        let location = stop.location(&root);
+        let (agent_open, stop_open) = (agent.clone(), stop.clone());
+        let reply_to = location.clone();
+        v_flex()
+            .gap_1()
+            .px_2()
+            .py_1p5()
+            .rounded(theme.radius)
+            .border_1()
+            .border_color(theme.border)
+            .child(
+                h_flex()
+                    .gap_2()
+                    .text_xs()
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme.muted_foreground)
+                            .child("PINNED"),
+                    )
+                    .child(
+                        div()
+                            .id(("pin-loc", ix))
+                            .font_family(theme.mono_font_family.clone())
+                            .text_color(pide_core::colors::accent(cx))
+                            .cursor_pointer()
+                            .hover(|s| s.underline())
+                            .on_click(move |_, window, cx| {
+                                pide_core::collab::go_to(&agent_open, stop_open.clone(), window, cx)
+                            })
+                            .child(location),
+                    )
+                    .when(stop.outdated, |this| {
+                        this.child(
+                            div()
+                                .text_color(theme.muted_foreground)
+                                .child("outdated: the line changed"),
+                        )
+                    })
+                    .when(stop.seen, |this| {
+                        this.child(div().text_color(theme.muted_foreground).child("· seen"))
+                    }),
+            )
+            .child(div().text_sm().child(stop.note.clone()))
+            .child(
+                h_flex().gap_1().child(
+                    Button::new(("pin-reply", ix))
+                        .xsmall()
+                        .ghost()
+                        .label("Reply")
+                        .tooltip("Answer pi about this spot")
+                        .on_click(move |_, window, cx| {
+                            pide_core::opener::ask_agent(format!("{reply_to}: "), window, cx)
+                        }),
+                ),
+            )
+            .into_any_element()
+    }
+
+    /// pi's checklist (`ide_progress`), above the conversation; one line once all done.
+    pub(crate) fn render_progress(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let theme = cx.theme();
+        let agent = self.active(cx);
+        let steps = agent.read(cx).progress.clone();
+        if steps.is_empty() {
+            return None;
+        }
+        let done = steps.iter().filter(|s| s.done).count();
+        let all = done == steps.len();
+        let open = self.progress_open || !all;
+        let id = agent.entity_id();
+        Some(
+            v_flex()
+                .flex_shrink_0()
+                .gap_0p5()
+                .px_3()
+                .py_1()
+                .border_b_1()
+                .border_color(theme.border)
+                .text_xs()
+                .child(
+                    h_flex()
+                        .id(("progress-head", id.as_u64()))
+                        .gap_2()
+                        .cursor_pointer()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.progress_open = !this.progress_open;
+                            cx.notify();
+                        }))
+                        .child(
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme.muted_foreground)
+                                .child("PLAN"),
+                        )
+                        .child(
+                            div()
+                                .text_color(theme.muted_foreground)
+                                .child(format!("{done}/{} done", steps.len())),
+                        )
+                        .child(div().flex_1())
+                        .child(div().text_color(theme.muted_foreground).child(if open { "▾" } else { "▸" })),
+                )
+                .when(open, |this| {
+                    this.children(steps.into_iter().map(|st| {
+                        h_flex()
+                            .gap_2()
+                            .text_sm()
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .w(px(14.))
+                                    .text_color(if st.done {
+                                        pide_core::colors::accent(cx)
+                                    } else {
+                                        theme.muted_foreground
+                                    })
+                                    .child(if st.done { "✓" } else { "○" }),
+                            )
+                            .child(
+                                div()
+                                    .when(st.done, |d| d.text_color(theme.muted_foreground))
+                                    .child(st.text),
+                            )
+                    }))
+                })
+                .into_any_element(),
+        )
     }
 }
 

@@ -238,6 +238,15 @@ impl AgentChat {
                                 )
                             }),
                     )
+                    // pi's reason for the change (`ide_explain_change`).
+                    .when_some(c.summary.clone(), |this, summary| {
+                        this.child(
+                            div()
+                                .pl(px(20.))
+                                .when(c.reverted, |d| d.text_color(theme.muted_foreground))
+                                .child(summary),
+                        )
+                    })
                     .child(
                         h_flex()
                             .gap_2()
@@ -247,8 +256,16 @@ impl AgentChat {
                             .text_color(theme.muted_foreground)
                             .child(div().flex_1().child(if c.reverted {
                                 "reverted".into()
-                            } else {
+                            } else if c.notes.is_empty() {
                                 c.tools_label()
+                            } else {
+                                let n = c.notes.len();
+                                format!(
+                                    "{} · {n} note{}",
+                                    c.tools_label(),
+                                    if n == 1 { "" } else { "s" }
+                                )
+                                .into()
                             }))
                             .when(flagged, |this| {
                                 this.child(
@@ -303,6 +320,11 @@ impl AgentChat {
             .filter(|c| !c.reviewed && !c.reverted)
             .count();
         let (agent_all, agent_rev) = (agent.clone(), agent.clone());
+        let (stops, unseen) = {
+            let a = agent.read(cx);
+            (a.stops().len(), a.unseen_stops())
+        };
+        let agent_walk = agent.clone();
         let header = h_flex()
             .gap_2()
             .px_3()
@@ -317,6 +339,21 @@ impl AgentChat {
                 if changes.len() == 1 { "" } else { "s" },
                 unreviewed
             )))
+            .when(stops > 0, |this| {
+                this.child(
+                    Button::new("walk-through")
+                        .xsmall()
+                        .label(if unseen > 0 {
+                            format!("Walk through · {unseen}")
+                        } else {
+                            "Walk through".to_string()
+                        })
+                        .tooltip("Step through pi's changes and notes in the editor")
+                        .on_click(move |_, window, cx| {
+                            pide_core::collab::start_walk(&agent_walk, window, cx);
+                        }),
+                )
+            })
             .when(unreviewed > 0, |this| {
                 this.child(
                     Button::new("review-all")

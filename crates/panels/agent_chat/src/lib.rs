@@ -171,6 +171,10 @@ enum Item {
         text: String,
         error: bool,
     },
+    /// `ide_pin`: shown from the session's pin with this tool call id.
+    Pin(String),
+    /// `ide_explain_change` for this file (absolute path).
+    Explained(PathBuf),
 }
 
 /// One session's conversation as shown in the panel.
@@ -194,6 +198,8 @@ pub fn existing(window: &Window, cx: &App) -> Option<Entity<AgentChat>> {
 }
 
 pub struct AgentChat {
+    /// The finished checklist is expanded (an unfinished one always is).
+    progress_open: bool,
     sessions: Entity<Sessions>,
     workspace: Entity<pide_core::Workspace>,
     /// What "send editor context" would send now; refreshed each render.
@@ -295,6 +301,7 @@ impl AgentChat {
             }),
         ];
         let mut this = Self {
+            progress_open: false,
             sessions,
             workspace,
             context_now: None,
@@ -437,6 +444,7 @@ impl AgentChat {
                             output,
                             duration_ms: None,
                         },
+                        HistItem::Pin(id) => Item::Pin(id),
                         HistItem::Model { .. } | HistItem::Thinking(_) => {
                             unreachable!("filtered above")
                         }

@@ -100,6 +100,17 @@ impl AgentChat {
                     *e = error.clone();
                 }
             }
+            // pide's own tools: their results show as pin cards / the checklist / Changes.
+            AgentEvent::ToolStart { name, .. } if name.starts_with("ide_") => {}
+            AgentEvent::Pin(pin) => items.push(Item::Pin(pin.id.clone())),
+            AgentEvent::ExplainChange { path, .. } => {
+                if !items
+                    .iter()
+                    .any(|i| matches!(i, Item::Explained(p) if p == path))
+                {
+                    items.push(Item::Explained(path.clone()));
+                }
+            }
             AgentEvent::ToolStart { id, name, args } => items.push(Item::Tool {
                 id: id.clone(),
                 name: name.clone(),

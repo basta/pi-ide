@@ -696,6 +696,25 @@ impl Agent {
         }
     }
 
+    /// The anchor text behind a stop (to re-find it in an edited buffer).
+    pub fn anchor_text(&self, at: &StopRef) -> Option<String> {
+        match *at {
+            StopRef::Pin(i) => self.pins.get(i).map(|p| p.anchor.text.clone()),
+            StopRef::Hunk { file, note } => self
+                .changes
+                .get(file)
+                .and_then(|c| c.notes.get(note))
+                .map(|n| n.anchor.text.clone()),
+            StopRef::File(_) => None,
+        }
+    }
+
+    /// The stop of the pin made by tool call `id`.
+    pub fn pin_stop_by_id(&self, id: &str) -> Option<Stop> {
+        let i = self.pins.iter().position(|p| p.id == id)?;
+        Some(self.pin_stop(i))
+    }
+
     /// Stops not stepped onto yet.
     pub fn unseen_stops(&self) -> usize {
         self.stops().iter().filter(|s| !s.seen).count()

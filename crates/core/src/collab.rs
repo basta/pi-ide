@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 
+use gpui_kit::{App, Entity, Window};
 use serde::{Deserialize, Serialize};
 
 /// A place in a file: 1-based line plus that line's text when it was made, so it
@@ -143,6 +144,48 @@ impl Stop {
         let rel = self.path.strip_prefix(root).unwrap_or(&self.path);
         format!("{}:{}", rel.display(), self.line)
     }
+}
+
+/// Where `stop` is now: its anchor re-found in the open buffer, if the file is open.
+pub fn live_line(stop: &Stop, anchor_text: Option<&str>, window: &Window, cx: &App) -> usize {
+    let Some(text) = anchor_text else {
+        return stop.line;
+    };
+    let services = crate::Services::of(window, cx);
+    let Some(buffer) = services.workspace.read(cx).buffer_for(&stop.path, cx) else {
+        return stop.line;
+    };
+    let content = buffer.read(cx).text().to_string();
+    Anchor::new(stop.line, text.to_string())
+        .locate(&content)
+        .unwrap_or(stop.line)
+}
+
+/// Open `stop` in the editor (cursor on its line), make it the walkthrough's
+/// current stop and mark it seen.
+pub fn go_to(agent: &Entity<crate::Agent>, stop: Stop, window: &mut Window, cx: &mut App) {
+    let text = agent.read(cx).anchor_text(&stop.at);
+    let line = live_line(&stop, text.as_deref(), window, cx);
+    agent.update(cx, |a, cx| a.visit_stop(&stop.at, cx));
+    crate::opener::open_file_at(stop.path, line.saturating_sub(1) as u32, 0, window, cx);
+}
+
+/// Step the walkthrough of `agent` by `delta` (1 next, −1 back; from no current
+/// stop: the first unseen one). Returns false if there is nothing to walk.
+pub fn walk(agent: &Entity<crate::Agent>, delta: isize, window: &mut Window, cx: &mut App) -> bool {
+    match agent.read(cx).step_stop(delta) {
+        Some(stop) => {
+            go_to(agent, stop, window, cx);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Start the walkthrough of `agent` from its first unseen stop (or the first).
+pub fn start_walk(agent: &Entity<crate::Agent>, window: &mut Window, cx: &mut App) -> bool {
+    agent.update(cx, |a, _| a.current_stop = None);
+    walk(agent, 1, window, cx)
 }
 
 #[cfg(test)]
