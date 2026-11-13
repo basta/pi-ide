@@ -33,6 +33,7 @@ cargo run -p pide --release -- ~/some/project
 3. Ask pi to change something. While it works, keep editing elsewhere; a file it changes while open reloads as an undoable edit.
 4. **Changes**: click a file for the diff, ↶ reverts one change, **Revert** the file, **Revert all…** the session. Changes it makes through `bash` (sed, formatters) are listed too.
 5. Quit and reopen pide, resume the session from the ▾ menu: its Changes list is still there.
+6. **Collaborator mode** (docs/COLLAB.md): pi explains each file it changed, can pin a spot it wants you to look at, and keeps a checklist for longer tasks (PLAN, above the chat). **Changes → Walk through** (or **pi → Walk Through Changes**) opens each note in the editor: a magenta mark in the gutter and a bar above the editor with **Reply** (drafts "file:line: " into that session), **Dismiss**, **Back**, **Next**. The diff tab lists pi's notes by hunk number. Sessions with notes you haven't stepped through are listed first in the ▾ menu, and the status bar shows "◆ n to review": click it to start.
 
 ## Settings
 

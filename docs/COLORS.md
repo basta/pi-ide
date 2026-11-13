@@ -74,6 +74,7 @@ and weight first, hue second.
 | File status | modified blue · added green · deleted gray · untracked red · conflict red (JetBrains) | `colors::change(Change::…, cx)`, `Change::from_letter` |
 | Problem states | error `danger`, warning `warning`, ok `success`, as text or a small dot | — |
 | Inline notice bar | tint of danger/warning, body text | `colors::notice_bg(error, cx)` |
+| pi's notes in the code (collaborator mode): gutter/scrollbar marks, the editor's note bar (tint), "to review" chip | magenta | `colors::pi_note(cx)` |
 | Destructive action | plain button in lists; red only for the final confirm (or Stop) | — |
 | Line counts (`+3 −1`) | green / red, 12 px | — |
 | Git refs in the Log | HEAD yellow, local green, remote magenta, tag cyan (tinted chips) | — |
