@@ -285,8 +285,8 @@ pub fn review_next(window: &mut Window, cx: &mut App) -> bool {
     let sessions = crate::Services::of(window, cx).sessions;
     // The one you're looking at first, then the newest: usually the one that just finished.
     let active = sessions.read(cx).active();
-    let mut list = sessions_to_review(sessions.read(cx), cx);
-    let Some(agent) = (if list.contains(&active) { Some(active) } else { list.pop() }) else {
+    let list = sessions_to_review(sessions.read(cx), cx);
+    let Some(agent) = crate::walk::pick_review(&active, &list) else {
         return false;
     };
     sessions.update(cx, |s, cx| s.activate(&agent, cx));

@@ -202,11 +202,7 @@ impl GitPanel {
         for agent in agents {
             let a = agent.read(cx);
             // Tours explain code; they aren't changes to review before a commit.
-            for stop in a
-                .stops()
-                .into_iter()
-                .filter(|s| !s.seen && !pide_core::walk::is_tour_stop(&a.pins, s))
-            {
+            for stop in pide_core::walk::unseen_change_notes(&a.changes, &a.pins) {
                 let Ok(rel) = stop.path.strip_prefix(&self.root) else {
                     continue;
                 };
@@ -711,11 +707,9 @@ impl GitPanel {
                             let Some(agent) = agent else { return };
                             let stop = {
                                 let a = agent.read(cx);
-                                a.stops().into_iter().find(|s| {
-                                    s.path == path
-                                        && !s.seen
-                                        && !pide_core::walk::is_tour_stop(&a.pins, s)
-                                })
+                                pide_core::walk::unseen_change_notes(&a.changes, &a.pins)
+                                    .into_iter()
+                                    .find(|s| s.path == path)
                             };
                             if let Some(stop) = stop {
                                 // Its session's notes are the ones the editor shows.

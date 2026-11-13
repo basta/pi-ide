@@ -77,6 +77,25 @@ pub fn is_tour_stop(pins: &[Pin], stop: &Stop) -> bool {
     matches!(stop.at, StopRef::Pin(i) if pins.get(i).is_some_and(is_tour))
 }
 
+/// Notes on changes that you haven't stepped through: unseen stops that aren't
+/// part of a tour (the Commit window's "◆ n pi notes").
+pub fn unseen_change_notes(changes: &[FileChange], pins: &[Pin]) -> Vec<Stop> {
+    stops(changes, pins)
+        .into_iter()
+        .filter(|s| !s.seen && !is_tour_stop(pins, s))
+        .collect()
+}
+
+/// Which of `candidates` to review first: `active` if it's one of them, else
+/// the last (the newest session).
+pub fn pick_review<T: PartialEq + Clone>(active: &T, candidates: &[T]) -> Option<T> {
+    if candidates.contains(active) {
+        Some(active.clone())
+    } else {
+        candidates.last().cloned()
+    }
+}
+
 /// The stop for `pins[i]`.
 pub fn pin_stop(pins: &[Pin], i: usize) -> Stop {
     let p = &pins[i];
@@ -433,6 +452,24 @@ mod tests {
             at(&stops(&[a], &pins)),
             [("/a", 1), ("/a", 9), ("/b", 2), ("/a", 3)].map(|(p, l)| (p.to_string(), l))
         );
+    }
+
+    #[::core::prelude::v1::test]
+    fn unseen_change_notes_leave_out_tours_and_seen() {
+        let mut a = change("/a");
+        a.notes = vec![note(5, "x"), note(50, "y")];
+        a.notes[1].seen = true;
+        // A tour stop earlier in the same file must not be picked first.
+        let pins = vec![pin("tour:c:0", "/a", 2), pin("p", "/a", 9)];
+        let s = unseen_change_notes(&[a], &pins);
+        assert_eq!(at(&s), [("/a".to_string(), 5), ("/a".to_string(), 9)]);
+    }
+
+    #[::core::prelude::v1::test]
+    fn review_picks_active_else_newest() {
+        assert_eq!(pick_review(&2, &[1, 2, 3]), Some(2));
+        assert_eq!(pick_review(&9, &[1, 2, 3]), Some(3));
+        assert_eq!(pick_review(&9, &[] as &[i32]), None);
     }
 
     #[::core::prelude::v1::test]
