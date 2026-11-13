@@ -1,5 +1,11 @@
 [
  {
+  "file": "shots/20261113T1716Z-tour.png",
+  "time": "2026-11-13T17:16:02Z",
+  "milestone": "tours",
+  "caption": "A tour: asked how summary() builds its text, pi answered with five ordered stops across stats.py and calc.py; the tour card lists them and the note bar walks them."
+ },
+ {
   "file": "shots/20261113T1708Z-explain-this.png",
   "time": "2026-11-13T17:08:24Z",
   "milestone": "advisor items",
