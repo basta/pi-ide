@@ -1,5 +1,11 @@
 [
  {
+  "file": "shots/20261113T174807Z-dogfood-review.png",
+  "time": "2026-11-13T17:48:07Z",
+  "milestone": "dogfood",
+  "caption": "Dogfood run: pi added median(), checked its own work with ide_diagnostics unprompted, and the review chip now opens the newest session's note first."
+ },
+ {
   "file": "shots/20261113T174520Z-commit-pi-notes.png",
   "time": "2026-11-13T17:45:20Z",
   "milestone": "consolidation",
