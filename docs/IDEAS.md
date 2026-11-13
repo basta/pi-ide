@@ -9,9 +9,7 @@ Things that came up while building, deliberately not built yet (spec rule 8).
 
 Collaborator mode, after the merge (from tonight's advisor rounds and testing; docs/COLLAB.md):
 
-- **Story order for the main walkthrough**: let Walk through follow the story tour's order when a session has one (today the story is a separate tour).
 - **Centre the walked-to line**: needs a GPUI Kit API (docs/GAPS.md); ask upstream.
 - **Explanations for files pi changed outside edit/write/watched bash** (kept as pins today).
-- **Tours library as its own view**: search, delete, re-run a tour against the current code (stops marked outdated today).
+- **Tours library as its own view**: search and delete (re-running an outdated tour is done: Update tour, on collab-next).
 - **Per-project notes index** if listing every saved session's notes gets slow on big histories (`pide_core::notes` reads them all on demand).
-- **Language-server check before ide_diagnostics answers**: open the file in the server when pi asks about a file the editor never opened.

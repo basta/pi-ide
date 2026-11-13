@@ -204,3 +204,7 @@ app, pushed):
   now, and the new tour replaces the old one. Tested: after renaming two parameters in the demo, the
   card showed "3 outdated"; the updated tour matched the new code (and pi pointed out the rename had
   broken the bodies).
+- **The walkthrough follows the story**: once a session has a story (Tell It as a Story), Walk Through
+  Changes and the review chip start with the story's stops, in its order, until you've seen them.
+- Reviews of these found 8 issues (stale diagnostics right after an edit, files that can't be read,
+  overwriting an editor's buffer from disk, replaced-tour bookkeeping); all fixed.
