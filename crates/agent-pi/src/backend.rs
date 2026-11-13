@@ -25,6 +25,8 @@ use crate::conn::{self, RawLog};
 use crate::wire::Inbound;
 
 const STDERR_TAIL: usize = 20;
+/// A side question (`ask_aside`) that takes longer than this is given up.
+const ASIDE_TIMEOUT: Duration = Duration::from_secs(120);
 const ABORT_DEADLINE: Duration = Duration::from_secs(1);
 /// An idle session stops its pi process after this long (spec M2); the next
 /// prompt resumes it with `--session <file>`.
@@ -650,14 +652,16 @@ async fn ask_once(root: PathBuf, model: Option<String>, prompt: String) -> anyho
     if let Some(m) = model {
         cmd.args(["--model", &m]);
     }
-    let out = cmd
+    let run = cmd
         .arg(prompt)
         .current_dir(root)
         .env("PATH", std::env::join_paths(path).unwrap_or_default())
         .stdin(Stdio::null())
-        .kill_on_drop(true)
-        .output()
-        .await?;
+        .kill_on_drop(true) // the timeout drops it: pi is killed
+        .output();
+    let out = tokio::time::timeout(ASIDE_TIMEOUT, run)
+        .await
+        .map_err(|_| anyhow::anyhow!("pi didn't answer within {} s", ASIDE_TIMEOUT.as_secs()))??;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
