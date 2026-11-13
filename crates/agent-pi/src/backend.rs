@@ -133,6 +133,8 @@ impl PiBackend {
         };
 
         let mut args = vec!["--mode".to_string(), "rpc".to_string()];
+        // pide's own extension (collaborator tools); `supervise` writes the file before spawning.
+        args.extend(["-e".to_string(), extension_path().to_string_lossy().into_owned()]);
         // Extra flags for every pi process, e.g. PIDE_PI_ARGS="-e dev/pi-ask-test.ts" or "--model …".
         if let Ok(extra) = std::env::var("PIDE_PI_ARGS") {
             args.extend(extra.split_whitespace().map(str::to_string));
@@ -639,6 +641,31 @@ fn find_pi() -> Option<PathBuf> {
     dirs.into_iter().map(|d| d.join("pi")).find(|p| p.is_file())
 }
 
+/// pide's pi extension (collaborator mode: `ide_pin`, `ide_explain_change`,
+/// `ide_progress`; docs/COLLAB.md). Its tool results reach pide inside the
+/// `tool_execution_end` records pi already sends (see `wire.rs`).
+pub const EXTENSION_SOURCE: &str = include_str!("../ext/pide.ts");
+
+/// Where [`EXTENSION_SOURCE`] is written for pi to load.
+pub fn extension_path() -> PathBuf {
+    paths::state_dir().join("pi-extension").join("pide.ts")
+}
+
+/// Write the extension if it's missing or out of date. Blocking: runtime thread only.
+fn write_extension() {
+    let path = extension_path();
+    if std::fs::read_to_string(&path).is_ok_and(|s| s == EXTENSION_SOURCE) {
+        return;
+    }
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let tmp = path.with_extension("ts.tmp");
+    if let Err(e) = std::fs::write(&tmp, EXTENSION_SOURCE).and_then(|_| std::fs::rename(&tmp, &path)) {
+        log::warn!("write {}: {e}", path.display());
+    }
+}
+
 /// Runs on the runtime thread: owns the child, its pipes and the connection.
 async fn supervise(
     pi: PathBuf,
@@ -650,6 +677,7 @@ async fn supervise(
     kill: oneshot::Receiver<()>,
     exit: oneshot::Sender<(Option<i32>, Vec<String>, Option<String>)>,
 ) {
+    write_extension();
     // pi is a node script (`#!/usr/bin/env node`); make sure node's dir is on PATH.
     let mut path = pi
         .parent()

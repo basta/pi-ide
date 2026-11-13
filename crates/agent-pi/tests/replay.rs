@@ -463,3 +463,31 @@ fn thinking_levels_parse() {
     assert_eq!(lines[1]["command"], "set_thinking_level");
     assert_eq!(lines[2]["data"]["thinkingLevel"], "medium");
 }
+
+/// Collaborator mode (docs/COLLAB.md): a recorded run with pide's extension loaded.
+/// Its tools' payloads arrive in `tool_execution_end`'s `result.details`.
+#[test]
+fn collab_tool_results_carry_details() {
+    let fixture = include_str!("fixtures/collab_tools_session.jsonl");
+    let mut kinds = Vec::new();
+    for line in fixture.lines() {
+        for rec in pide_agent_pi::wire::parse_line(line) {
+            if let Inbound::Event(AgentEvent::ToolEnd { name, result, is_error, .. }) = rec
+                && name.starts_with("ide_")
+            {
+                assert!(!is_error);
+                assert_eq!(result["details"]["pide"], 1);
+                kinds.push(result["details"]["kind"].as_str().unwrap().to_string());
+            }
+        }
+    }
+    assert_eq!(kinds, ["progress", "progress", "explain", "pin"]);
+}
+
+#[test]
+fn extension_source_is_embedded() {
+    let src = pide_agent_pi::backend::EXTENSION_SOURCE;
+    for tool in ["ide_pin", "ide_explain_change", "ide_progress"] {
+        assert!(src.contains(&format!("name: \"{tool}\"")), "{tool}");
+    }
+}
