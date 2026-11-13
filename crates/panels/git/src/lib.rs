@@ -109,6 +109,10 @@ pub struct GitPanel {
     _draft: Option<Task<()>>,
     _poll: Task<()>,
     _subs: Vec<Subscription>,
+    /// Collaborator mode: files with pi notes you haven't stepped through
+    /// (relative path → how many, and the session), and what that was computed from.
+    pi_unseen: HashMap<String, (usize, Entity<pide_core::Agent>)>,
+    pi_revs: Vec<(EntityId, u64)>,
 }
 
 impl EventEmitter<PanelEvent> for GitPanel {}
@@ -116,6 +120,7 @@ impl EventEmitter<PanelEvent> for GitPanel {}
 impl GitPanel {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let workspace = Services::of(window, cx).workspace;
+        let sessions = Services::of(window, cx).sessions;
         let root = workspace.read(cx).root().to_path_buf();
         let message = cx.new(|cx| {
             TextareaState::new(window, cx)
@@ -171,9 +176,47 @@ impl GitPanel {
             _draft: None,
             _poll: poll,
             _subs: subs,
+            pi_unseen: HashMap::new(),
+            pi_revs: Vec::new(),
         };
+        this._subs
+            .push(cx.observe(&sessions, |this, sessions, cx| this.refresh_pi_unseen(&sessions, cx)));
+        this.refresh_pi_unseen(&sessions, cx);
         this.refresh(cx);
         this
+    }
+
+    /// Recount unseen pi notes per file, only when some session's notes changed
+    /// (sessions notify on every streamed token).
+    fn refresh_pi_unseen(&mut self, sessions: &Entity<pide_core::Sessions>, cx: &mut Context<Self>) {
+        let agents: Vec<Entity<pide_core::Agent>> = sessions.read(cx).all().to_vec();
+        let revs: Vec<(EntityId, u64)> = agents
+            .iter()
+            .map(|a| (a.entity_id(), a.read(cx).notes_rev))
+            .collect();
+        if revs == self.pi_revs {
+            return;
+        }
+        self.pi_revs = revs;
+        self.pi_unseen.clear();
+        for agent in agents {
+            let a = agent.read(cx);
+            // Tours explain code; they aren't changes to review before a commit.
+            let tour = |s: &pide_core::collab::Stop| {
+                matches!(s.at, pide_core::collab::StopRef::Pin(i) if a.pins.get(i).is_some_and(pide_core::walk::is_tour))
+            };
+            for stop in a.stops().into_iter().filter(|s| !s.seen && !tour(s)) {
+                let Ok(rel) = stop.path.strip_prefix(&self.root) else {
+                    continue;
+                };
+                let rel = rel.to_string_lossy().to_string();
+                self.pi_unseen
+                    .entry(rel)
+                    .or_insert_with(|| (0, agent.clone()))
+                    .0 += 1;
+            }
+        }
+        cx.notify();
     }
 
     /// Files whose single changes we need: opened, or partly checked.
@@ -640,6 +683,34 @@ impl GitPanel {
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.show_diff(&rel, window, cx)
                     }))
+            })
+            // pi left notes here you haven't stepped through: click to walk them.
+            .when_some(self.pi_unseen.get(&e.rel).cloned(), |row, (n, agent)| {
+                let path = self.root.join(&e.rel);
+                row.child(
+                    div()
+                        .id(SharedString::from(format!("pi-{id}")))
+                        .flex_none()
+                        .text_xs()
+                        .text_color(pide_core::colors::pi_note(cx))
+                        .cursor_pointer()
+                        .hover(|d| d.underline())
+                        .child(format!("◆ {n} pi note{}", if n == 1 { "" } else { "s" }))
+                        .on_click(move |_, window, cx| {
+                            let stop = agent
+                                .read(cx)
+                                .stops()
+                                .into_iter()
+                                .find(|s| s.path == path && !s.seen);
+                            if let Some(stop) = stop {
+                                // Its session's notes are the ones the editor shows.
+                                Services::of(window, cx)
+                                    .sessions
+                                    .update(cx, |s, cx| s.activate(&agent, cx));
+                                pide_core::collab::go_to(&agent, stop, window, cx);
+                            }
+                        }),
+                )
             });
         let mut col = v_flex().child(row);
         if open {
