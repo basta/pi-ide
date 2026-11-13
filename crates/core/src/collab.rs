@@ -279,10 +279,14 @@ pub fn sessions_to_review(sessions: &crate::Sessions, cx: &App) -> Vec<Entity<cr
         .collect()
 }
 
-/// Show the first session that needs review and start its walkthrough.
+/// Show a session that needs review (the active one, else the newest) and
+/// start its walkthrough.
 pub fn review_next(window: &mut Window, cx: &mut App) -> bool {
     let sessions = crate::Services::of(window, cx).sessions;
-    let Some(agent) = sessions_to_review(sessions.read(cx), cx).into_iter().next() else {
+    // The one you're looking at first, then the newest: usually the one that just finished.
+    let active = sessions.read(cx).active();
+    let mut list = sessions_to_review(sessions.read(cx), cx);
+    let Some(agent) = (if list.contains(&active) { Some(active) } else { list.pop() }) else {
         return false;
     };
     sessions.update(cx, |s, cx| s.activate(&agent, cx));
