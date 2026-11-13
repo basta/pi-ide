@@ -1,5 +1,17 @@
 [
  {
+  "file": "shots/20261113T175528Z-pide-change.png",
+  "time": "2026-11-13T17:55:28Z",
+  "milestone": "dogfood on pide",
+  "caption": "Dogfood on pide itself: pi changed Stop::label's fallback and added a test; the walkthrough opens at the change with pi's reason."
+ },
+ {
+  "file": "shots/20261113T175527Z-pide-tour.png",
+  "time": "2026-11-13T17:55:27Z",
+  "milestone": "dogfood on pide",
+  "caption": "Dogfood on pide itself: a 12-stop tour of how a session comes back after a restart; all stops landed on the right code (1 line number snapped), here stop 7 in backend.rs."
+ },
+ {
   "file": "shots/20261113T174807Z-dogfood-review.png",
   "time": "2026-11-13T17:48:07Z",
   "milestone": "dogfood",
