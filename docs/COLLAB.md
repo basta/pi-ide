@@ -81,6 +81,17 @@ the backend asks the model once on the side (`AgentBackend::ask_aside`: `pi -p -
 --thinking low --model <the session's>`). The session's context and history are untouched. The briefing
 is shown above the chat, saved with the session (`Saved::catch_up`), and refreshed on demand.
 
+## Ask why, Explain this
+
+- **Ask why** (Changes): files pi changed without an `ide_explain_change` are marked "no reason given";
+  the button sends one prompt in the session asking pi to explain just those, without changing code
+  (queued as a follow-up if pi is busy). The walkthrough is only as good as pi's explanations; this
+  closes the gap on demand, never automatically.
+- **Explain This Code** (Code / pi menus, `agent.explain_this`): for the selection, or the code around the
+  cursor, pi explains without changing anything: 2–5 pins in reading order and a short overview in
+  the chat. The pins join the walkthrough (the note bar steps through them). This covers code pi
+  didn't just change, which is most of what there is to understand.
+
 ## Anchors
 
 Pins and hunk notes are anchored by 1-based line plus that line's text (read by the extension when
@@ -117,7 +128,12 @@ the saved anchors are re-found in the file on disk; one whose text is gone is ma
 - Testing note: `dev/pidectl quit` sends SIGTERM, which skips the layout save; use
   `dev/pidectl run app.quit` to keep open sessions across relaunches.
 
-**Left / next:** the next most useful work for following pi's code (picked with an advisor; see below as it lands).
+- Advisor's top 3, done and tested in the app: **Ask why** for files pi changed without a reason;
+  **Explain This Code** on a selection; Reply quotes the note, and stepping through a file's notes
+  ticks it reviewed.
+- WIP gallery (artifact): https://claude.ai/artifact/55ZpVNwYu4UoTALd83LMZ6
+
+**Left / next:** whatever the next advisor round picks; ideas so far in docs/IDEAS.md.
 
 **Needs your decision:**
 
