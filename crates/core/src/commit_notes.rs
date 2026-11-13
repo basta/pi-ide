@@ -62,11 +62,14 @@ fn load_at(path: &Path) -> Option<CommitNotes> {
     serde_json::from_slice(&std::fs::read(path).ok()?).ok()
 }
 
-/// What the open sessions say about `rels` (paths relative to `root`): for each
-/// file, the session that explained it (the active one first). Files pi didn't
-/// explain are left out.
+/// What the open sessions say about `rels` (paths relative to the git
+/// `workdir`): for each file, the session that explained it (the active one
+/// first). Paths are stored relative to the project `root` (what the editor and
+/// Git Log use; the same as `workdir` unless the project is a repo's subfolder).
+/// Files pi didn't explain are left out.
 pub fn collect(
     sessions: &crate::Sessions,
+    workdir: &Path,
     root: &Path,
     rels: &[String],
     cx: &gpui_kit::App,
@@ -76,7 +79,11 @@ pub fn collect(
     agents.extend(sessions.all().iter().filter(|a| **a != active).cloned());
     let mut files = Vec::new();
     for rel in rels {
-        let path = root.join(rel);
+        let path = workdir.join(rel);
+        let rel = &path
+            .strip_prefix(root)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| rel.clone());
         let found = agents.iter().find_map(|agent| {
             let a = agent.read(cx);
             let c = a

@@ -521,7 +521,18 @@ impl GitPanel {
             .cloned()
             .chain(partial.iter().map(|(r, _)| r.clone()))
             .collect();
-        let notes = pide_core::commit_notes::collect(self.sessions.read(cx), &self.root, &rels, cx);
+        let workdir = self
+            .changes
+            .as_ref()
+            .map(|c| c.workdir.clone())
+            .unwrap_or_else(|| self.root.clone());
+        let notes = pide_core::commit_notes::collect(
+            self.sessions.read(cx),
+            &workdir,
+            &self.root,
+            &rels,
+            cx,
+        );
         let root = self.root.clone();
         self.run(
             window,
