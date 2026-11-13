@@ -199,3 +199,8 @@ app, pushed):
   them to their language server (`LspStore::check_file`), answers "pending" for a few seconds, and the
   extension asks again. Before, pi's self-check only covered files open in the editor. Tested: an
   unopened file with a type error came back as pending, then with pyright's error.
+- **Tours stay current**: a tour card counts its outdated stops (code changed since; found again on
+  resume) and offers **Update tour**: pi redoes it in the tour's session against the code as it is
+  now, and the new tour replaces the old one. Tested: after renaming two parameters in the demo, the
+  card showed "3 outdated"; the updated tour matched the new code (and pi pointed out the rename had
+  broken the bodies).
