@@ -1,5 +1,11 @@
 [
  {
+  "file": "shots/20261113T183208Z-next-why-line.png",
+  "time": "2026-11-13T18:32:08Z",
+  "milestone": "collab-next",
+  "caption": "collab-next: Why This Line on a committed line, with every session closed, shows pi's reason kept with the (amended) commit, in a project that is a subfolder of its repo."
+ },
+ {
   "file": "shots/20261113T181959Z-next-story-walk.png",
   "time": "2026-11-13T18:19:59Z",
   "milestone": "collab-next",
