@@ -1,5 +1,11 @@
 [
  {
+  "file": "shots/20261113T1703Z-pin-snippet-note-bar.png",
+  "time": "2026-11-13T17:03:45Z",
+  "milestone": "polish",
+  "caption": "Pin cards now show the pinned lines, and the editor's note bar puts pi's note on its own full-width row; resumed sessions are named after their first prompt."
+ },
+ {
   "file": "shots/20261113T1700Z-catch-up.png",
   "time": "2026-11-13T17:00:06Z",
   "milestone": "catch me up",
