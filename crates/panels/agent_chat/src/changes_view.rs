@@ -254,6 +254,13 @@ impl AgentChat {
                             .pl(px(20.))
                             .text_xs()
                             .text_color(theme.muted_foreground)
+                            .when(!c.reverted && c.summary.is_none() && c.notes.is_empty(), |this| {
+                                this.child(
+                                    div()
+                                        .text_color(pide_core::colors::pi_note(cx))
+                                        .child("no reason given"),
+                                )
+                            })
                             .child(div().flex_1().child(if c.reverted {
                                 "reverted".into()
                             } else if c.notes.is_empty() {
@@ -325,7 +332,15 @@ impl AgentChat {
             (a.stops().len(), a.unseen_stops())
         };
         let agent_walk = agent.clone();
+        // Files pi changed without saying why (it skipped ide_explain_change).
+        let unexplained: Vec<String> = changes
+            .iter()
+            .filter(|c| !c.reverted && c.summary.is_none() && c.notes.is_empty())
+            .map(|c| c.path.strip_prefix(&root).unwrap_or(&c.path).display().to_string())
+            .collect();
+        let agent_explain = agent.clone();
         let header = h_flex()
+            .flex_wrap() // the buttons go to a second row in a narrow panel
             .gap_2()
             .px_3()
             .py_1p5()
@@ -339,6 +354,30 @@ impl AgentChat {
                 if changes.len() == 1 { "" } else { "s" },
                 unreviewed
             )))
+            .when(!unexplained.is_empty(), |this| {
+                let n = unexplained.len();
+                this.child(
+                    Button::new("explain-missing")
+                        .xsmall()
+                        .label(format!("Ask why · {n}"))
+                        .tooltip("Ask pi, in this session, to explain the files it changed without saying why")
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            let prompt = format!(
+                                "Don't change any code. For each of these files you changed, call \
+                                 ide_explain_change with a one-line summary of why, and hunk notes \
+                                 where the reason isn't obvious: {}",
+                                unexplained.join(", ")
+                            );
+                            agent_explain.update(cx, |a, cx| {
+                                if a.is_busy() {
+                                    a.queue(prompt, true, cx); // after the current run
+                                } else {
+                                    a.prompt(prompt, cx);
+                                }
+                            });
+                        })),
+                )
+            })
             .when(stops > 0, |this| {
                 this.child(
                     Button::new("walk-through")
