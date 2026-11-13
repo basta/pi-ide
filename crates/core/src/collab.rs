@@ -107,6 +107,30 @@ pub struct ProgressStep {
 /// the UI thread, so it must only read in-memory state.
 pub type QueryHandler = std::rc::Rc<dyn Fn(&serde_json::Value, &mut App) -> serde_json::Value>;
 
+/// A "catch me up" briefing: what happened in a session, for someone who
+/// didn't watch it. Written by the model on the side (`Agent::ask_aside`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CatchUp {
+    /// Markdown.
+    pub text: String,
+    /// When it was written (Unix seconds).
+    pub at: u64,
+}
+
+/// The instruction for a briefing; `record` is the session digest the panel builds.
+pub fn catch_up_prompt(record: &str) -> String {
+    format!(
+        "You are catching a developer up on a coding session that an AI agent (pi) ran in their \
+         project while they weren't watching. They want to understand the code, not just trust it. \
+         From the record below, write a short briefing in Markdown with these parts, each a few \
+         bullets: **Asked** (what they asked for), **Done** (what pi changed and why, by file), \
+         **Needs you** (open questions, pins, unfinished plan steps, failures; say \"nothing\" if \
+         none), **Start here** (the one or two places to read first). Under 200 words. Use only \
+         facts from the record; don't invent details. Reply with only the briefing.\n\n\
+         <record>\n{record}\n</record>"
+    )
+}
+
 /// What a walkthrough stop refers to inside an [`crate::Agent`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StopRef {

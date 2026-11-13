@@ -23,6 +23,7 @@ use pide_core::{
 use serde_json::{Value, json};
 
 mod agent_events;
+mod catch_up;
 mod changes_view;
 mod conversation;
 mod dialogs;
@@ -230,6 +231,12 @@ pub fn existing(window: &Window, cx: &App) -> Option<Entity<AgentChat>> {
 }
 
 pub struct AgentChat {
+    /// Sessions a "catch me up" briefing is being written for.
+    catching_up: std::collections::HashSet<EntityId>,
+    /// The briefing card is shown (it hides with ×; Catch me up shows it again).
+    catch_up_open: bool,
+    /// Rendered briefing per session: (its text, the markdown view).
+    catch_up_md: HashMap<EntityId, (String, Entity<TextViewState>)>,
     /// The finished checklist is expanded (an unfinished one always is).
     progress_open: bool,
     sessions: Entity<Sessions>,
@@ -334,6 +341,9 @@ impl AgentChat {
         ];
         let mut this = Self {
             progress_open: false,
+            catching_up: Default::default(),
+            catch_up_open: true,
+            catch_up_md: HashMap::new(),
             sessions,
             workspace,
             context_now: None,

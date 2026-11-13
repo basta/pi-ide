@@ -329,6 +329,23 @@ impl AgentChat {
                                 cx.notify();
                             })),
                     )
+                    .child(
+                        Button::new("catch-me-up")
+                            .xsmall()
+                            .ghost()
+                            .label("Catch me up")
+                            .tooltip("A short briefing on this session: what was asked, what pi did, what needs you")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                let shown = this.catch_up_open;
+                                let has = this.active(cx).read(cx).catch_up.is_some();
+                                if has && !shown {
+                                    this.catch_up_open = true; // show the saved one
+                                    cx.notify();
+                                } else {
+                                    this.catch_up(cx);
+                                }
+                            })),
+                    )
                     .child(div().flex_1())
                     .when_some(stats, |this, st| {
                         let cost = if st.cost < 0.01 { format!("${:.3}", st.cost) } else { format!("${:.2}", st.cost) };
@@ -377,6 +394,7 @@ impl AgentChat {
                             }),
                     ),
             )
+            .when_some(self.render_catch_up(cx), |this, c| this.child(c))
             .when_some(self.render_progress(cx), |this, p| this.child(p))
             .when(show_changes, |this| this.child(div().flex_1().min_h_0().child(self.render_changes(&agent, cx))))
             .when(!show_changes, |this| this.child(

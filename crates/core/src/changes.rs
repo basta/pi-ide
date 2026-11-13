@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use gpui_kit::SharedString;
 
-use crate::collab::{HunkNote, Pin, ProgressStep};
+use crate::collab::{CatchUp, HunkNote, Pin, ProgressStep};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Touch {
@@ -139,11 +139,15 @@ pub struct Saved {
     pub changes: Vec<FileChange>,
     pub pins: Vec<Pin>,
     pub progress: Vec<ProgressStep>,
+    pub catch_up: Option<CatchUp>,
 }
 
 impl Saved {
     pub fn is_empty(&self) -> bool {
-        self.changes.is_empty() && self.pins.is_empty() && self.progress.is_empty()
+        self.changes.is_empty()
+            && self.pins.is_empty()
+            && self.progress.is_empty()
+            && self.catch_up.is_none()
     }
 }
 
@@ -157,6 +161,8 @@ enum StoredFile {
         pins: Vec<Pin>,
         #[serde(default)]
         progress: Vec<ProgressStep>,
+        #[serde(default)]
+        catch_up: Option<CatchUp>,
     },
     Changes(Vec<Stored>),
 }
@@ -196,6 +202,7 @@ fn save_at(file: &Path, saved: &Saved) -> std::io::Result<()> {
         "changes": stored,
         "pins": saved.pins,
         "progress": saved.progress,
+        "catch_up": saved.catch_up,
     });
     std::fs::create_dir_all(file.parent().unwrap_or(Path::new(".")))?;
     let tmp = file.with_extension("json.tmp");
@@ -250,13 +257,14 @@ fn load_at(file: &Path) -> Saved {
     let Ok(bytes) = std::fs::read(file) else {
         return Saved::default();
     };
-    let (stored, pins, progress) = match serde_json::from_slice::<StoredFile>(&bytes) {
+    let (stored, pins, progress, catch_up) = match serde_json::from_slice::<StoredFile>(&bytes) {
         Ok(StoredFile::Full {
             changes,
             pins,
             progress,
-        }) => (changes, pins, progress),
-        Ok(StoredFile::Changes(c)) => (c, Vec::new(), Vec::new()),
+            catch_up,
+        }) => (changes, pins, progress, catch_up),
+        Ok(StoredFile::Changes(c)) => (c, Vec::new(), Vec::new(), None),
         Err(e) => {
             log::warn!("{}: {e}", file.display());
             Default::default()
@@ -286,6 +294,7 @@ fn load_at(file: &Path) -> Saved {
         changes,
         pins,
         progress,
+        catch_up,
     }
 }
 
@@ -372,12 +381,17 @@ mod tests {
                 changes: vec![c.clone()],
                 pins: vec![pin.clone()],
                 progress: progress.clone(),
+                catch_up: Some(CatchUp {
+                    text: "brief".into(),
+                    at: 7,
+                }),
             },
         )
         .unwrap();
         let saved = load_at(&file);
         assert_eq!(saved.pins, vec![pin]);
         assert_eq!(saved.progress, progress);
+        assert_eq!(saved.catch_up.as_ref().map(|c| c.at), Some(7));
         assert_eq!(saved.changes[0].summary.as_deref(), Some("why"));
         assert_eq!(saved.changes[0].notes, c.notes);
         let back = saved.changes;

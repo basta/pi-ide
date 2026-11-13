@@ -57,6 +57,16 @@ pub trait AgentBackend: 'static {
     fn compact(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
     /// Ask for the session's slash commands; they arrive in `agent.commands`.
     fn request_commands(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
+    /// Ask the model one question on the side: no session, no tools, nothing added
+    /// to this session's conversation (e.g. a "catch me up" briefing).
+    fn ask_aside(
+        &mut self,
+        _prompt: String,
+        _agent: &mut Agent,
+        _cx: &mut Context<Agent>,
+    ) -> Task<anyhow::Result<String>> {
+        Task::ready(Err(anyhow::anyhow!("this agent can't answer on the side")))
+    }
     /// Switch this session's model; `agent.model` updates when the backend confirms.
     fn set_model(
         &mut self,
@@ -147,6 +157,8 @@ pub struct Agent {
     pub pins: Vec<Pin>,
     /// pi's checklist for this session (`ide_progress`), latest version.
     pub progress: Vec<ProgressStep>,
+    /// The last "catch me up" briefing (collaborator mode).
+    pub catch_up: Option<crate::collab::CatchUp>,
     /// The walkthrough's current stop (see [`Agent::stops`]).
     pub current_stop: Option<StopRef>,
     /// Pending write of `changes` to disk (debounced; dropping cancels).
@@ -189,6 +201,7 @@ impl Agent {
             pins: Vec::new(),
             progress: Vec::new(),
             current_stop: None,
+            catch_up: None,
             persist: None,
             pending_touches: Vec::new(),
         }
@@ -275,6 +288,7 @@ impl Agent {
             changes: self.changes.clone(),
             pins: self.pins.clone(),
             progress: self.progress.clone(),
+            catch_up: self.catch_up.clone(),
         };
         let bg = cx.background_executor().clone();
         self.persist = Some(cx.background_executor().spawn(async move {
@@ -317,6 +331,9 @@ impl Agent {
                 }
                 if this.progress.is_empty() {
                     this.progress = loaded.progress;
+                }
+                if this.catch_up.is_none() {
+                    this.catch_up = loaded.catch_up;
                 }
                 this.persist_changes(cx);
                 for p in paths {
@@ -465,6 +482,20 @@ impl Agent {
         self.with_backend(cx, |b, a, cx| b.request_commands(a, cx));
     }
 
+    /// See [`AgentBackend::ask_aside`].
+    pub fn ask_aside(&mut self, prompt: String, cx: &mut Context<Self>) -> Task<anyhow::Result<String>> {
+        let mut task = None;
+        self.with_backend(cx, |b, a, cx| task = Some(b.ask_aside(prompt, a, cx)));
+        task.unwrap_or_else(|| Task::ready(Err(anyhow::anyhow!("no backend"))))
+    }
+
+    /// Keep a new "catch me up" briefing (saved with the session).
+    pub fn set_catch_up(&mut self, catch_up: Option<crate::collab::CatchUp>, cx: &mut Context<Self>) {
+        self.catch_up = catch_up;
+        self.persist_changes(cx);
+        cx.notify();
+    }
+
     pub fn set_model(&mut self, provider: String, id: String, cx: &mut Context<Self>) {
         self.with_backend(cx, |b, a, cx| b.set_model(provider, id, a, cx));
     }
@@ -606,7 +637,11 @@ impl Agent {
                             p.dismissed = true;
                             p.seen = true;
                         }
-                        let n = self.pins.len();
+                        // Unique across saves too (a saved pin may have any earlier number).
+                        let n = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis())
+                            .unwrap_or(0);
                         let pins: Vec<Pin> = if hunks.is_empty() {
                             vec![Pin {
                                 id: format!("{prefix}{n}"),

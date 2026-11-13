@@ -614,11 +614,60 @@ impl AgentBackend for PiBackend {
         self.shared.borrow_mut().session_file = None;
     }
 
+    fn ask_aside(
+        &mut self,
+        prompt: String,
+        agent: &mut Agent,
+        cx: &mut Context<Agent>,
+    ) -> Task<anyhow::Result<String>> {
+        // One-shot pi: no session, no tools, the session's model, little thinking.
+        let model = agent.model.as_ref().map(|m| format!("{}/{}", m.provider, m.id));
+        let root = self.root.clone();
+        let (tx, rx) = oneshot::channel();
+        pide_runtime::spawn(async move {
+            let _ = tx.send(ask_once(root, model, prompt).await);
+        });
+        cx.background_executor()
+            .spawn(async move { rx.await.map_err(|_| anyhow::anyhow!("pi stopped"))? })
+    }
+
     fn restart(&mut self, agent: &mut Agent, cx: &mut Context<Agent>) {
         self.kill();
         self.abort_deadline = None;
         agent.set_status(AgentStatus::Idle, cx);
     }
+}
+
+/// `pi -p` once (runtime thread): its stdout, trimmed.
+async fn ask_once(root: PathBuf, model: Option<String>, prompt: String) -> anyhow::Result<String> {
+    let pi = find_pi().ok_or_else(|| anyhow::anyhow!("pi isn't installed"))?;
+    let mut path = pi.parent().map(Path::to_path_buf).into_iter().collect::<Vec<_>>();
+    if let Some(p) = std::env::var_os("PATH") {
+        path.extend(std::env::split_paths(&p));
+    }
+    let mut cmd = tokio::process::Command::new(&pi);
+    cmd.args(["-p", "--no-session", "--no-tools", "--thinking", "low"]);
+    if let Some(m) = model {
+        cmd.args(["--model", &m]);
+    }
+    let out = cmd
+        .arg(prompt)
+        .current_dir(root)
+        .env("PATH", std::env::join_paths(path).unwrap_or_default())
+        .stdin(Stdio::null())
+        .kill_on_drop(true)
+        .output()
+        .await?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+        anyhow::bail!("pi failed: {last}");
+    }
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if text.is_empty() {
+        anyhow::bail!("pi gave no answer");
+    }
+    Ok(text)
 }
 
 /// After a run settles, stop the process if the session stays idle for [`IDLE_STOP`].
