@@ -208,3 +208,7 @@ app, pushed):
   Changes and the review chip start with the story's stops, in its order, until you've seen them.
 - Reviews of these found 8 issues (stale diagnostics right after an edit, files that can't be read,
   overwriting an editor's buffer from disk, replaced-tour bookkeeping); all fixed.
+- **Reasons survive the commit**: committing files pi explained saves their reasons and hunk notes by
+  commit hash (`pide_core::commit_notes`, `state/commit-notes/<project>/<hash>.json`); **Git Log**
+  shows them under "Why, per pi" in the commit's details, with a link that reopens the session.
+  Tested: a commit of pi's stats.py fix shows pi's reason in the log.
