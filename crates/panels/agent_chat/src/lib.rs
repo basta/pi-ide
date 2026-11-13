@@ -381,6 +381,8 @@ pub struct AgentChat {
     /// The active session shows its Changes list instead of the chat.
     show_changes: bool,
     saved: Vec<SavedSession>,
+    /// Tours in saved sessions that aren't open (session file → its tours).
+    saved_tours: Vec<(PathBuf, Vec<pide_core::notes::TourInfo>)>,
     _load_saved: Option<Task<()>>,
     /// Text fields for pending `input`/`editor` dialogs, by dialog id.
     dialog_inputs: HashMap<String, (Entity<TextareaState>, Subscription)>,
@@ -492,6 +494,7 @@ impl AgentChat {
             show_list: false,
             show_changes: false,
             saved: Vec::new(),
+            saved_tours: Vec::new(),
             _load_saved: None,
             dialog_inputs: HashMap::new(),
             _subs: subs,
@@ -641,13 +644,15 @@ impl AgentChat {
 
     fn refresh_saved(&mut self, cx: &mut Context<Self>) {
         let root = self.workspace.read(cx).root().to_path_buf();
-        let list = cx
-            .background_executor()
-            .spawn(async move { list_saved(&root) });
+        let open = self.sessions.read(cx).open_files(cx);
+        let list = cx.background_executor().spawn(async move {
+            (list_saved(&root), pide_core::notes::saved_tours(&root, &open))
+        });
         self._load_saved = Some(cx.spawn(async move |this, cx| {
-            let saved = list.await;
+            let (saved, tours) = list.await;
             let _ = this.update(cx, |this, cx| {
                 this.saved = saved;
+                this.saved_tours = tours;
                 cx.notify();
             });
         }));

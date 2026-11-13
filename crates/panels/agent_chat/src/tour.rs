@@ -41,8 +41,13 @@ pub(crate) fn open(sessions: Entity<Sessions>, window: &mut Window, cx: &mut App
             let sessions = sessions.clone();
             window.defer(cx, move |window, cx| {
                 let name = pide_core::agent::name_from_prompt(&format!("Tour: {question}"));
-                let agent = sessions.update(cx, |s, cx| s.add(None, Some(name), cx));
-                agent.update(cx, |a, cx| a.prompt(tour_prompt(&question), cx));
+                let agent = sessions.update(cx, |s, cx| s.add(None, None, cx));
+                agent.update(cx, |a, cx| {
+                    a.prompt(tour_prompt(&question), cx);
+                    // After the prompt (pi is running now), so pi saves the name with
+                    // the session; it comes back in the session list and Tours.
+                    a.rename(name, cx);
+                });
                 CommandRegistry::run("agent.ask", window, cx);
             });
         }

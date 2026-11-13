@@ -2,7 +2,50 @@
 
 use super::*;
 
+/// Where a tour in the list lives.
+#[derive(Clone)]
+pub(crate) enum TourSource {
+    Open(Entity<Agent>),
+    /// A saved session: its file and name.
+    Saved(PathBuf, SharedString),
+}
+
 impl AgentChat {
+    /// Show a tour's session (resuming a saved one; pi itself starts only on the
+    /// next message) and walk the tour.
+    pub(crate) fn open_tour(
+        &mut self,
+        source: TourSource,
+        call_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_list = false;
+        let agent = match source {
+            TourSource::Open(agent) => agent,
+            TourSource::Saved(file, name) => self
+                .sessions
+                .update(cx, |s, cx| s.add(Some(file), Some(name.to_string()), cx)),
+        };
+        self.sessions.update(cx, |s, cx| s.activate(&agent, cx));
+        cx.notify();
+        // A resumed session's pins load in the background: try until they're there.
+        cx.spawn_in(window, async move |_, cx| {
+            for _ in 0..30 {
+                let started = cx
+                    .update(|window, cx| pide_core::collab::start_tour(&agent, &call_id, window, cx))
+                    .unwrap_or(true);
+                if started {
+                    return;
+                }
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(100))
+                    .await;
+            }
+        })
+        .detach();
+    }
+
     pub(crate) fn dot(agent: &Agent, cx: &App) -> AnyElement {
         let theme = cx.theme();
         let base = div().size(px(8.)).rounded_full().flex_none();
@@ -292,6 +335,69 @@ impl AgentChat {
                     .into_any_element()
             })
             .collect();
+        // Tours (ide_tour) in open sessions, then in saved ones: click to walk one.
+        let mut tour_rows: Vec<(SharedString, pide_core::notes::TourInfo, TourSource)> = Vec::new();
+        for agent in sessions.all() {
+            let a = agent.read(cx);
+            for t in pide_core::notes::tours(&a.pins) {
+                tour_rows.push((a.name.clone(), t, TourSource::Open(agent.clone())));
+            }
+        }
+        for (file, tours) in &self.saved_tours {
+            if open_files.contains(file) {
+                continue;
+            }
+            let name: SharedString = self
+                .saved
+                .iter()
+                .find(|s| &s.path == file)
+                .map(|s| s.name.clone().unwrap_or_else(|| s.preview.chars().take(40).collect()))
+                .unwrap_or_default()
+                .into();
+            for t in tours {
+                tour_rows.push((name.clone(), t.clone(), TourSource::Saved(file.clone(), name.clone())));
+            }
+        }
+        let tours: Vec<AnyElement> = tour_rows
+            .into_iter()
+            .enumerate()
+            .map(|(i, (session, t, source))| {
+                let call = t.call_id.clone();
+                h_flex()
+                    .id(("tour-row", i))
+                    .w_full()
+                    .gap_2()
+                    .items_center()
+                    .px_3()
+                    .py_1p5()
+                    .cursor_pointer()
+                    .hover(|this| this.bg(theme.list_hover))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_tour(source.clone(), call.clone(), window, cx)
+                    }))
+                    .child(div().flex_none().text_color(pide_core::colors::pi_note(cx)).child("◇"))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .child(div().overflow_hidden().text_ellipsis().whitespace_nowrap().child(t.title.clone()))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .whitespace_nowrap()
+                                    .child(session),
+                            ),
+                    )
+                    .child(div().flex_none().text_xs().text_color(theme.muted_foreground).child(format!(
+                        "{}/{} seen",
+                        t.seen, t.stops
+                    )))
+                    .into_any_element()
+            })
+            .collect();
         let heading = |t: &'static str| {
             div()
                 .px_3()
@@ -312,6 +418,7 @@ impl AgentChat {
             })
             .when(!open.is_empty(), |this| this.child(heading("OPEN")))
             .children(open)
+            .when(!tours.is_empty(), |this| this.child(heading("TOURS")).children(tours))
             .child(heading("SAVED IN THIS PROJECT"))
             .when(saved.is_empty(), |this| {
                 this.child(

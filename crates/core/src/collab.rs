@@ -250,6 +250,25 @@ pub fn start_walk(agent: &Entity<crate::Agent>, window: &mut Window, cx: &mut Ap
     walk(agent, 1, window, cx)
 }
 
+/// Walk the tour made by tool call `call_id`: go to its first unseen stop (or
+/// its first). False if the agent has no such tour (yet).
+pub fn start_tour(agent: &Entity<crate::Agent>, call_id: &str, window: &mut Window, cx: &mut App) -> bool {
+    let prefix = format!("{TOUR_PREFIX}{call_id}:");
+    let stops: Vec<Stop> = {
+        let a = agent.read(cx);
+        a.pins
+            .iter()
+            .filter(|p| p.id.starts_with(&prefix) && !p.dismissed)
+            .filter_map(|p| a.pin_stop_by_id(&p.id))
+            .collect()
+    };
+    let Some(stop) = stops.iter().find(|s| !s.seen).or(stops.first()).cloned() else {
+        return false;
+    };
+    go_to(agent, stop, window, cx);
+    true
+}
+
 /// Open sessions with changes or pins you haven't stepped through yet.
 pub fn sessions_to_review(sessions: &crate::Sessions, cx: &App) -> Vec<Entity<crate::Agent>> {
     sessions
