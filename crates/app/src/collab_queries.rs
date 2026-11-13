@@ -112,7 +112,8 @@ fn diagnostics(
                         }
                         *c
                     };
-                    if c.missing && !first {
+                    // Only a read from this round says it's missing (it may exist again).
+                    if c.missing && !first && c.read_at.is_some_and(|t| t >= c.round) {
                         notes.push(format!("{}: can't read it.", rel(&root, p)));
                         return None;
                     }
