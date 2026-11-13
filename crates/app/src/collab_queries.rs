@@ -54,10 +54,19 @@ fn diagnostics(workspace: &Entity<Workspace>, payload: &Value, cx: &mut App) -> 
                 // (servers drop a file's entry once its problems are gone).
                 None if ws.buffer_for(p, cx).is_some() && store.server_for(p).is_some() => None,
                 None => {
-                    notes.push(format!(
-                        "{}: no diagnostics known (the editor hasn't opened it, or no language server handles it).",
-                        rel(&root, p)
-                    ));
+                    notes.push(match store.server_of(p) {
+                        // The server for it exists but isn't running: say so, it's fixable.
+                        Some(server) if !server.is_running() => format!(
+                            "{}: no diagnostics: {} isn't running ({}).",
+                            rel(&root, p),
+                            server.spec.id,
+                            server.status_text()
+                        ),
+                        _ => format!(
+                            "{}: no diagnostics known (the editor hasn't opened it, or no language server handles it).",
+                            rel(&root, p)
+                        ),
+                    });
                     None
                 }
             })
