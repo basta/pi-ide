@@ -458,8 +458,9 @@ pub(crate) fn story_prompt() -> String {
         "Don't change any code. Walk me through the change you made in this session as a story: \
          call ide_tour once, titled \"{}\", with stops at the places you changed (and any \
          unchanged code needed to follow it), in the order that explains the change from its entry \
-         point onward, not file by file. Each note says what changed there, why, and how it leads to \
-         the next stop.",
+         point onward, not file by file. Each note is one to three plain sentences: what changed \
+         there, why, and how it leads to the next stop. Don't number the notes or start them with \
+         \"Step N\" (pide shows the position).",
         pide_core::collab::STORY_TITLE
     )
 }

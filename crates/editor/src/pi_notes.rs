@@ -207,9 +207,21 @@ impl EditorPanel {
         let a = agent.read(cx);
         let stop = shown_stop(&self.pi.stops, a.current_stop.as_ref())?.clone();
         let all = a.stops();
-        let index = all.iter().position(|s| s.at == stop.at);
-        let total = all.len();
-        let session = a.name.clone();
+        // A tour stop's note is "<title> · i/n: <note>": the tour's title and its own
+        // count go on top, only the note below. Other notes: the session and walk position.
+        let label = stop.label();
+        let (heading, counter, body) = match pide_core::collab::parse_tour_note(&label) {
+            Some((title, i, n, note)) => {
+                (title.to_string(), Some(format!("{i}/{n}")), note.to_string())
+            }
+            None => {
+                let counter = all
+                    .iter()
+                    .position(|s| s.at == stop.at)
+                    .map(|i| format!("{}/{}", i + 1, all.len()));
+                (a.name.to_string(), counter, label.clone())
+            }
+        };
         let root = self.workspace.read(cx).root().to_path_buf();
         let reply = stop.reply_prefix(&root);
         let theme = cx.theme();
@@ -224,23 +236,22 @@ impl EditorPanel {
             .gap_2()
             .child(
                 div()
-                    .flex_none()
-                    .max_w(px(220.))
+                    .flex_1()
+                    .min_w_0()
                     .overflow_hidden()
                     .text_ellipsis()
                     .whitespace_nowrap()
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(color)
-                    .child(format!("pi · {session}")),
+                    .child(format!("pi · {heading}")),
             )
-            .child(div().flex_1())
-            .when_some(index, |this, i| {
+            .when_some(counter, |this, c| {
                 this.child(
                     div()
                         .flex_none()
                         .text_xs()
                         .text_color(theme.muted_foreground)
-                        .child(format!("{}/{total}", i + 1)),
+                        .child(c),
                 )
             })
             .child(
@@ -291,7 +302,7 @@ impl EditorPanel {
                 .border_b_1()
                 .border_color(theme.border)
                 .child(head)
-                .child(div().w_full().child(stop.label()).when(stop.outdated, |d| {
+                .child(div().w_full().child(body).when(stop.outdated, |d| {
                     d.child(
                         div()
                             .text_xs()
