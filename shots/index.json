@@ -1,5 +1,35 @@
 [
  {
+  "file": "shots/20261114T171004Z-inline2-c-half-off-top.png",
+  "time": "2026-11-14T17:10:04Z",
+  "milestone": "inline-comments",
+  "caption": "After fixes: line 25 half off the top edge; its card stays level with the line, top edge clipped by the margin."
+ },
+ {
+  "file": "shots/20261114T171003Z-inline2-c-scrolled-500.png",
+  "time": "2026-11-14T17:10:03Z",
+  "milestone": "inline-comments",
+  "caption": "After fixes: scrolled 500 pt; cards for lines 9 and 25 (above the view) are gone, cards 3 and 4 sit on lines 33 and 62, the same 1 s later."
+ },
+ {
+  "file": "shots/20261114T171002Z-inline2-b-active-scrollbar.png",
+  "time": "2026-11-14T17:10:02Z",
+  "milestone": "inline-comments",
+  "caption": "After fixes: the active card's body shows a scrollbar while scrolled (crop, 2x)."
+ },
+ {
+  "file": "shots/20261114T171001Z-inline2-b-active-markdown.png",
+  "time": "2026-11-14T17:10:01Z",
+  "milestone": "inline-comments",
+  "caption": "After fixes: the active card renders the note and pi's answer as markdown (bold, inline code, numbered list); the body is capped at ~300 pt."
+ },
+ {
+  "file": "shots/20261114T171000Z-inline2-a-margin-rest.png",
+  "time": "2026-11-14T17:10:00Z",
+  "milestone": "inline-comments",
+  "caption": "Inline comments after fixes (09eaf55): resting cards end with an ellipsis; card 1 shows \"2 replies\" (session resumed from disk)."
+ },
+ {
   "file": "shots/20261114T170005Z-inline-e-narrow-note-bar.png",
   "time": "2026-11-14T17:00:05Z",
   "milestone": "inline-comments",
