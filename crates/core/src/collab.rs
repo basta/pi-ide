@@ -85,6 +85,18 @@ pub struct Pin {
     /// You dismissed it: no mark or bar any more.
     #[serde(default)]
     pub dismissed: bool,
+    /// Your replies on it and pi's answers, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thread: Vec<Reply>,
+}
+
+/// One message in a note's thread (a reply in the editor's margin card).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Reply {
+    /// pi's answer (else yours).
+    #[serde(default)]
+    pub pi: bool,
+    pub text: String,
 }
 
 /// The title "Tell it as a story" asks pi to give its tour; Walk Through Changes
@@ -119,6 +131,9 @@ pub struct HunkNote {
     pub seen: bool,
     #[serde(default)]
     pub dismissed: bool,
+    /// See [`Pin::thread`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thread: Vec<Reply>,
 }
 
 /// One `ide_progress` step.
@@ -158,7 +173,7 @@ pub fn catch_up_prompt(record: &str) -> String {
 }
 
 /// What a walkthrough stop refers to inside an [`crate::Agent`].
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum StopRef {
     /// `agent.pins[i]`.
     Pin(usize),
@@ -175,11 +190,15 @@ pub struct Stop {
     pub path: PathBuf,
     /// 1-based.
     pub line: usize,
+    /// Last line of the range it covers (1-based, ≥ `line`; a pin's range).
+    pub end_line: usize,
     pub note: String,
     /// The file's one-line reason, if pi gave one.
     pub summary: Option<String>,
     pub outdated: bool,
     pub seen: bool,
+    /// Replies on it (see [`Pin::thread`]).
+    pub thread: Vec<Reply>,
 }
 
 impl Stop {
@@ -203,6 +222,16 @@ impl Stop {
             note
         };
         format!("{} (about your note \"{}\"): ", self.location(root), note.replace('\n', " "))
+    }
+
+    /// The prompt for a reply typed in the note's card: where, which note,
+    /// your text, and to answer without changing code unless asked.
+    pub fn reply_prompt(&self, root: &std::path::Path, text: &str) -> String {
+        format!(
+            "{}{}\n\n(Answer this in a short reply. Don't change code unless I ask you to.)",
+            self.reply_prefix(root),
+            text.trim()
+        )
     }
 
     /// "path:line" relative to `root`, for a reply's location prefix.

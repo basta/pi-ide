@@ -164,6 +164,13 @@ pub struct Agent {
     pub notes_rev: u64,
     /// The walkthrough's current stop (see [`Agent::stops`]).
     pub current_stop: Option<StopRef>,
+    /// A reply typed in a note's card that pi is answering: the note and its
+    /// anchor text (to find it again if pi re-explains the file meanwhile).
+    pub answering: Option<(StopRef, Option<String>)>,
+    /// The streaming assistant message's text, and the last non-empty one of
+    /// this run (pi's answer to [`Self::answering`]).
+    msg_text: String,
+    run_text: String,
     /// Pending write of `changes` to disk (debounced; dropping cancels).
     persist: Option<Task<()>>,
     /// Tool call id -> path, for file-changing calls still running.
@@ -204,6 +211,9 @@ impl Agent {
             pins: Vec::new(),
             progress: Vec::new(),
             current_stop: None,
+            answering: None,
+            msg_text: String::new(),
+            run_text: String::new(),
             notes_rev: 0,
             catch_up: None,
             persist: None,
@@ -522,7 +532,8 @@ impl Agent {
     /// Backends call this (from a `cx.spawn` task) for everything they receive.
     pub fn handle_event(&mut self, event: AgentEvent, cx: &mut Context<Self>) {
         match &event {
-            AgentEvent::Settled { .. } => {
+            AgentEvent::Settled { aborted } => {
+                self.finish_answer(*aborted, cx);
                 self.queue = (Vec::new(), Vec::new());
                 self.dialogs.clear();
                 self.waiting = false;
@@ -531,7 +542,21 @@ impl Agent {
                     self.restart(cx);
                 }
             }
+            AgentEvent::TextEnd { content, .. } => {
+                if !self.msg_text.is_empty() {
+                    self.msg_text.push_str("\n\n");
+                }
+                self.msg_text.push_str(content);
+            }
+            AgentEvent::AssistantEnd { .. } => {
+                if !self.msg_text.trim().is_empty() {
+                    self.run_text = std::mem::take(&mut self.msg_text);
+                }
+            }
             AgentEvent::AssistantStart | AgentEvent::ToolStart { .. } => {
+                if matches!(event, AgentEvent::AssistantStart) {
+                    self.msg_text.clear();
+                }
                 if !matches!(self.status, AgentStatus::Aborting) {
                     self.set_status(AgentStatus::Busy, cx)
                 }
@@ -711,6 +736,59 @@ impl Agent {
         crate::walk::dismiss_tour(&mut self.pins, &mut self.current_stop, call_id);
         self.persist_changes(cx);
         cx.notify();
+    }
+
+    /// Reply to a note from its card: add your text to its thread and ask pi
+    /// in this session; pi's answer joins the thread when the run settles.
+    /// Only while pi is idle (so the answer can't belong to another reply).
+    pub fn reply_to_stop(
+        &mut self,
+        stop: &Stop,
+        root: &std::path::Path,
+        text: String,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let text = text.trim().to_string();
+        if text.is_empty() || self.is_busy() {
+            return false;
+        }
+        let Some(thread) = crate::walk::thread_mut(&mut self.changes, &mut self.pins, &stop.at)
+        else {
+            return false;
+        };
+        thread.push(crate::collab::Reply {
+            pi: false,
+            text: text.clone(),
+        });
+        self.answering = Some((stop.at.clone(), self.anchor_text(&stop.at)));
+        self.run_text.clear();
+        self.msg_text.clear();
+        self.persist_changes(cx);
+        cx.notify();
+        self.prompt(stop.reply_prompt(root, &text), cx);
+        true
+    }
+
+    /// The run answering a card reply ended: put pi's answer in the thread.
+    fn finish_answer(&mut self, aborted: bool, cx: &mut Context<Self>) {
+        let Some((at, anchor)) = self.answering.take() else {
+            return;
+        };
+        let text = std::mem::take(&mut self.run_text);
+        let text = match (text.trim().is_empty(), aborted) {
+            (false, _) => text.trim().to_string(),
+            (true, true) => "(stopped before answering)".to_string(),
+            (true, false) => "(pi answered without text; see the chat)".to_string(),
+        };
+        let target = crate::walk::resolve_reply_target(&self.changes, &at, anchor.as_deref());
+        if let Some(thread) = target
+            .as_ref()
+            .and_then(|t| crate::walk::thread_mut(&mut self.changes, &mut self.pins, t))
+        {
+            thread.push(crate::collab::Reply { pi: true, text });
+            self.persist_changes(cx);
+            cx.notify();
+        }
     }
 
     /// Hide a pin or hunk note (see [`crate::walk::dismiss`]).

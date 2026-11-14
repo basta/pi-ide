@@ -21,9 +21,9 @@ use crate::EditorPanel;
 /// What this tab shows of the active session.
 #[derive(Default)]
 pub(crate) struct PiNotes {
-    agent: Option<Entity<Agent>>,
+    pub(crate) agent: Option<Entity<Agent>>,
     /// This file's stops, at their lines in the current text.
-    stops: Vec<Stop>,
+    pub(crate) stops: Vec<Stop>,
     gutter: Option<GutterDecorationCollection>,
     ruler: Option<OverviewRulerDecorationCollection>,
     line: Option<RangeDecorationCollection>,
@@ -36,6 +36,12 @@ pub(crate) struct PiNotes {
     /// Any session changed (notes of the other open sessions show too, dimmer).
     _sessions_obs: Option<Subscription>,
     sessions: Option<Entity<pide_core::Sessions>>,
+    /// The margin's reply box and what the margin last drew from (`pi_margin`).
+    pub(crate) reply: Option<Entity<gpui_kit::component::input::TextareaState>>,
+    pub(crate) _reply_sub: Option<Subscription>,
+    pub(crate) geom: crate::pi_margin::Geom,
+    /// The last render showed the margin (its width counts toward the tab's).
+    pub(crate) margin_was_on: bool,
 }
 
 impl EditorPanel {
@@ -49,6 +55,7 @@ impl EditorPanel {
         }));
         self.pi._sessions_obs = Some(cx.observe(&sessions, |this, _, cx| this.refresh_pi_marks(cx)));
         self.pi.sessions = Some(sessions.clone());
+        self.make_reply_box(window, cx);
         let active = sessions.read(cx).active();
         self.follow_agent(active, cx);
     }
@@ -142,7 +149,16 @@ impl EditorPanel {
                 s.line = n;
             }
         }
-        let shown = shown_stop(&stops, current.as_ref()).cloned();
+        // In the margin only the active card's range is stronger; the bar shows
+        // (and so stresses) the first unseen note too.
+        let shown = if self.pi.margin_was_on {
+            current
+                .as_ref()
+                .and_then(|c| stops.iter().find(|s| &s.at == c))
+                .cloned()
+        } else {
+            shown_stop(&stops, current.as_ref()).cloned()
+        };
         let color = pide_core::colors::pi_note(cx);
         let gutter: Vec<GutterDecoration> = others
             .iter()
@@ -161,12 +177,16 @@ impl EditorPanel {
                     .with_color(color)
             })
             .collect();
-        let tint: Vec<RangeDecoration> = shown
+        // Every note's lines faintly (a pin's whole range), the shown one stronger.
+        let tint: Vec<RangeDecoration> = stops
             .iter()
             .map(|s| {
-                RangeDecoration::new(line_range(&rope, s.line))
+                let strong = shown.as_ref().is_some_and(|x| x.at == s.at);
+                let start = line_range(&rope, s.line).start;
+                let end = line_range(&rope, s.end_line.max(s.line)).end;
+                RangeDecoration::new(start..end)
                     .with_style(RangeDecorationStyle::Fill)
-                    .with_color(color.opacity(0.10))
+                    .with_color(color.opacity(if strong { 0.20 } else { 0.08 }))
             })
             .collect();
 
@@ -316,7 +336,7 @@ fn shown_stop<'a>(
 }
 
 /// 1-based `line` as a byte range (the whole line; clamped to the text).
-fn line_range(rope: &Rope, line: usize) -> std::ops::Range<usize> {
+pub(crate) fn line_range(rope: &Rope, line: usize) -> std::ops::Range<usize> {
     let count = rope.lines_len().max(1);
     let l = line.clamp(1, count) - 1;
     let start = rope.position_to_offset(&Position::new(l as u32, 0));

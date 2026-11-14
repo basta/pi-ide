@@ -120,6 +120,7 @@ mod tests {
             snippet: vec![],
             seen,
             dismissed: false,
+            thread: Vec::new(),
         };
         let t = tours(&[
             pin("tour:functions.ide_tour:3:0", "Resume: flow · 1/2: a", true),

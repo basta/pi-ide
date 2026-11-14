@@ -35,6 +35,8 @@ pub struct FileChange {
     pub first_line: Option<usize>,
     /// That stop was stepped onto (walkthrough).
     pub seen: bool,
+    /// Replies on the file's stop when pi gave no hunk notes.
+    pub thread: Vec<crate::collab::Reply>,
 }
 
 impl FileChange {
@@ -51,6 +53,7 @@ impl FileChange {
             notes: Vec::new(),
             first_line: None,
             seen: false,
+            thread: Vec::new(),
         }
     }
 
@@ -131,6 +134,8 @@ struct Stored {
     notes: Vec<HunkNote>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     seen: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    thread: Vec<crate::collab::Reply>,
 }
 
 /// What's saved per pi session: its changes and what pi pointed at (collaborator mode).
@@ -196,6 +201,7 @@ fn save_at(file: &Path, saved: &Saved) -> std::io::Result<()> {
             summary: c.summary.clone(),
             notes: c.notes.clone(),
             seen: c.seen,
+            thread: c.thread.clone(),
         })
         .collect();
     let doc = serde_json::json!({
@@ -288,6 +294,7 @@ fn load_at(file: &Path) -> Saved {
             notes: s.notes,
             first_line: None,
             seen: s.seen,
+            thread: s.thread,
         })
         .collect();
     Saved {
@@ -361,6 +368,7 @@ mod tests {
             note: "n".into(),
             seen: true,
             dismissed: false,
+            thread: Vec::new(),
         }];
         let pin = Pin {
             id: "t2".into(),
@@ -371,6 +379,7 @@ mod tests {
             snippet: vec!["fn a".into()],
             seen: false,
             dismissed: false,
+            thread: Vec::new(),
         };
         let progress = vec![ProgressStep {
             text: "one".into(),
