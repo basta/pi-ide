@@ -42,6 +42,8 @@ pub(crate) struct PiNotes {
     pub(crate) geom: crate::pi_margin::Geom,
     /// The last render showed the margin (its width counts toward the tab's).
     pub(crate) margin_was_on: bool,
+    /// Rendered markdown of notes and pi's answers in the active card, by text.
+    pub(crate) markdown: std::collections::HashMap<String, Entity<gpui_kit::component::text::TextViewState>>,
 }
 
 impl EditorPanel {

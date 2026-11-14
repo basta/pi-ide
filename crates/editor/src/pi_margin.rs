@@ -15,6 +15,8 @@ use std::rc::Rc;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
+use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::text::{TextView, TextViewState};
 use gpui_kit::component::{ActiveTheme, Disableable as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -123,8 +125,7 @@ impl EditorPanel {
         let mut visible: Vec<(Stop, Pixels)> = Vec::new();
         if let Some(top) = top {
             for s in &self.pi.stops {
-                let start = crate::pi_notes::line_range(&rope, s.line).start;
-                if let Some(b) = editor.range_to_bounds(&(start..start)) {
+                if let Some(b) = line_bounds(editor, &rope, s.line) {
                     visible.push((s.clone(), b.top() + (scroll_now - scroll_painted) - top));
                 }
             }
@@ -195,10 +196,7 @@ impl EditorPanel {
                 let rope = editor.text();
                 let visible_now: Vec<StopRef> = stops_now
                     .iter()
-                    .filter(|(_, line)| {
-                        let start = crate::pi_notes::line_range(rope, *line).start;
-                        editor.range_to_bounds(&(start..start)).is_some()
-                    })
+                    .filter(|(_, line)| line_bounds(editor, rope, *line).is_some())
                     .map(|(at, _)| at.clone())
                     .collect();
                 let mut g = geom.borrow_mut();
@@ -250,7 +248,7 @@ impl EditorPanel {
 
     #[allow(clippy::too_many_arguments)]
     fn active_card(
-        &self,
+        &mut self,
         stop: &Stop,
         kind: &'static str,
         index: Option<usize>,
@@ -310,7 +308,30 @@ impl EditorPanel {
                         pide_core::collab::walk(&a_next, 1, window, cx);
                     }),
             );
-        let thread = stop.thread.iter().map(|r| {
+        let mut md = |text: &str, cx: &mut Context<Self>| -> AnyElement {
+            let view = self
+                .pi
+                .markdown
+                .entry(text.to_string())
+                .or_insert_with(|| cx.new(|cx| TextViewState::markdown(text, cx)))
+                .clone();
+            TextView::new(&view).selectable(true).into_any_element()
+        };
+        let note = md(&stop.label(), cx);
+        let replies: Vec<(bool, AnyElement)> = stop
+            .thread
+            .iter()
+            .map(|r| {
+                let body = if r.pi {
+                    md(&r.text, cx)
+                } else {
+                    div().w_full().child(r.text.clone()).into_any_element()
+                };
+                (r.pi, body)
+            })
+            .collect();
+        let theme = cx.theme().clone();
+        let thread = replies.into_iter().map(|(pi, body)| {
             v_flex()
                 .w_full()
                 .pt_1p5()
@@ -321,17 +342,17 @@ impl EditorPanel {
                     div()
                         .text_xs()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(if r.pi { color } else { theme.foreground })
-                        .child(if r.pi { "pi" } else { "You" }),
+                        .text_color(if pi { color } else { theme.foreground })
+                        .child(if pi { "pi" } else { "You" }),
                 )
-                .child(div().w_full().child(r.text.clone()))
+                .child(body)
         });
         let body = v_flex()
             .id("pi-card-body")
             .w_full()
-            .max_h(px(420.))
-            .overflow_y_scroll()
-            .child(div().w_full().child(stop.label()))
+            .max_h(px(300.))
+            .overflow_y_scrollbar()
+            .child(note)
             .when(stop.outdated, |d| {
                 d.child(
                     div()
@@ -454,6 +475,7 @@ fn resting_card(
             div()
                 .w_full()
                 .line_clamp(2)
+                .text_ellipsis()
                 .text_color(if stop.outdated {
                     theme.muted_foreground
                 } else {
@@ -462,6 +484,24 @@ fn resting_card(
                 .child(stop.label()),
         )
         .into_any_element()
+}
+
+/// Where 1-based `line` was drawn at the editor's last paint, if it was on
+/// screen. `range_to_bounds` alone isn't enough: for a line above the laid-out
+/// rows it reports the first laid-out line instead of `None`.
+fn line_bounds(
+    editor: &gpui_kit::component::input::EditorState,
+    rope: &gpui_kit::component::input::Rope,
+    line: usize,
+) -> Option<Bounds<Pixels>> {
+    let rows = editor.visible_row_range()?;
+    if !rows.contains(&line.saturating_sub(1)) {
+        return None;
+    }
+    let start = crate::pi_notes::line_range(rope, line).start;
+    let b = editor.range_to_bounds(&(start..start))?;
+    let view = editor.input_bounds();
+    (b.bottom() > view.top() && b.top() < view.bottom()).then_some(b)
 }
 
 fn kind_label(at: &StopRef, pins: &[pide_core::collab::Pin]) -> &'static str {
