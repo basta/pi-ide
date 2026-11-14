@@ -1,5 +1,41 @@
 [
  {
+  "file": "shots/20261114T170005Z-inline-e-narrow-note-bar.png",
+  "time": "2026-11-14T17:00:05Z",
+  "milestone": "inline-comments",
+  "caption": "Inline comments: with the file tree shown the tab is ~656 pt (< 900), so the old note bar shows instead of the margin."
+ },
+ {
+  "file": "shots/20261114T170004Z-inline-d-reply-thread.png",
+  "time": "2026-11-14T17:00:04Z",
+  "milestone": "inline-comments",
+  "caption": "Inline comments: reply sent with Cmd+Enter; the card's thread shows You + pi's answer (raw markdown, not rendered; thread scrolls inside the card)."
+ },
+ {
+  "file": "shots/20261114T170003Z-inline-c-scrolled.png",
+  "time": "2026-11-14T17:00:03Z",
+  "milestone": "inline-comments",
+  "caption": "Inline comments BUG: scrolled 500 pt; cards 1 and 2 (lines 9, 25 off screen) stay stacked at the top and push card 3 ~142 pt below line 33; card 4 aligned with line 62."
+ },
+ {
+  "file": "shots/20261114T170002Z-inline-c-scrolled-200.png",
+  "time": "2026-11-14T17:00:02Z",
+  "milestone": "inline-comments",
+  "caption": "Inline comments: scrolled 200 pt; cards 2 and 3 moved exactly with their lines; active card 1 (line 9 just above view) stays pinned at the margin top."
+ },
+ {
+  "file": "shots/20261114T170001Z-inline-b-active-card.png",
+  "time": "2026-11-14T17:00:01Z",
+  "milestone": "inline-comments",
+  "caption": "Inline comments: clicked card 1 is active, showing the full note, Back / Next, the reply box, and Resolve / Send."
+ },
+ {
+  "file": "shots/20261114T170000Z-inline-a-margin-rest.png",
+  "time": "2026-11-14T17:00:00Z",
+  "milestone": "inline-comments",
+  "caption": "Inline comments: pi's 4 notes from Explain This Code as cards in the right margin, each level with its line (9, 25, 33); faint magenta tint on the noted ranges."
+ },
+ {
   "file": "shots/20261113T183208Z-next-why-line.png",
   "time": "2026-11-13T18:32:08Z",
   "milestone": "collab-next",
