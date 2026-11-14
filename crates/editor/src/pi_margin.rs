@@ -313,7 +313,7 @@ impl EditorPanel {
                 .pi
                 .markdown
                 .entry(text.to_string())
-                .or_insert_with(|| cx.new(|cx| TextViewState::markdown(text, cx)))
+                .or_insert_with(|| cx.new(|cx| TextViewState::markdown(&plain_numbers(text), cx)))
                 .clone();
             TextView::new(&view).selectable(true).into_any_element()
         };
@@ -486,6 +486,23 @@ fn resting_card(
         .into_any_element()
 }
 
+/// pi writes "1) …" as plain text; markdown would make it a numbered list.
+fn plain_numbers(text: &str) -> String {
+    text.lines()
+        .map(|l| {
+            let t = l.trim_start();
+            let digits = t.chars().take_while(|c| c.is_ascii_digit()).count();
+            if digits > 0 && t[digits..].starts_with(')') {
+                let indent = &l[..l.len() - t.len()];
+                format!("{indent}{}\\){}", &t[..digits], &t[digits + 1..])
+            } else {
+                l.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Where 1-based `line` was drawn at the editor's last paint, if it was on
 /// screen. `range_to_bounds` alone isn't enough: for a line above the laid-out
 /// rows it reports the first laid-out line instead of `None`.
@@ -535,7 +552,12 @@ pub(crate) fn stack(want: &[(f32, f32)], active: Option<usize>, gap: f32) -> Vec
 
 #[cfg(test)]
 mod tests {
-    use super::stack;
+    use super::{plain_numbers, stack};
+
+    #[::core::prelude::v1::test]
+    fn numbered_parens_stay_plain() {
+        assert_eq!(plain_numbers("1) a\n  12) b\nx 3) c"), "1\\) a\n  12\\) b\nx 3) c");
+    }
 
     #[::core::prelude::v1::test]
     fn cards_push_apart_around_the_active_one() {
