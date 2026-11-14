@@ -109,13 +109,46 @@ pub struct GitPanel {
     _draft: Option<Task<()>>,
     _poll: Task<()>,
     _subs: Vec<Subscription>,
+    /// Collaborator mode: files with pi notes you haven't stepped through
+    /// (relative path → how many, and the session), and what that was computed from.
+    pi_unseen: HashMap<String, Vec<(Entity<pide_core::Agent>, usize)>>,
+    pi_revs: Vec<(EntityId, u64)>,
+    sessions: Entity<pide_core::Sessions>,
 }
 
 impl EventEmitter<PanelEvent> for GitPanel {}
 
+/// Keep pi's reasons with the commit just made (right after it, in the same
+/// background step, so the hash is that commit's); `before` = the notes of an
+/// amended commit, for files this one doesn't explain anew.
+fn save_commit_notes(
+    workdir: &std::path::Path,
+    root: &std::path::Path,
+    mut notes: pide_core::commit_notes::CommitNotes,
+    before: Option<pide_core::commit_notes::CommitNotes>,
+) {
+    for old in before.map(|b| b.files).unwrap_or_default() {
+        if !notes.files.iter().any(|f| f.path == old.path) {
+            notes.files.push(old);
+        }
+    }
+    if notes.is_empty() {
+        return;
+    }
+    match repo::git_out(workdir, &["rev-parse", "HEAD"]) {
+        Ok(hash) => {
+            if let Err(e) = pide_core::commit_notes::save(root, hash.trim(), &notes) {
+                ::log::warn!("save pi's commit notes: {e}");
+            }
+        }
+        Err(e) => ::log::warn!("commit hash for pi's notes: {e:#}"),
+    }
+}
+
 impl GitPanel {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let workspace = Services::of(window, cx).workspace;
+        let sessions = Services::of(window, cx).sessions;
         let root = workspace.read(cx).root().to_path_buf();
         let message = cx.new(|cx| {
             TextareaState::new(window, cx)
@@ -171,9 +204,45 @@ impl GitPanel {
             _draft: None,
             _poll: poll,
             _subs: subs,
+            pi_unseen: HashMap::new(),
+            pi_revs: Vec::new(),
+            sessions: sessions.clone(),
         };
+        this._subs
+            .push(cx.observe(&sessions, |this, sessions, cx| this.refresh_pi_unseen(&sessions, cx)));
+        this.refresh_pi_unseen(&sessions, cx);
         this.refresh(cx);
         this
+    }
+
+    /// Recount unseen pi notes per file, only when some session's notes changed
+    /// (sessions notify on every streamed token).
+    fn refresh_pi_unseen(&mut self, sessions: &Entity<pide_core::Sessions>, cx: &mut Context<Self>) {
+        let agents: Vec<Entity<pide_core::Agent>> = sessions.read(cx).all().to_vec();
+        let revs: Vec<(EntityId, u64)> = agents
+            .iter()
+            .map(|a| (a.entity_id(), a.read(cx).notes_rev))
+            .collect();
+        if revs == self.pi_revs {
+            return;
+        }
+        self.pi_revs = revs;
+        self.pi_unseen.clear();
+        for agent in agents {
+            let a = agent.read(cx);
+            // Tours explain code; they aren't changes to review before a commit.
+            for stop in pide_core::walk::unseen_change_notes(&a.changes, &a.pins) {
+                let Ok(rel) = stop.path.strip_prefix(&self.root) else {
+                    continue;
+                };
+                let per = self.pi_unseen.entry(rel.to_string_lossy().to_string()).or_default();
+                match per.iter_mut().find(|(g, _)| *g == agent) {
+                    Some((_, n)) => *n += 1,
+                    None => per.push((agent.clone(), 1)),
+                }
+            }
+        }
+        cx.notify();
     }
 
     /// Files whose single changes we need: opened, or partly checked.
@@ -446,10 +515,38 @@ impl GitPanel {
         let message = self.message.read(cx).value().to_string();
         let amend = self.amend;
         let (full, partial) = self.selection();
+        // pi's reasons for the files going in, kept with the commit (Git Log shows them).
+        let rels: Vec<String> = full
+            .iter()
+            .cloned()
+            .chain(partial.iter().map(|(r, _)| r.clone()))
+            .collect();
+        let workdir = self
+            .changes
+            .as_ref()
+            .map(|c| c.workdir.clone())
+            .unwrap_or_else(|| self.root.clone());
+        let notes = pide_core::commit_notes::collect(
+            self.sessions.read(cx),
+            &workdir,
+            &self.root,
+            &rels,
+            cx,
+        );
+        let root = self.root.clone();
         self.run(
             window,
             cx,
-            move |w| repo::commit_selection(&w, &message, amend, &full, &partial),
+            move |w| {
+                // An amend carries the amended commit's notes over to the new hash.
+                let before = amend
+                    .then(|| repo::git_out(&w, &["rev-parse", "HEAD"]).ok())
+                    .flatten()
+                    .and_then(|h| pide_core::commit_notes::load(&root, h.trim()));
+                let summary = repo::commit_selection(&w, &message, amend, &full, &partial)?;
+                save_commit_notes(&w, &root, notes, before);
+                Ok(summary)
+            },
             move |this, summary, window, cx| {
                 this.amend = false;
                 this.include.clear();
@@ -640,6 +737,44 @@ impl GitPanel {
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.show_diff(&rel, window, cx)
                     }))
+            })
+            // pi left notes here you haven't stepped through: click to walk them.
+            .when_some(self.pi_unseen.get(&e.rel).cloned(), |row, per| {
+                let path = self.root.join(&e.rel);
+                let n: usize = per.iter().map(|(_, n)| n).sum();
+                row.child(
+                    div()
+                        .id(SharedString::from(format!("pi-{id}")))
+                        .flex_none()
+                        .text_xs()
+                        .text_color(pide_core::colors::pi_note(cx))
+                        .cursor_pointer()
+                        .hover(|d| d.underline())
+                        .child(format!("◆ {n} pi note{}", if n == 1 { "" } else { "s" }))
+                        .on_click(move |_, window, cx| {
+                            // The active session's notes if it has some here, else the first's.
+                            let sessions = Services::of(window, cx).sessions;
+                            let active = sessions.read(cx).active();
+                            let agent = per
+                                .iter()
+                                .map(|(a, _)| a)
+                                .find(|a| **a == active)
+                                .or(per.first().map(|(a, _)| a))
+                                .cloned();
+                            let Some(agent) = agent else { return };
+                            let stop = {
+                                let a = agent.read(cx);
+                                pide_core::walk::unseen_change_notes(&a.changes, &a.pins)
+                                    .into_iter()
+                                    .find(|s| s.path == path)
+                            };
+                            if let Some(stop) = stop {
+                                // Its session's notes are the ones the editor shows.
+                                sessions.update(cx, |s, cx| s.activate(&agent, cx));
+                                pide_core::collab::go_to(&agent, stop, window, cx);
+                            }
+                        }),
+                )
             });
         let mut col = v_flex().child(row);
         if open {

@@ -17,7 +17,16 @@ pub enum Inbound {
     /// A blocking extension dialog (`select`/`confirm`/`input`/`editor`): pi waits for
     /// an `extension_ui_response` (or its own `timeout`).
     Dialog(DialogRequest),
+    /// pide's extension asking pide something (`ctx.ui.input("pide:query", <json>)`,
+    /// docs/COLLAB.md): answered at once with an `extension_ui_response`, never shown.
+    Query {
+        id: String,
+        payload: Value,
+    },
 }
+
+/// The dialog title pide's extension uses for questions to pide (`ext/pide.ts`).
+pub const QUERY_TITLE: &str = "pide:query";
 
 /// Records we know about and deliberately don't surface (yet).
 const QUIET: &[&str] = &[
@@ -140,13 +149,25 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
             id: s(&v, "toolCallId"),
             partial: v.get("partialResult").cloned().unwrap_or_default(),
         }),
-        "tool_execution_end" => ev(AgentEvent::ToolEnd {
-            id: s(&v, "toolCallId"),
-            name: s(&v, "toolName"),
-            result: v.get("result").cloned().unwrap_or_default(),
-            is_error: v.get("isError").and_then(Value::as_bool).unwrap_or(false),
-            duration_ms: v.get("durationMs").and_then(Value::as_u64),
-        }),
+        "tool_execution_end" => {
+            let id = s(&v, "toolCallId");
+            let result = v.get("result").cloned().unwrap_or_default();
+            let is_error = v.get("isError").and_then(Value::as_bool).unwrap_or(false);
+            let collab = if is_error {
+                Vec::new()
+            } else {
+                collab_events(&id, &result["details"])
+            };
+            let mut out = ev(AgentEvent::ToolEnd {
+                id,
+                name: s(&v, "toolName"),
+                result,
+                is_error,
+                duration_ms: v.get("durationMs").and_then(Value::as_u64),
+            });
+            out.extend(collab.into_iter().map(Inbound::Event));
+            out
+        }
         "queue_update" => {
             let list = |k: &str| -> Vec<String> {
                 v.get(k)
@@ -185,6 +206,14 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
                 message: s(&v, "message"),
                 error: s(&v, "notifyType") == "error",
             }),
+            "input" if s(&v, "title") == QUERY_TITLE => vec![Inbound::Query {
+                id: s(&v, "id"),
+                payload: v
+                    .get("placeholder")
+                    .and_then(Value::as_str)
+                    .and_then(|p| serde_json::from_str(p).ok())
+                    .unwrap_or(Value::Null),
+            }],
             m @ ("select" | "confirm" | "input" | "editor") => {
                 let opt = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
                 vec![Inbound::Dialog(DialogRequest {
@@ -220,6 +249,111 @@ pub fn parse_line(line: &str) -> Vec<Inbound> {
     }
 }
 
+/// A pide extension tool's result `details` (`ext/pide.ts`, docs/COLLAB.md) as
+/// an event. Paths are as the extension sent them (relative to the project when
+/// inside it); the connection resolves them against pi's working directory.
+pub fn collab_events(tool_call_id: &str, d: &Value) -> Vec<AgentEvent> {
+    if d.get("pide").and_then(Value::as_u64) == Some(1)
+        && d.get("kind").and_then(Value::as_str) == Some("tour")
+    {
+        return tour_pins(tool_call_id, d).into_iter().map(AgentEvent::Pin).collect();
+    }
+    collab_event(tool_call_id, d).into_iter().collect()
+}
+
+/// An `ide_tour`'s stops as pins, in order: ids `tour:<call id>:<n>`, the first
+/// one's note starting with the tour's title.
+pub fn tour_pins(tool_call_id: &str, d: &Value) -> Vec<pide_core::collab::Pin> {
+    use pide_core::collab::{Anchor, Pin};
+    let title = s(d, "title");
+    let stops = d.get("stops").and_then(Value::as_array).cloned().unwrap_or_default();
+    let n = stops.len();
+    stops
+        .iter()
+        .enumerate()
+        .map(|(i, st)| {
+            let line = st.get("line").and_then(Value::as_u64).unwrap_or(1).max(1) as usize;
+            Pin {
+                id: format!("{}{tool_call_id}:{i}", pide_core::collab::TOUR_PREFIX),
+                path: s(st, "path").into(),
+                anchor: Anchor::new(line, s(st, "text")),
+                end_line: st
+                    .get("end_line")
+                    .and_then(Value::as_u64)
+                    .map_or(line, |e| (e as usize).max(line)),
+                note: format!("{title} · {}/{n}: {}", i + 1, s(st, "note")),
+                snippet: st
+                    .get("snippet")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .unwrap_or_default(),
+                seen: false,
+                dismissed: false,
+            }
+        })
+        .collect()
+}
+
+/// One pide tool result as an event (see [`collab_events`]).
+pub fn collab_event(tool_call_id: &str, d: &Value) -> Option<AgentEvent> {
+    use pide_core::collab::{Anchor, HunkNote, Pin, ProgressStep};
+    if d.get("pide").and_then(Value::as_u64) != Some(1) {
+        return None;
+    }
+    let line = |v: &Value, k: &str| v.get(k).and_then(Value::as_u64).unwrap_or(1).max(1) as usize;
+    match d.get("kind")?.as_str()? {
+        "pin" => {
+            let start = line(d, "line");
+            Some(AgentEvent::Pin(Pin {
+                id: tool_call_id.to_string(),
+                path: s(d, "path").into(),
+                anchor: Anchor::new(start, s(d, "text")),
+                end_line: line(d, "end_line").max(start),
+                note: s(d, "note"),
+                snippet: d
+                    .get("snippet")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .unwrap_or_default(),
+                seen: false,
+                dismissed: false,
+            }))
+        }
+        "explain" => Some(AgentEvent::ExplainChange {
+            path: s(d, "path").into(),
+            summary: s(d, "summary"),
+            hunks: d
+                .get("hunks")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .map(|h| HunkNote {
+                            anchor: Anchor::new(line(h, "line"), s(h, "text")),
+                            note: s(h, "note"),
+                            seen: false,
+                            dismissed: false,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }),
+        "progress" => Some(AgentEvent::Progress(
+            d.get("steps")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .map(|st| ProgressStep {
+                            text: s(st, "text"),
+                            done: st.get("done").and_then(Value::as_bool).unwrap_or(false),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        )),
+        _ => None, // "refused": the model was told; nothing to show
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,6 +381,16 @@ mod tests {
         );
         assert!(
             matches!(&out[..], [Inbound::Event(AgentEvent::AssistantEnd { error: Some(e) })] if e == "aborted")
+        );
+    }
+
+    #[test]
+    fn pide_queries_are_not_dialogs() {
+        let out = parse_line(
+            r#"{"type":"extension_ui_request","id":"q1","method":"input","title":"pide:query","placeholder":"{\"kind\":\"diagnostics\",\"paths\":[\"a.rs\"]}","timeout":5000}"#,
+        );
+        assert!(
+            matches!(&out[..], [Inbound::Query { id, payload }] if id == "q1" && payload["kind"] == "diagnostics" && payload["paths"][0] == "a.rs")
         );
     }
 

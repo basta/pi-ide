@@ -463,3 +463,162 @@ fn thinking_levels_parse() {
     assert_eq!(lines[1]["command"], "set_thinking_level");
     assert_eq!(lines[2]["data"]["thinkingLevel"], "medium");
 }
+
+/// Collaborator mode (docs/COLLAB.md): a recorded run with pide's extension loaded.
+/// Its tools' payloads arrive in `tool_execution_end`'s `result.details`.
+#[test]
+fn collab_tool_results_carry_details() {
+    let fixture = include_str!("fixtures/collab_tools_session.jsonl");
+    let mut kinds = Vec::new();
+    for line in fixture.lines() {
+        for rec in pide_agent_pi::wire::parse_line(line) {
+            if let Inbound::Event(AgentEvent::ToolEnd {
+                name,
+                result,
+                is_error,
+                ..
+            }) = rec
+                && name.starts_with("ide_")
+            {
+                assert!(!is_error);
+                assert_eq!(result["details"]["pide"], 1);
+                kinds.push(result["details"]["kind"].as_str().unwrap().to_string());
+            }
+        }
+    }
+    assert_eq!(kinds, ["progress", "progress", "explain", "pin"]);
+}
+
+#[test]
+fn extension_source_is_embedded() {
+    let src = pide_agent_pi::backend::EXTENSION_SOURCE;
+    for tool in ["ide_pin", "ide_explain_change", "ide_progress"] {
+        assert!(src.contains(&format!("name: \"{tool}\"")), "{tool}");
+    }
+}
+
+#[test]
+fn collab_events_parse_from_the_recording() {
+    let fixture = include_str!("fixtures/collab_tools_session.jsonl");
+    let events: Vec<AgentEvent> = fixture
+        .lines()
+        .flat_map(pide_agent_pi::wire::parse_line)
+        .filter_map(|r| match r {
+            Inbound::Event(
+                e @ (AgentEvent::Pin(_)
+                | AgentEvent::ExplainChange { .. }
+                | AgentEvent::Progress(_)),
+            ) => Some(e),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(events.len(), 4);
+    match &events[1] {
+        AgentEvent::Progress(steps) => {
+            assert_eq!(steps.len(), 2);
+            assert!(steps.iter().all(|s| s.done));
+            assert_eq!(steps[0].text, "Guard divide against zero divisor");
+        }
+        e => panic!("{e:?}"),
+    }
+    match &events[2] {
+        AgentEvent::ExplainChange {
+            path,
+            summary,
+            hunks,
+        } => {
+            assert_eq!(path, std::path::Path::new("calc.py"));
+            assert!(summary.starts_with("Raise a clear ValueError"));
+            assert_eq!(hunks.len(), 2);
+            assert_eq!(
+                (hunks[0].anchor.line, hunks[0].anchor.text.as_str()),
+                (6, "    if b == 0:")
+            );
+            assert_eq!(hunks[1].anchor.line, 12);
+        }
+        e => panic!("{e:?}"),
+    }
+    match &events[3] {
+        AgentEvent::Pin(pin) => {
+            assert_eq!(pin.path, std::path::Path::new("calc.py"));
+            assert_eq!((pin.anchor.line, pin.end_line), (11, 14));
+            assert_eq!(pin.anchor.text, "def mean(xs):");
+            assert_eq!(pin.id, "toolu_01PogxJhsPE9Nfd1b7PAYd3E");
+            assert!(pin.note.contains("empty list"));
+        }
+        e => panic!("{e:?}"),
+    }
+    // A refused pin (over the cap) is an error result: no event.
+    let refused = r#"{"type":"tool_execution_end","toolCallId":"x","toolName":"ide_pin","result":{"content":[{"type":"text","text":"Not pinned"}],"details":{"pide":1,"kind":"refused"}},"isError":true}"#;
+    assert_eq!(pide_agent_pi::wire::parse_line(refused).len(), 1);
+}
+
+/// `ide_diagnostics` (recorded in pide): the extension asks pide with a
+/// `pide:query` input dialog, pide answers at once, the tool reports it.
+#[test]
+fn diagnostics_queries_parse_from_the_recording() {
+    let fixture = include_str!("fixtures/collab_diagnostics_query.jsonl");
+    let mut queries = 0;
+    let mut answered = 0;
+    for rec in fixture.lines() {
+        let rec: Value = serde_json::from_str(rec).unwrap();
+        let line = rec["line"].as_str().unwrap();
+        if rec["dir"] == "out" {
+            let v: Value = serde_json::from_str(line).unwrap();
+            assert_eq!(v["type"], "extension_ui_response");
+            let answer: Value = serde_json::from_str(v["value"].as_str().unwrap()).unwrap();
+            assert!(answer["diagnostics"].is_array());
+            answered += 1;
+            continue;
+        }
+        for r in pide_agent_pi::wire::parse_line(line) {
+            match r {
+                Inbound::Query { payload, .. } => {
+                    assert_eq!(payload, json!({"kind": "diagnostics", "paths": ["stats.py"]}));
+                    queries += 1;
+                }
+                Inbound::Dialog(d) => panic!("a pide query became a dialog card: {d:?}"),
+                Inbound::Event(AgentEvent::ToolEnd { name, result, .. }) => {
+                    assert_eq!(name, "ide_diagnostics");
+                    assert_eq!(result["details"]["kind"], "diagnostics");
+                }
+                _ => {}
+            }
+        }
+    }
+    assert_eq!((queries, answered), (3, 3));
+}
+
+/// `ide_tour` recorded on pide itself: pi's line numbers were off by one or two
+/// for two stops; the extension snapped every stop to the line containing the
+/// quoted `code`.
+#[test]
+fn tour_stops_land_on_their_quoted_code() {
+    let fixture = include_str!("fixtures/collab_tour_session.jsonl");
+    let mut args = None;
+    let mut pins = Vec::new();
+    for line in fixture.lines() {
+        for rec in pide_agent_pi::wire::parse_line(line) {
+            match rec {
+                Inbound::Event(AgentEvent::ToolStart { name, args: a, .. }) if name == "ide_tour" => {
+                    args = Some(a)
+                }
+                Inbound::Event(AgentEvent::Pin(p)) => pins.push(p),
+                _ => {}
+            }
+        }
+    }
+    let args = args.expect("ide_tour call");
+    let stops = args["stops"].as_array().unwrap();
+    assert_eq!(pins.len(), stops.len());
+    let mut moved = 0;
+    for (pin, st) in pins.iter().zip(stops) {
+        let code = st["code"].as_str().unwrap().trim();
+        assert!(pin.anchor.text.contains(code), "{} {:?} vs {code:?}", pin.id, pin.anchor.text);
+        assert!(pin.id.starts_with("tour:"));
+        if pin.anchor.line as u64 != st["line"].as_u64().unwrap() {
+            moved += 1;
+        }
+    }
+    assert_eq!(moved, 2);
+}

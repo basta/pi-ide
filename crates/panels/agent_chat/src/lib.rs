@@ -22,11 +22,87 @@ use pide_core::{
 };
 use serde_json::{Value, json};
 
+mod agent_events;
+mod catch_up;
+mod changes_view;
+mod conversation;
+mod dialogs;
+mod history;
 mod model_picker;
 mod rename;
+mod sessions_view;
 mod slash;
+mod tour;
+mod understand;
+
+use conversation::tool_mut;
+use history::{HistItem, parse_history, result_text, summarize_args};
 
 pub const PANEL_NAME: &str = "agent_chat";
+
+/// Every session's notes on the current file (open sessions now, closed ones
+/// from their saved state, off the UI thread), as a list of locations.
+fn notes_in_file(window: &mut Window, cx: &mut App) {
+    use pide_core::notes::{FileNote, saved_notes};
+    let Some(ctx) = pide_core::context::current(window, cx) else {
+        window.push_notification(Notification::info("Open a file first."), cx);
+        return;
+    };
+    let services = Services::of(window, cx);
+    let root = services.workspace.read(cx).root().to_path_buf();
+    let path = root.join(&ctx.path);
+    let mut notes: Vec<FileNote> = Vec::new();
+    let mut open_files = Vec::new();
+    for agent in services.sessions.read(cx).all() {
+        let a = agent.read(cx);
+        open_files.extend(a.session_file.clone());
+        for stop in a.stops().iter().filter(|s| s.path == path) {
+            notes.push(FileNote::from_stop(stop, &a.name));
+        }
+    }
+    let load = cx.background_executor().spawn({
+        let (root, path) = (root.clone(), path.clone());
+        async move { saved_notes(&root, &path, &open_files) }
+    });
+    let title: SharedString = format!(
+        "pi's notes in {}",
+        ctx.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+    )
+    .into();
+    window
+        .spawn(cx, async move |cx| {
+            notes.extend(load.await);
+            notes.sort_by_key(|n| n.line);
+            let _ = cx.update(|window, cx| {
+                if notes.is_empty() {
+                    window.push_notification(
+                        Notification::info("pi hasn't left notes on this file in any session."),
+                        cx,
+                    );
+                    return;
+                }
+                let locations = notes
+                    .into_iter()
+                    .map(|n| {
+                        let head = format!(
+                            "{}{}: ",
+                            n.session,
+                            if n.outdated { " (outdated)" } else { "" }
+                        );
+                        pide_core::opener::Location {
+                            path: path.clone(),
+                            line: n.line.saturating_sub(1) as u32,
+                            character: 0,
+                            range: 0..head.len(),
+                            text: format!("{head}{}", n.note.replace('\n', " ")),
+                        }
+                    })
+                    .collect();
+                pide_core::opener::show_locations(title, locations, window, cx);
+            });
+        })
+        .detach();
+}
 
 actions!(pide_chat, [QueueFollowUp, CompleteSlash, BackToEditor]);
 /// At this width or more the panel shows the session sidebar instead of tabs.
@@ -82,6 +158,116 @@ pub fn init(cx: &mut App) {
         cx,
         CommandSpec::new("agent.abort", "Agent: Stop").key("cmd-f2"),
         move |window, cx| active(window, cx).update(cx, |a, cx| a.abort(cx)),
+    );
+    // Collaborator mode: the walkthrough over pi's changes and notes.
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.walk_through", "Agent: Walk Through Changes"),
+        move |window, cx| {
+            let agent = active(window, cx);
+            pide_core::collab::start_walk(&agent, window, cx);
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.next_note", "Agent: Next Note"),
+        move |window, cx| {
+            let agent = active(window, cx);
+            pide_core::collab::walk(&agent, 1, window, cx);
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.previous_note", "Agent: Previous Note"),
+        move |window, cx| {
+            let agent = active(window, cx);
+            pide_core::collab::walk(&agent, -1, window, cx);
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.change_story", "Agent: Tell It as a Story"),
+        move |window, cx| {
+            let agent = active(window, cx);
+            if agent.read(cx).changes.iter().all(|c| c.reverted) {
+                window.push_notification(
+                    Notification::info("pi hasn't changed anything in this session yet."),
+                    cx,
+                );
+                return;
+            }
+            changes_view::send_or_queue(&agent, changes_view::story_prompt(), cx);
+            CommandRegistry::run("agent.ask", window, cx);
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.catch_up", "Agent: Catch Me Up"),
+        move |window, cx| {
+            CommandRegistry::run("agent.ask", window, cx);
+            if let Some(chat) = existing(window, cx) {
+                chat.update(cx, |c, cx| {
+                    c.show_changes = false;
+                    c.catch_up_open = true;
+                    c.catch_up(cx)
+                });
+            }
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.notes_in_file", "Agent: pi's Notes in This File"),
+        notes_in_file,
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.tour", "Agent: Take a Tour…"),
+        move |window, cx| tour::open(sessions(window, cx), window, cx),
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.explain_this", "Agent: Explain This Code"),
+        move |window, cx| {
+            let Some(ctx) = pide_core::context::current(window, cx) else {
+                window.push_notification(
+                    Notification::info("Put the cursor or a selection in a file first."),
+                    cx,
+                );
+                return;
+            };
+            let what = if ctx.start.0 == ctx.end.0 {
+                format!(
+                    "the code around line {} of {} (the function or block it's in)",
+                    ctx.start.0,
+                    ctx.path.display()
+                )
+            } else {
+                format!("lines {}–{} of {}", ctx.start.0, ctx.end.0, ctx.path.display())
+            };
+            let prompt = format!(
+                "Explain {what} to me. I don't write this code by hand, but I want to understand it. \
+                 Don't change anything. Read it (and what it calls, if that matters), then use \
+                 ide_pin on the 2–5 places that matter most for understanding it, in the order I \
+                 should read them, each with a short note on what it does and why. Then reply with a \
+                 short overview: what it's for, how it works, anything surprising."
+            );
+            let agent = active(window, cx);
+            agent.update(cx, |a, cx| {
+                if a.is_busy() {
+                    a.queue(prompt, true, cx);
+                } else {
+                    a.prompt(prompt, cx);
+                }
+            });
+            CommandRegistry::run("agent.ask", window, cx);
+        },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("agent.review_next", "Agent: Review Next Session"),
+        move |window, cx| {
+            pide_core::collab::review_next(window, cx);
+        },
     );
     CommandRegistry::register(
         cx,
@@ -162,6 +348,12 @@ enum Item {
         text: String,
         error: bool,
     },
+    /// `ide_pin`: shown from the session's pin with this tool call id.
+    Pin(String),
+    /// `ide_explain_change` for this file (absolute path).
+    Explained(PathBuf),
+    /// `ide_tour` (its tool call id): the tour's stops, shown from the session's pins.
+    Tour(String),
 }
 
 /// One session's conversation as shown in the panel.
@@ -170,25 +362,6 @@ struct SessionView {
     items: Vec<Item>,
     scroll: ScrollHandle,
     history_requested: bool,
-}
-
-/// Plain (`Send`) history parsed from a pi session file off the UI thread.
-enum HistItem {
-    User(String),
-    Text(String),
-    Tool {
-        id: String,
-        name: String,
-        summary: String,
-        output: String,
-        failed: bool,
-    },
-    /// The session's model / thinking level as last recorded (shown before pi starts).
-    Model {
-        provider: String,
-        id: String,
-    },
-    Thinking(String),
 }
 
 #[derive(Default)]
@@ -204,6 +377,18 @@ pub fn existing(window: &Window, cx: &App) -> Option<Entity<AgentChat>> {
 }
 
 pub struct AgentChat {
+    /// Update tour was asked in this session: the next tour pi gives replaces these (call ids).
+    replacing_tour: HashMap<EntityId, Vec<String>>,
+    /// The Understand card is shown on top of the conversation (the ? button).
+    show_help: bool,
+    /// Sessions a "catch me up" briefing is being written for.
+    catching_up: std::collections::HashSet<EntityId>,
+    /// The briefing card is shown (it hides with ×; Catch me up shows it again).
+    catch_up_open: bool,
+    /// Rendered briefing per session: (its text, the markdown view).
+    catch_up_md: HashMap<EntityId, (String, Entity<TextViewState>)>,
+    /// The finished checklist is expanded (an unfinished one always is).
+    progress_open: bool,
     sessions: Entity<Sessions>,
     workspace: Entity<pide_core::Workspace>,
     /// What "send editor context" would send now; refreshed each render.
@@ -231,6 +416,8 @@ pub struct AgentChat {
     /// The active session shows its Changes list instead of the chat.
     show_changes: bool,
     saved: Vec<SavedSession>,
+    /// Tours in saved sessions that aren't open (session file → its tours).
+    saved_tours: Vec<(PathBuf, Vec<pide_core::notes::TourInfo>)>,
     _load_saved: Option<Task<()>>,
     /// Text fields for pending `input`/`editor` dialogs, by dialog id.
     dialog_inputs: HashMap<String, (Entity<TextareaState>, Subscription)>,
@@ -238,190 +425,6 @@ pub struct AgentChat {
 }
 
 impl EventEmitter<PanelEvent> for AgentChat {}
-
-/// One-line description of a tool call's arguments.
-fn summarize_args(name: &str, args: &Value) -> String {
-    let field = |k: &str| args.get(k).and_then(Value::as_str).map(str::to_string);
-    let s = match name {
-        "bash" => field("command"),
-        "read" | "write" | "edit" | "ls" => field("path"),
-        "grep" | "find" => field("pattern"),
-        _ => None,
-    }
-    .unwrap_or_else(|| args.to_string());
-    let s = s.replace('\n', " ⏎ ");
-    if s.chars().count() > 160 {
-        format!("{}…", s.chars().take(160).collect::<String>())
-    } else {
-        s
-    }
-}
-
-/// The text of a tool result (`content` blocks), clipped for display.
-fn result_text(result: &Value) -> String {
-    let text = result
-        .get("content")
-        .and_then(Value::as_array)
-        .map(|blocks| {
-            blocks
-                .iter()
-                .filter_map(|b| b.get("text").and_then(Value::as_str))
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
-        .unwrap_or_else(|| result.to_string());
-    let lines: Vec<&str> = text.lines().collect();
-    if lines.len() > 8 {
-        format!(
-            "{}\n… {} more lines",
-            lines[..8].join("\n"),
-            lines.len() - 8
-        )
-    } else {
-        text.trim_end().to_string()
-    }
-}
-
-/// Conversation history from a pi session file (`docs/session-format.md`).
-/// Branches are flattened in file order — good enough to read back.
-/// The entries of the session's current branch, root first: pi sessions are
-/// trees (`id` / `parentId`), and the branch in use ends at the last entry.
-/// Entries without ids (older files) are kept in file order.
-fn current_branch(entries: Vec<Value>) -> Vec<Value> {
-    let ids: std::collections::HashMap<String, usize> = entries
-        .iter()
-        .enumerate()
-        .filter_map(|(i, v)| {
-            v.get("id")
-                .and_then(Value::as_str)
-                .map(|id| (id.to_string(), i))
-        })
-        .collect();
-    let Some(last) = entries.iter().rposition(|v| v.get("id").is_some()) else {
-        return entries;
-    };
-    let mut chain = vec![last];
-    let mut at = last;
-    while let Some(parent) = entries[at].get("parentId").and_then(Value::as_str) {
-        match ids.get(parent) {
-            Some(&p) if !chain.contains(&p) => {
-                chain.push(p);
-                at = p;
-            }
-            _ => break,
-        }
-    }
-    chain.reverse();
-    // Entries outside the tree (no id: the session header) stay where they were.
-    let keep: std::collections::HashSet<usize> = chain.iter().copied().collect();
-    entries
-        .into_iter()
-        .enumerate()
-        .filter(|(i, v)| keep.contains(i) || v.get("id").is_none())
-        .map(|(_, v)| v)
-        .collect()
-}
-
-fn parse_history(path: &std::path::Path) -> Vec<HistItem> {
-    use std::io::BufRead;
-    let Ok(file) = std::fs::File::open(path) else {
-        return Vec::new();
-    };
-    let entries: Vec<Value> = std::io::BufReader::new(file)
-        .lines()
-        .map_while(Result::ok)
-        .filter_map(|l| serde_json::from_str::<Value>(&l).ok())
-        .collect();
-    let mut out: Vec<HistItem> = Vec::new();
-    for v in current_branch(entries) {
-        match v.get("type").and_then(Value::as_str) {
-            Some("message") => {}
-            Some("model_change") => {
-                if let (Some(p), Some(m)) = (v["provider"].as_str(), v["modelId"].as_str()) {
-                    out.push(HistItem::Model {
-                        provider: p.into(),
-                        id: m.into(),
-                    });
-                }
-                continue;
-            }
-            Some("thinking_level_change") => {
-                if let Some(t) = v["thinkingLevel"].as_str() {
-                    out.push(HistItem::Thinking(t.into()));
-                }
-                continue;
-            }
-            _ => continue,
-        }
-        let m = &v["message"];
-        match m.get("role").and_then(Value::as_str) {
-            Some("user") => {
-                if let Some(t) = user_text(m) {
-                    out.push(HistItem::User(t));
-                }
-            }
-            Some("assistant") => {
-                for block in m
-                    .get("content")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                {
-                    match block.get("type").and_then(Value::as_str) {
-                        Some("text") => {
-                            let t = block
-                                .get("text")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default();
-                            if !t.trim().is_empty() {
-                                out.push(HistItem::Text(t.to_string()));
-                            }
-                        }
-                        Some("toolCall") => {
-                            let name = block
-                                .get("name")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default()
-                                .to_string();
-                            out.push(HistItem::Tool {
-                                id: block
-                                    .get("id")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or_default()
-                                    .to_string(),
-                                summary: summarize_args(&name, &block["arguments"]),
-                                name,
-                                output: String::new(),
-                                failed: false,
-                            });
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Some("toolResult") => {
-                let id = m
-                    .get("toolCallId")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                let failed = m.get("isError").and_then(Value::as_bool).unwrap_or(false);
-                let text = result_text(m);
-                if let Some(HistItem::Tool {
-                    output, failed: f, ..
-                }) = out
-                    .iter_mut()
-                    .rev()
-                    .find(|h| matches!(h, HistItem::Tool { id: tid, .. } if tid == id))
-                {
-                    *output = text;
-                    *f = failed;
-                }
-            }
-            _ => {}
-        }
-    }
-    out
-}
 
 impl AgentChat {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -489,6 +492,12 @@ impl AgentChat {
             }),
         ];
         let mut this = Self {
+            progress_open: false,
+            replacing_tour: HashMap::new(),
+            show_help: false,
+            catching_up: Default::default(),
+            catch_up_open: true,
+            catch_up_md: HashMap::new(),
             sessions,
             workspace,
             context_now: None,
@@ -522,6 +531,7 @@ impl AgentChat {
             show_list: false,
             show_changes: false,
             saved: Vec::new(),
+            saved_tours: Vec::new(),
             _load_saved: None,
             dialog_inputs: HashMap::new(),
             _subs: subs,
@@ -586,7 +596,18 @@ impl AgentChat {
                     }
                     _ => true,
                 });
+                let first_prompt = hist.iter().find_map(|h| match h {
+                    HistItem::User(t) => Some(t.clone()),
+                    _ => None,
+                });
                 let _ = agent.update(cx, |a, cx| {
+                    // A session pi never named: call it after its first prompt, as new ones are.
+                    if a.name.as_ref() == pide_core::agent::UNNAMED
+                        && let Some(t) = &first_prompt
+                    {
+                        a.name = pide_core::agent::name_from_prompt(t).into();
+                        cx.notify();
+                    }
                     if a.model.is_none() {
                         a.model = model.map(|(provider, id)| pide_core::ModelInfo {
                             provider,
@@ -631,6 +652,8 @@ impl AgentChat {
                             output,
                             duration_ms: None,
                         },
+                        HistItem::Pin(id) => Item::Pin(id),
+                        HistItem::Tour(id) => Item::Tour(id),
                         HistItem::Model { .. } | HistItem::Thinking(_) => {
                             unreachable!("filtered above")
                         }
@@ -658,13 +681,15 @@ impl AgentChat {
 
     fn refresh_saved(&mut self, cx: &mut Context<Self>) {
         let root = self.workspace.read(cx).root().to_path_buf();
-        let list = cx
-            .background_executor()
-            .spawn(async move { list_saved(&root) });
+        let open = self.sessions.read(cx).open_files(cx);
+        let list = cx.background_executor().spawn(async move {
+            (list_saved(&root), pide_core::notes::saved_tours(&root, &open))
+        });
         self._load_saved = Some(cx.spawn(async move |this, cx| {
-            let saved = list.await;
+            let (saved, tours) = list.await;
             let _ = this.update(cx, |this, cx| {
                 this.saved = saved;
+                this.saved_tours = tours;
                 cx.notify();
             });
         }));
@@ -901,1503 +926,6 @@ impl AgentChat {
             .detach();
         cx.notify();
     }
-
-    fn on_agent_event(
-        &mut self,
-        agent: Entity<Agent>,
-        ev: &AgentEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let is_active = agent == self.active(cx);
-        let name = agent.read(cx).name.clone();
-        if let AgentEvent::Dialog(req) = ev {
-            if !is_active {
-                window.push_notification(
-                    Notification::warning(format!(
-                        "pi in \u{201c}{name}\u{201d} is waiting for your answer."
-                    )),
-                    cx,
-                );
-            }
-            Self::desktop_notify(window, cx, "pi is asking", format!("{name}: {}", req.title));
-            if matches!(req.kind, DialogKind::Input | DialogKind::Editor) {
-                self.make_dialog_input(agent, req.clone(), window, cx);
-            }
-            cx.notify();
-            return;
-        }
-        let image_note = matches!(ev, AgentEvent::UserPrompt { .. })
-            .then(|| self.image_notes.remove(&agent.entity_id()))
-            .flatten();
-        let Some(view) = self.views.get_mut(&agent.entity_id()) else {
-            return;
-        };
-        let items = &mut view.items;
-        match ev {
-            AgentEvent::UserPrompt { text } => {
-                let (chip, text) = pide_core::context::split_prompt(text);
-                items.push(Item::User(chip, text.to_string()));
-                if let Some(n) = image_note {
-                    items.push(Item::Notice {
-                        text: format!("With {n} image{}.", if n == 1 { "" } else { "s" }),
-                        error: false,
-                    });
-                }
-            }
-            AgentEvent::AssistantStart => {
-                let markdown = cx.new(|cx| TextViewState::markdown("", cx));
-                items.push(Item::Assistant {
-                    markdown,
-                    text: String::new(),
-                    last_index: None,
-                    thinking: String::new(),
-                    thinking_open: false,
-                    error: None,
-                });
-            }
-            AgentEvent::TextDelta { index, delta } => {
-                if let Some(Item::Assistant {
-                    markdown,
-                    text,
-                    last_index,
-                    ..
-                }) = items.last_mut()
-                {
-                    let mut chunk = String::new();
-                    if last_index.is_some_and(|i| i != *index) && !text.is_empty() {
-                        chunk.push_str("\n\n");
-                    }
-                    *last_index = Some(*index);
-                    chunk.push_str(delta);
-                    text.push_str(&chunk);
-                    markdown.update(cx, |m, cx| m.push_str(&chunk, cx));
-                }
-            }
-            AgentEvent::TextEnd { content, .. } => {
-                if let Some(Item::Assistant {
-                    markdown,
-                    text,
-                    last_index,
-                    ..
-                }) = items.last_mut()
-                    && last_index.is_some()
-                    && !text.ends_with(content.as_str())
-                    && !content.is_empty()
-                {
-                    *text = content.clone();
-                    markdown.update(cx, |m, cx| m.set_text(content, cx));
-                }
-            }
-            AgentEvent::ThinkingDelta { delta, .. } => {
-                if let Some(Item::Assistant { thinking, .. }) = items.last_mut() {
-                    thinking.push_str(delta);
-                }
-            }
-            AgentEvent::AssistantEnd { error } => {
-                if let Some(Item::Assistant { error: e, .. }) = items.last_mut() {
-                    *e = error.clone();
-                }
-            }
-            AgentEvent::ToolStart { id, name, args } => items.push(Item::Tool {
-                id: id.clone(),
-                name: name.clone(),
-                summary: summarize_args(name, args),
-                state: ToolState::Running,
-                output: String::new(),
-                duration_ms: None,
-            }),
-            AgentEvent::ToolUpdate { id, partial } => {
-                if let Some(Item::Tool { output, .. }) = tool_mut(items, id) {
-                    *output = result_text(partial);
-                }
-            }
-            AgentEvent::ToolEnd {
-                id,
-                result,
-                is_error,
-                duration_ms,
-                ..
-            } => {
-                if let Some(Item::Tool {
-                    state,
-                    output,
-                    duration_ms: d,
-                    ..
-                }) = tool_mut(items, id)
-                {
-                    *state = if *is_error {
-                        ToolState::Failed
-                    } else {
-                        ToolState::Done
-                    };
-                    *output = result_text(result);
-                    *d = *duration_ms;
-                }
-            }
-            AgentEvent::Settled { aborted } => {
-                if *aborted {
-                    items.push(Item::Notice {
-                        text: "Stopped.".into(),
-                        error: false,
-                    });
-                }
-                if !is_active {
-                    window.push_notification(
-                        Notification::info(format!("pi finished in \u{201c}{name}\u{201d}.")),
-                        cx,
-                    );
-                }
-                if !*aborted {
-                    Self::desktop_notify(window, cx, "pi finished", name.to_string());
-                }
-            }
-            AgentEvent::Error(e) => items.push(Item::Notice {
-                text: e.clone(),
-                error: true,
-            }),
-            AgentEvent::Notify { message, error } => {
-                let n = if *error {
-                    Notification::error(message.clone())
-                } else {
-                    Notification::info(message.clone())
-                };
-                window.push_notification(n, cx);
-            }
-            AgentEvent::Unknown(v) => log::debug!("unknown agent record: {v}"),
-            _ => {}
-        }
-        view.scroll.scroll_to_bottom();
-        cx.notify();
-    }
-
-    /// A text field for an `input` (Enter submits) or `editor` (Cmd+Enter submits) dialog.
-    fn make_dialog_input(
-        &mut self,
-        agent: Entity<Agent>,
-        req: DialogRequest,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let editor = req.kind == DialogKind::Editor;
-        let input = cx.new(|cx| {
-            let mut state = TextareaState::new(window, cx);
-            state = if editor {
-                state.auto_grow(4, 14)
-            } else {
-                state.auto_grow(1, 3).submit_on_enter(true)
-            };
-            if let Some(p) = &req.placeholder {
-                state = state.placeholder(p.clone());
-            }
-            if let Some(text) = &req.prefill {
-                state = state.default_value(text.clone());
-            }
-            state
-        });
-        let id = req.id.clone();
-        let sub = cx.subscribe_in(
-            &input,
-            window,
-            move |this, input, ev: &InputEvent, _, cx| {
-                let submit = match ev {
-                    InputEvent::PressEnter {
-                        secondary,
-                        shift: false,
-                    } => !editor || *secondary,
-                    _ => false,
-                };
-                if submit {
-                    let value = input.read(cx).value().to_string();
-                    this.answer(&agent, &id, DialogAnswer::Value(value), cx);
-                }
-            },
-        );
-        let focus = input.focus_handle(cx);
-        self.dialog_inputs.insert(req.id, (input, sub));
-        window.defer(cx, move |window, cx| focus.focus(window, cx));
-    }
-
-    fn answer(
-        &mut self,
-        agent: &Entity<Agent>,
-        id: &str,
-        answer: DialogAnswer,
-        cx: &mut Context<Self>,
-    ) {
-        agent.update(cx, |a, cx| a.answer_dialog(id, answer, cx));
-        self.dialog_inputs.remove(id);
-        cx.notify();
-    }
-
-    fn render_dialog(
-        &self,
-        agent: &Entity<Agent>,
-        d: &DialogRequest,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let theme = cx.theme().clone();
-        let btn = |label: &'static str,
-                   id: &str,
-                   answer: DialogAnswer,
-                   primary: bool,
-                   cx: &mut Context<Self>| {
-            let (agent, id) = (agent.clone(), id.to_string());
-            let b = Button::new(SharedString::from(format!("dlg-{id}-{label}")))
-                .small()
-                .label(label);
-            let b = if primary { b.primary() } else { b };
-            b.on_click(
-                cx.listener(move |this, _, _, cx| this.answer(&agent, &id, answer.clone(), cx)),
-            )
-        };
-        let mut card = v_flex()
-            .gap_2()
-            .p_3()
-            .m_2()
-            .rounded(theme.radius)
-            .border_1()
-            .border_color(theme.warning)
-            .bg(theme.secondary)
-            .text_sm()
-            .child(
-                div()
-                    .text_xs()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.warning)
-                    .child("PI IS WAITING FOR YOU"),
-            )
-            .child(
-                div()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(d.title.clone()),
-            )
-            .when_some(d.message.clone(), |this, m| {
-                this.child(div().text_color(theme.muted_foreground).child(m))
-            });
-        match d.kind {
-            DialogKind::Confirm => {
-                card = card.child(
-                    h_flex()
-                        .justify_end()
-                        .gap_2()
-                        .child(btn("Cancel", &d.id, DialogAnswer::Cancelled, false, cx))
-                        .child(btn(
-                            "Deny",
-                            &d.id,
-                            DialogAnswer::Confirmed(false),
-                            false,
-                            cx,
-                        ))
-                        .child(btn("Allow", &d.id, DialogAnswer::Confirmed(true), true, cx)),
-                );
-            }
-            DialogKind::Select => {
-                let options: Vec<AnyElement> = d
-                    .options
-                    .iter()
-                    .enumerate()
-                    .map(|(i, o)| {
-                        let (agent, id, value) = (agent.clone(), d.id.clone(), o.clone());
-                        Button::new(SharedString::from(format!("dlg-{}-opt-{i}", d.id)))
-                            .small()
-                            .w_full()
-                            .label(o.clone())
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.answer(&agent, &id, DialogAnswer::Value(value.clone()), cx)
-                            }))
-                            .into_any_element()
-                    })
-                    .collect();
-                card = card.child(v_flex().gap_1().children(options)).child(
-                    h_flex().justify_end().child(btn(
-                        "Cancel",
-                        &d.id,
-                        DialogAnswer::Cancelled,
-                        false,
-                        cx,
-                    )),
-                );
-            }
-            DialogKind::Input | DialogKind::Editor => {
-                let hint = if d.kind == DialogKind::Editor {
-                    "⌘Enter to submit"
-                } else {
-                    "Enter to submit"
-                };
-                if let Some((input, _)) = self.dialog_inputs.get(&d.id) {
-                    card = card.child(Textarea::new(input));
-                }
-                let (agent2, id2) = (agent.clone(), d.id.clone());
-                card = card.child(
-                    h_flex()
-                        .justify_between()
-                        .items_center()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .child(hint),
-                        )
-                        .child(
-                            h_flex()
-                                .gap_2()
-                                .child(btn("Cancel", &d.id, DialogAnswer::Cancelled, false, cx))
-                                .child(
-                                    Button::new(SharedString::from(format!("dlg-{}-ok", d.id)))
-                                        .small()
-                                        .primary()
-                                        .label("Submit")
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            let value = this
-                                                .dialog_inputs
-                                                .get(&id2)
-                                                .map(|(i, _)| i.read(cx).value().to_string())
-                                                .unwrap_or_default();
-                                            this.answer(
-                                                &agent2,
-                                                &id2,
-                                                DialogAnswer::Value(value),
-                                                cx,
-                                            )
-                                        })),
-                                ),
-                        ),
-                );
-            }
-        }
-        card.into_any_element()
-    }
-
-    /// Revert one file after asking: it overwrites the file, so it also drops later edits
-    /// (yours, or another session's — named in the question).
-    fn confirm_revert(
-        &mut self,
-        agent: Entity<Agent>,
-        path: PathBuf,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let root = self.workspace.read(cx).root().to_path_buf();
-        let rel = path
-            .strip_prefix(&root)
-            .unwrap_or(&path)
-            .display()
-            .to_string();
-        let others: Vec<String> = self
-            .sessions
-            .read(cx)
-            .all()
-            .iter()
-            .filter(|a| **a != agent)
-            .filter(|a| {
-                a.read(cx)
-                    .changes
-                    .iter()
-                    .any(|c| c.path == path && !c.reverted)
-            })
-            .map(|a| a.read(cx).name.to_string())
-            .collect();
-        let created = agent
-            .read(cx)
-            .changes
-            .iter()
-            .any(|c| c.path == path && c.before.is_none());
-        let mut text = if created {
-            format!("pi created {rel} in this session. Reverting deletes it.")
-        } else {
-            format!(
-                "This puts {rel} back to how it was before pi first touched it in this session. Any later edits to it are lost, including yours."
-            )
-        };
-        if !others.is_empty() {
-            text.push_str(&format!(
-                "\n\nIt was also changed by: {}. Their changes to this file are undone too.",
-                others.join(", ")
-            ));
-        }
-        window.open_alert_dialog(cx, move |alert, _, _| {
-            let (agent, path) = (agent.clone(), path.clone());
-            alert
-                .title(format!(
-                    "Revert {}?",
-                    path.file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_default()
-                ))
-                .description(text.clone())
-                .confirm()
-                .ok_text("Revert")
-                .ok_variant(ButtonVariant::Danger)
-                .on_ok(move |_, window, cx| {
-                    let task = agent.update(cx, |a, cx| a.revert(&path, cx));
-                    window
-                        .spawn(cx, async move |cx| {
-                            if let Err(e) = task.await {
-                                let _ = cx.update(|window, cx| {
-                                    window.push_notification(
-                                        Notification::error(format!("Revert failed: {e:#}")),
-                                        cx,
-                                    )
-                                });
-                            }
-                        })
-                        .detach();
-                    true
-                })
-        });
-    }
-
-    /// Revert every file this session changed (after asking).
-    fn confirm_revert_all(
-        &mut self,
-        agent: Entity<Agent>,
-        paths: Vec<PathBuf>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let n = paths.len();
-        window.open_alert_dialog(cx, move |alert, _, _| {
-            let (agent, paths) = (agent.clone(), paths.clone());
-            alert
-                .title(format!("Revert all {n} file{}?", if n == 1 { "" } else { "s" }))
-                .description("Every file goes back to how it was before pi first touched it in this session. Later edits to them are lost, including yours.")
-                .confirm()
-                .ok_text("Revert all")
-                .ok_variant(ButtonVariant::Danger)
-                .on_ok(move |_, window, cx| {
-                    let tasks: Vec<_> = paths.iter().map(|p| agent.update(cx, |a, cx| a.revert(p, cx))).collect();
-                    window
-                        .spawn(cx, async move |cx| {
-                            let mut failed = Vec::new();
-                            for t in tasks {
-                                if let Err(e) = t.await {
-                                    failed.push(format!("{e:#}"));
-                                }
-                            }
-                            if !failed.is_empty() {
-                                let _ = cx.update(|window, cx| {
-                                    window.push_notification(Notification::error(format!("Some files weren't reverted: {}", failed.join("; "))), cx)
-                                });
-                            }
-                        })
-                        .detach();
-                    true
-                })
-        });
-    }
-
-    fn render_changes(&self, agent: &Entity<Agent>, cx: &mut Context<Self>) -> AnyElement {
-        let theme = cx.theme().clone();
-        let root = self.workspace.read(cx).root().to_path_buf();
-        let label: SharedString = agent.read(cx).name.clone();
-        let changes = agent.read(cx).changes.clone();
-        if changes.is_empty() {
-            return div()
-                .p_3()
-                .text_sm()
-                .text_color(theme.muted_foreground)
-                .child("pi hasn't changed any files in this session yet. Files it edits or writes show up here.")
-                .into_any_element();
-        }
-        // Files other open sessions also changed.
-        let shared: Vec<PathBuf> = self
-            .sessions
-            .read(cx)
-            .all()
-            .iter()
-            .filter(|a| *a != agent)
-            .flat_map(|a| {
-                a.read(cx)
-                    .changes
-                    .iter()
-                    .filter(|c| !c.reverted)
-                    .map(|c| c.path.clone())
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        let rows: Vec<AnyElement> = changes
-            .iter()
-            .enumerate()
-            .map(|(i, c)| {
-                let rel = c
-                    .path
-                    .strip_prefix(&root)
-                    .unwrap_or(&c.path)
-                    .display()
-                    .to_string();
-                let badge = c.badge();
-                let badge_color = pide_core::colors::change(
-                    pide_core::colors::Change::from_letter(badge.chars().next().unwrap_or('M')),
-                    cx,
-                );
-                let flagged = shared.contains(&c.path);
-                let (diff_path, diff_before, diff_label) =
-                    (c.path.clone(), c.before.clone(), label.clone());
-                let (agent_r, path_r) = (agent.clone(), c.path.clone());
-                let (agent_v, path_v, reviewed) = (agent.clone(), c.path.clone(), c.reviewed);
-                v_flex()
-                    .id(("change", i))
-                    .w_full()
-                    .px_3()
-                    .py_2()
-                    .gap_1()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .cursor_pointer()
-                    .hover(|this| this.bg(theme.list_hover))
-                    .on_click(cx.listener(move |_, _, window, cx| {
-                        pide_core::opener::open_diff(
-                            pide_core::opener::DiffRequest {
-                                path: diff_path.clone(),
-                                before: diff_before.clone(),
-                                after: None,
-                                label: diff_label.clone(),
-                                before_is: "when pi first touched it".into(),
-                            },
-                            window,
-                            cx,
-                        );
-                    }))
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(
-                                div()
-                                    .w(px(12.))
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(badge_color)
-                                    .child(badge),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .whitespace_nowrap()
-                                    .when(c.reverted, |this| {
-                                        this.line_through().text_color(theme.muted_foreground)
-                                    })
-                                    .when(!c.reviewed && !c.reverted, |this| {
-                                        this.font_weight(FontWeight::SEMIBOLD)
-                                    })
-                                    .child(rel),
-                            )
-                            .when_some(c.stats, |this, (a, d)| {
-                                this.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.success)
-                                        .child(format!("+{a}")),
-                                )
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.danger)
-                                        .child(format!("−{d}")),
-                                )
-                            }),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .pl(px(20.))
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(div().flex_1().child(if c.reverted {
-                                "reverted".into()
-                            } else {
-                                c.tools_label()
-                            }))
-                            .when(flagged, |this| {
-                                this.child(
-                                    div()
-                                        .text_color(theme.warning)
-                                        .child("also changed by another session"),
-                                )
-                            })
-                            .when(!c.reverted, |this| {
-                                this.child(
-                                    Button::new(("reviewed", i))
-                                        .xsmall()
-                                        .ghost()
-                                        .label(if reviewed {
-                                            "Reviewed ✓"
-                                        } else {
-                                            "Mark reviewed"
-                                        })
-                                        .on_click(cx.listener(move |_, _, _, cx| {
-                                            cx.stop_propagation();
-                                            agent_v.update(cx, |a, cx| {
-                                                a.set_reviewed(&path_v, !reviewed, cx)
-                                            });
-                                        })),
-                                )
-                                .child(
-                                    Button::new(("revert", i))
-                                        .xsmall()
-                                        .label("Revert")
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            cx.stop_propagation();
-                                            this.confirm_revert(
-                                                agent_r.clone(),
-                                                path_r.clone(),
-                                                window,
-                                                cx,
-                                            );
-                                        })),
-                                )
-                            }),
-                    )
-                    .into_any_element()
-            })
-            .collect();
-        let open: Vec<PathBuf> = changes
-            .iter()
-            .filter(|c| !c.reverted)
-            .map(|c| c.path.clone())
-            .collect();
-        let unreviewed = changes
-            .iter()
-            .filter(|c| !c.reviewed && !c.reverted)
-            .count();
-        let (agent_all, agent_rev) = (agent.clone(), agent.clone());
-        let header = h_flex()
-            .gap_2()
-            .px_3()
-            .py_1p5()
-            .border_b_1()
-            .border_color(theme.border)
-            .text_xs()
-            .text_color(theme.muted_foreground)
-            .child(div().flex_1().child(format!(
-                "{} file{} · {} to review",
-                changes.len(),
-                if changes.len() == 1 { "" } else { "s" },
-                unreviewed
-            )))
-            .when(unreviewed > 0, |this| {
-                this.child(
-                    Button::new("review-all")
-                        .xsmall()
-                        .label("Mark all reviewed")
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            let paths: Vec<PathBuf> = agent_all
-                                .read(cx)
-                                .changes
-                                .iter()
-                                .map(|c| c.path.clone())
-                                .collect();
-                            agent_all.update(cx, |a, cx| {
-                                for p in &paths {
-                                    a.set_reviewed(p, true, cx);
-                                }
-                            });
-                        })),
-                )
-            })
-            .when(!open.is_empty(), |this| {
-                this.child(
-                    Button::new("revert-all")
-                        .xsmall()
-                        .label("Revert all…")
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.confirm_revert_all(agent_rev.clone(), open.clone(), window, cx)
-                        })),
-                )
-            });
-        v_flex()
-            .id("changes-list")
-            .size_full()
-            .overflow_y_scroll()
-            .text_sm()
-            .child(header)
-            .children(rows)
-            .into_any_element()
-    }
-
-    // ---------- rendering ----------
-
-    fn dot(agent: &Agent, cx: &App) -> AnyElement {
-        let theme = cx.theme();
-        let base = div().size(px(8.)).rounded_full().flex_none();
-        match agent.status() {
-            AgentStatus::Crashed { .. } => base.bg(theme.danger).into_any_element(),
-            _ if agent.waiting => base.bg(theme.warning).into_any_element(),
-            AgentStatus::Busy | AgentStatus::Starting | AgentStatus::Aborting => {
-                base.bg(pide_core::colors::accent(cx)).into_any_element()
-            }
-            _ if agent.unread => div()
-                .flex_none()
-                .text_xs()
-                .font_weight(FontWeight::BOLD)
-                .text_color(theme.success)
-                .child("✓")
-                .into_any_element(),
-            _ => base
-                .border_1()
-                .border_color(theme.muted_foreground)
-                .into_any_element(),
-        }
-    }
-
-    fn status_text(agent: &Agent) -> &'static str {
-        match agent.status() {
-            AgentStatus::Idle if agent.waiting => "Waiting for your answer",
-            AgentStatus::Idle => "Idle",
-            AgentStatus::Starting => "Starting pi…",
-            AgentStatus::Busy => "pi is working…",
-            AgentStatus::Aborting => "Stopping…",
-            AgentStatus::Crashed { .. } => "pi crashed",
-        }
-    }
-
-    fn render_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let sessions = self.sessions.read(cx);
-        let active = sessions.active_index();
-        let theme = cx.theme().clone();
-        let tabs: Vec<AnyElement> = sessions
-            .all()
-            .iter()
-            .enumerate()
-            .map(|(i, agent)| {
-                let a = agent.read(cx);
-                let selected = i == active;
-                let agent_close = agent.clone();
-                h_flex()
-                    .id(("session-tab", i))
-                    .flex_none()
-                    .gap_1p5()
-                    .items_center()
-                    .px_2p5()
-                    .py_1p5()
-                    .max_w(px(180.))
-                    .border_r_1()
-                    .border_color(theme.border)
-                    .cursor_pointer()
-                    .when(selected, |this| {
-                        this.bg(theme.background)
-                            .border_t_2()
-                            .border_color(pide_core::colors::accent(cx))
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.sessions.update(cx, |s, cx| s.set_active(i, cx));
-                    }))
-                    .child(Self::dot(a, cx))
-                    .child(
-                        div()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .whitespace_nowrap()
-                            .when(a.unread, |this| {
-                                this.font_weight(FontWeight::SEMIBOLD)
-                            })
-                            .child(a.name.clone()),
-                    )
-                    .child(
-                        div()
-                            .id(("session-close", i))
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .px_0p5()
-                            .child("✕")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.sessions.update(cx, |s, cx| s.close(&agent_close, cx));
-                            })),
-                    )
-                    .into_any_element()
-            })
-            .collect();
-        h_flex()
-            .w_full()
-            .text_sm()
-            .bg(theme.secondary)
-            .border_b_1()
-            .border_color(theme.border)
-            .child(
-                h_flex()
-                    .id("session-tabs")
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_x_scroll()
-                    .children(tabs),
-            )
-            .child(
-                Button::new("new-session")
-                    .ghost()
-                    .small()
-                    .label("+")
-                    .tooltip("New session")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.sessions.update(cx, |s, cx| {
-                            s.add(None, None, cx);
-                        })
-                    })),
-            )
-            .child(
-                Button::new("session-list")
-                    .ghost()
-                    .small()
-                    .label(if self.show_list { "▴" } else { "▾" })
-                    .tooltip("All sessions")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.show_list = !this.show_list;
-                        if this.show_list {
-                            this.refresh_saved(cx);
-                        }
-                        cx.notify();
-                    })),
-            )
-    }
-
-    fn render_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme().clone();
-        let sessions = self.sessions.read(cx);
-        let active = sessions.active_index();
-        let open_files: Vec<PathBuf> = sessions.open_files(cx);
-        let open: Vec<AnyElement> = sessions
-            .all()
-            .iter()
-            .enumerate()
-            .map(|(i, agent)| {
-                let a = agent.read(cx);
-                let label = match a.status() {
-                    AgentStatus::Busy | AgentStatus::Starting | AgentStatus::Aborting => "working",
-                    AgentStatus::Crashed { .. } => "crashed",
-                    _ if a.waiting => "needs you",
-                    _ if a.unread => "done",
-                    _ => "",
-                };
-                h_flex()
-                    .id(("open-session", i))
-                    .w_full()
-                    .gap_2()
-                    .items_center()
-                    .px_3()
-                    .py_2()
-                    .cursor_pointer()
-                    .hover(|this| this.bg(theme.list_hover))
-                    .when(i == active, |this| this.bg(theme.list_active))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.sessions.update(cx, |s, cx| s.set_active(i, cx));
-                    }))
-                    .child(Self::dot(a, cx))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .whitespace_nowrap()
-                            .when(a.unread, |this| {
-                                this.font_weight(FontWeight::SEMIBOLD)
-                            })
-                            .child(a.name.clone()),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(label),
-                    )
-                    .into_any_element()
-            })
-            .collect();
-        let saved: Vec<AnyElement> = self
-            .saved
-            .iter()
-            .filter(|s| !open_files.contains(&s.path))
-            .take(50)
-            .enumerate()
-            .map(|(i, s)| {
-                let path = s.path.clone();
-                let name = s.name.clone();
-                let title = s
-                    .name
-                    .clone()
-                    .unwrap_or_else(|| s.preview.chars().take(60).collect());
-                let ago = s.modified.elapsed().map(fmt_ago).unwrap_or_default();
-                v_flex()
-                    .id(("saved-session", i))
-                    .w_full()
-                    .px_3()
-                    .py_1p5()
-                    .cursor_pointer()
-                    .hover(|this| this.bg(theme.list_hover))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        let (path, name) = (path.clone(), name.clone());
-                        this.sessions.update(cx, |s, cx| {
-                            s.add(Some(path), name, cx);
-                        });
-                    }))
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .whitespace_nowrap()
-                                    .child(title),
-                            )
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .child(ago),
-                            ),
-                    )
-                    .when(s.name.is_some(), |this| {
-                        this.child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .whitespace_nowrap()
-                                .child(s.preview.clone()),
-                        )
-                    })
-                    .into_any_element()
-            })
-            .collect();
-        let heading = |t: &'static str| {
-            div()
-                .px_3()
-                .pt_3()
-                .pb_1()
-                .text_xs()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.muted_foreground)
-                .child(t)
-        };
-        v_flex()
-            .id("session-list")
-            .size_full()
-            .overflow_y_scroll()
-            .text_sm()
-            .child(heading("OPEN"))
-            .children(open)
-            .child(heading("SAVED IN THIS PROJECT"))
-            .when(saved.is_empty(), |this| {
-                this.child(
-                    div()
-                        .px_3()
-                        .py_1()
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child("None yet."),
-                )
-            })
-            .children(saved)
-    }
-
-    fn render_item(&self, view: &SessionView, ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        let theme = cx.theme();
-        match &view.items[ix] {
-            Item::User(chip, text) => v_flex()
-                .gap_1()
-                .px_3()
-                .py_2()
-                .rounded(theme.radius)
-                .bg(theme.secondary)
-                .when_some(chip.clone(), |this, c| {
-                    this.child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .font_family(theme.mono_font_family.clone())
-                            .child(format!("⌁ {c}")),
-                    )
-                })
-                .child(text.clone())
-                .into_any_element(),
-            Item::Assistant {
-                markdown,
-                thinking,
-                thinking_open,
-                error,
-                ..
-            } => v_flex()
-                .gap_1()
-                .when(!thinking.is_empty(), |this| {
-                    let open = *thinking_open;
-                    let agent_id = self.active(cx).entity_id();
-                    this.child(
-                        div()
-                            .id(("thinking", ix))
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if let Some(Item::Assistant { thinking_open, .. }) = this
-                                    .views
-                                    .get_mut(&agent_id)
-                                    .and_then(|v| v.items.get_mut(ix))
-                                {
-                                    *thinking_open = !*thinking_open;
-                                    cx.notify();
-                                }
-                            }))
-                            .child(if open {
-                                format!("▾ Thinking\n{}", thinking.trim())
-                            } else {
-                                format!(
-                                    "▸ Thinking ({} words)",
-                                    thinking.split_whitespace().count()
-                                )
-                            }),
-                    )
-                })
-                .child(TextView::new(markdown).style(chat_text_style()).selectable(true))
-                .when_some(error.clone(), |this, e| {
-                    this.child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.danger)
-                            .child(format!("Ended: {e}")),
-                    )
-                })
-                .into_any_element(),
-            Item::Tool {
-                name,
-                summary,
-                state,
-                output,
-                duration_ms,
-                ..
-            } => {
-                let (mark, color) = match state {
-                    ToolState::Running => ("…", theme.muted_foreground),
-                    ToolState::Done => ("✓", theme.success),
-                    ToolState::Failed => ("✗", theme.danger),
-                };
-                v_flex()
-                    .px_2()
-                    .py_1()
-                    .gap_1()
-                    .rounded(theme.radius)
-                    .border_1()
-                    .border_color(theme.border)
-                    .text_xs()
-                    .font_family(theme.mono_font_family.clone())
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(div().text_color(color).child(mark))
-                            .child(div().font_weight(FontWeight::BOLD).child(name.clone()))
-                            .child({
-                                // A file tool's path opens the file.
-                                let file =
-                                    matches!(name.as_str(), "read" | "write" | "edit").then(|| {
-                                        let p = std::path::Path::new(summary.as_str());
-                                        if p.is_absolute() {
-                                            p.to_path_buf()
-                                        } else {
-                                            self.workspace.read(cx).root().join(p)
-                                        }
-                                    });
-                                div()
-                                    .id(("tool-path", ix))
-                                    .flex_1()
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .when_some(file, |d, file| {
-                                        d.cursor_pointer().hover(|s| s.underline()).on_click(
-                                            move |_, window, cx| {
-                                                if file.is_file() {
-                                                    pide_core::opener::open_file(
-                                                        file.clone(),
-                                                        window,
-                                                        cx,
-                                                    );
-                                                }
-                                            },
-                                        )
-                                    })
-                                    .child(summary.clone())
-                            })
-                            .when_some(*duration_ms, |this, d| {
-                                this.child(
-                                    div()
-                                        .text_color(theme.muted_foreground)
-                                        .child(format!("{d} ms")),
-                                )
-                            }),
-                    )
-                    .when(!output.is_empty(), |this| {
-                        this.child(
-                            div()
-                                .text_color(theme.muted_foreground)
-                                .child(output.clone()),
-                        )
-                    })
-                    .into_any_element()
-            }
-            Item::Notice { text, error } => div()
-                .text_sm()
-                .text_color(if *error {
-                    theme.danger
-                } else {
-                    theme.muted_foreground
-                })
-                .child(text.clone())
-                .into_any_element(),
-        }
-    }
-
-    fn render_conversation(&mut self, wide: bool, cx: &mut Context<Self>) -> impl IntoElement {
-        let agent = self.active(cx);
-        let a = agent.read(cx);
-        let status = a.status().clone();
-        let busy = a.is_busy();
-        let name = a.name.clone();
-        let status_text = Self::status_text(a);
-        let (steering, follow_ups) = a.queue.clone();
-        let dialog = a.dialogs.first().cloned();
-        let n_changes = a.changes.len();
-        let unreviewed = a.unreviewed();
-        let show_changes = self.show_changes;
-        let slash_rows = self.suggestions(cx);
-        // `/` typed but the commands haven't arrived yet.
-        let slash_rows_empty_hint = slash_rows.is_empty()
-            && !a.commands_loaded
-            && slash::typed(&self.input.read(cx).value()).is_some();
-        let model_label = match &a.model {
-            Some(m) => model_picker::short_label(m),
-            None => "Model".to_string(),
-        };
-        // Thinking level, for models that reason.
-        let thinking_label = match (&a.model, &a.thinking) {
-            (Some(m), Some(t)) if m.reasoning => Some(format!("thinking: {t}")),
-            _ => None,
-        };
-        let agent_thinking = agent.clone();
-        let stats = a.stats.clone().filter(|s| s.tokens_total > 0);
-        let model_tip = a.model.as_ref().map(|m| format!("{}/{}", m.provider, m.id));
-        let agent_model = agent.clone();
-        let id = agent.entity_id();
-        let (items, scroll, empty) = match self.views.get(&id) {
-            Some(view) => {
-                let els: Vec<AnyElement> = (0..view.items.len())
-                    .map(|ix| self.render_item(view, ix, cx))
-                    .collect();
-                (els, view.scroll.clone(), view.items.is_empty())
-            }
-            None => (Vec::new(), ScrollHandle::new(), true),
-        };
-        let theme = cx.theme().clone();
-        let agent_close = agent.clone();
-
-        v_flex()
-            .flex_1()
-            .min_w_0()
-            .h_full() // the wide layout's row centers children vertically otherwise
-            .min_h_0()
-            .overflow_hidden()
-            .when(wide, |this| {
-                this.child(
-                    h_flex()
-                        .justify_between()
-                        .items_center()
-                        .px_3()
-                        .py_2()
-                        .border_b_1()
-                        .border_color(theme.border)
-                        .child(
-                            v_flex()
-                                .child(div().font_weight(FontWeight::SEMIBOLD).child(name.clone()))
-                                .child(div().text_xs().text_color(theme.muted_foreground).child(status_text)),
-                        )
-                        .child(Button::new("close-session").small().label("Close").on_click(cx.listener(
-                            move |this, _, _, cx| this.sessions.update(cx, |s, cx| s.close(&agent_close, cx)),
-                        ))),
-                )
-            })
-            .child(
-                h_flex()
-                    .gap_1()
-                    .px_2()
-                    .py_1()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .child(Button::new("view-chat").xsmall().label("Chat").map(|b| pide_core::colors::toggle(b, !show_changes, cx)).on_click(
-                        cx.listener(|this, _, _, cx| {
-                            this.show_changes = false;
-                            cx.notify();
-                        }),
-                    ))
-                    .child(
-                        Button::new("view-changes")
-                            .xsmall()
-                            .label(match (n_changes, unreviewed) {
-                                (0, _) => "Changes".to_string(),
-                                (_, 0) => format!("Changes · {n_changes}"),
-                                (_, u) => format!("Changes · {u} to review"),
-                            })
-                            .map(|b| pide_core::colors::toggle(b, show_changes, cx))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.show_changes = true;
-                                cx.notify();
-                            })),
-                    )
-                    .child(div().flex_1())
-                    .when_some(stats, |this, st| {
-                        let cost = if st.cost < 0.01 { format!("${:.3}", st.cost) } else { format!("${:.2}", st.cost) };
-                        let label = match st.context_percent {
-                            Some(p) => format!("{cost} · {}% ctx", p.round() as i64),
-                            None => cost,
-                        };
-                        let k = |n: u64| if n >= 1000 { format!("{:.1}k", n as f64 / 1000.0) } else { n.to_string() };
-                        let tip = format!(
-                            "Tokens: {} in, {} out, {} cache read ({} total){}",
-                            k(st.tokens_input),
-                            k(st.tokens_output),
-                            k(st.tokens_cache_read),
-                            k(st.tokens_total),
-                            match (st.context_tokens, st.context_window) {
-                                (Some(t), Some(w)) => format!(" · context {} of {}", k(t), k(w)),
-                                _ => String::new(),
-                            }
-                        );
-                        this.child(Button::new("session-stats").xsmall().ghost().label(label).tooltip(tip))
-                    })
-                    .when_some(thinking_label, |this, label| {
-                        this.child(
-                            Button::new("pick-thinking")
-                                .xsmall()
-                                .ghost()
-                                .label(label)
-                                .tooltip("Thinking level for this session")
-                                .on_click(move |_, window, cx| {
-                                    let agent = agent_thinking.clone();
-                                    agent.update(cx, |a, cx| a.request_thinking_levels(cx));
-                                    model_picker::open_thinking(agent, window, cx);
-                                }),
-                        )
-                    })
-                    .child(
-                        Button::new("pick-model")
-                            .xsmall()
-                            .ghost()
-                            .label(model_label)
-                            .when_some(model_tip, |b, t| b.tooltip(t))
-                            .on_click(move |_, window, cx| {
-                                let agent = agent_model.clone();
-                                agent.update(cx, |a, cx| a.request_models(cx));
-                                model_picker::open(agent, window, cx);
-                            }),
-                    ),
-            )
-            .when(show_changes, |this| this.child(div().flex_1().min_h_0().child(self.render_changes(&agent, cx))))
-            .when(!show_changes, |this| this.child(
-                div().id(("chat-scroll", id.as_u64())).flex_1().min_h_0().overflow_y_scroll().track_scroll(&scroll).child(
-                    v_flex()
-                        .p_3()
-                        .gap_3()
-                        .text_sm()
-                        .when(empty, |this| {
-                            this.child(
-                                div()
-                                    .text_color(theme.muted_foreground)
-                                    .child("Ask pi about this project. It starts on your first message."),
-                            )
-                        })
-                        .children(items),
-                ),
-            ))
-            .when_some(dialog.map(|d| self.render_dialog(&agent, &d, cx)), |this, card| this.child(card))
-            .when_some(
-                match &status {
-                    AgentStatus::Crashed { message, stderr_tail } => Some((message.clone(), stderr_tail.clone())),
-                    _ => None,
-                },
-                |this, (message, tail)| {
-                    this.child(
-                        v_flex()
-                            .gap_1()
-                            .p_2()
-                            .m_2()
-                            .rounded(theme.radius)
-                            .border_1()
-                            .border_color(theme.danger)
-                            .text_xs()
-                            .child(div().text_color(theme.danger).child(message))
-                            .when(!tail.is_empty(), |this| {
-                                this.child(
-                                    div()
-                                        .font_family(theme.mono_font_family.clone())
-                                        .text_color(theme.muted_foreground)
-                                        .child(tail.join("\n")),
-                                )
-                            })
-                            .child(h_flex().child(Button::new("restart").small().primary().label("Restart pi").on_click(
-                                cx.listener(|this, _, _, cx| this.active(cx).update(cx, |a, cx| a.restart(cx))),
-                            ))),
-                    )
-                },
-            )
-            .child(
-                v_flex()
-                    .flex_shrink_0()
-                    .gap_1()
-                    .p_2()
-                    .border_t_1()
-                    .border_color(theme.border)
-                    .children(steering.into_iter().map(|t| queued_row("steer", t, &theme)))
-                    .children(follow_ups.into_iter().map(|t| queued_row("after this run", t, &theme)))
-                    .when(busy, |this| {
-                        this.child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .child(format!("{status_text}  Enter steers · ⌥Enter queues a follow-up")),
-                        )
-                    })
-                    .when(!slash_rows.is_empty(), |this| {
-                        this.child(
-                            v_flex()
-                                .border_1()
-                                .border_color(theme.border)
-                                .rounded(theme.radius)
-                                .py_1()
-                                .text_sm()
-                                .children(slash_rows.into_iter().enumerate().map(|(i, c)| {
-                                    let pick = c.clone();
-                                    h_flex()
-                                        .id(("slash", i))
-                                        .gap_2()
-                                        .px_2()
-                                        .py_0p5()
-                                        .cursor_pointer()
-                                        .when(i == 0, |r| r.bg(theme.list_hover))
-                                        .hover(|r| r.bg(theme.list_hover))
-                                        .on_click(cx.listener(move |this, _, window, cx| this.complete(&pick, window, cx)))
-                                        .child(div().flex_none().font_family(theme.mono_font_family.clone()).child(c.label.clone()))
-                                        .child(
-                                            div()
-                                                .min_w_0()
-                                                .overflow_hidden()
-                                                .text_ellipsis()
-                                                .whitespace_nowrap()
-                                                .text_xs()
-                                                .text_color(theme.muted_foreground)
-                                                .child(c.detail.clone()),
-                                        )
-                                        .child(div().flex_1())
-                                        .child(div().flex_none().text_xs().text_color(theme.muted_foreground).child(c.tag.clone()))
-                                })),
-                        )
-                    })
-                    .when(slash_rows_empty_hint, |this| {
-                        this.child(div().text_xs().text_color(theme.muted_foreground).child("Loading pi's commands…"))
-                    })
-                    .when(!self.attachments.is_empty(), |this| {
-                        this.child(h_flex().gap_2().flex_wrap().children(self.attachments.iter().enumerate().map(|(i, (_, img_data))| {
-                            h_flex()
-                                .gap_1()
-                                .p_1()
-                                .border_1()
-                                .border_color(theme.border)
-                                .rounded(theme.radius)
-                                .child(img(img_data.clone()).h(px(40.)).max_w(px(120.)).object_fit(ObjectFit::Contain))
-                                .child(Button::new(("remove-image", i)).xsmall().ghost().label("×").tooltip("Remove").on_click(
-                                    cx.listener(move |this, _, _, cx| {
-                                        if i < this.attachments.len() {
-                                            this.attachments.remove(i);
-                                        }
-                                        cx.notify();
-                                    }),
-                                ))
-                        })))
-                    })
-                    .child(
-                        div()
-                            .key_context("AgentInput")
-                            // An image on the clipboard becomes an attachment; text pastes as usual.
-                            .capture_action(cx.listener(|this, _: &Paste, _, cx| {
-                                if this.paste_image(cx) {
-                                    cx.stop_propagation();
-                                }
-                            }))
-                            .on_action(|_: &BackToEditor, window, cx| {
-                                CommandRegistry::run("editor.focus", window, cx);
-                            })
-                            .on_action(cx.listener(|this, _: &CompleteSlash, window, cx| {
-                                match this.suggestions(cx).into_iter().next() {
-                                    Some(first) => this.complete(&first, window, cx),
-                                    None => window.focus_next(cx),
-                                }
-                            }))
-                            .on_action(cx.listener(|this, _: &QueueFollowUp, window, cx| this.send(true, window, cx)))
-                            .child(Textarea::new(&self.input)),
-                    )
-                    .child(h_flex().justify_between().gap_2().child({
-                        let on = self.send_context(cx);
-                        let label = match (on, self.context_now.clone()) {
-                            (false, _) => "No editor context".to_string(),
-                            // `main.rs:12` for a cursor, `main.rs 5–7` for a selection.
-                            (true, Some(c)) => format!("⌁ Context: {}", c.label()),
-                            (true, None) => "⌁ Context: no file open".to_string(),
-                        };
-                        Button::new("context-toggle")
-                            .xsmall()
-                            .label(label)
-                            .map(|b| pide_core::colors::toggle(b, on, cx))
-                            .tooltip("Send the active file and selection with new prompts")
-                            .on_click(cx.listener(|this, _, _, cx| this.toggle_context(cx)))
-                    }).when(busy, |this| {
-                        this.child(Button::new("stop").small().danger().label("Stop").on_click(
-                            cx.listener(|this, _, _, cx| this.active(cx).update(cx, |a, cx| a.abort(cx))),
-                        ))
-                    })),
-            )
-    }
-}
-
-fn queued_row(
-    kind: &'static str,
-    text: String,
-    theme: &gpui_kit::component::theme::Theme,
-) -> AnyElement {
-    h_flex()
-        .gap_2()
-        .px_2()
-        .py_1()
-        .rounded(theme.radius)
-        .border_1()
-        .border_dashed()
-        .border_color(theme.border)
-        .text_xs()
-        .child(
-            div()
-                .flex_none()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.muted_foreground)
-                .child(kind),
-        )
-        .child(
-            div()
-                .flex_1()
-                .overflow_hidden()
-                .text_ellipsis()
-                .whitespace_nowrap()
-                .child(text),
-        )
-        .into_any_element()
-}
-
-fn tool_mut<'a>(items: &'a mut [Item], id: &str) -> Option<&'a mut Item> {
-    items
-        .iter_mut()
-        .rev()
-        .find(|i| matches!(i, Item::Tool { id: tid, .. } if tid == id))
 }
 
 fn fmt_ago(d: std::time::Duration) -> String {
@@ -2538,47 +1066,4 @@ impl Render for AgentChat {
             )
             .child(body)
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[::core::prelude::v1::test]
-    fn history_follows_the_current_branch() {
-        let e = |id: &str, parent: Option<&str>| serde_json::json!({ "type": "message", "id": id, "parentId": parent });
-        // a → b → c, then the user went back to b and continued with d → e.
-        let entries = vec![
-            serde_json::json!({ "type": "session" }),
-            e("a", None),
-            e("b", Some("a")),
-            e("c", Some("b")),
-            e("d", Some("b")),
-            e("e", Some("d")),
-        ];
-        let ids: Vec<String> = current_branch(entries)
-            .iter()
-            .map(|v| {
-                v.get("id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("-")
-                    .to_string()
-            })
-            .collect();
-        assert_eq!(ids, ["-", "a", "b", "d", "e"]);
-        // No ids at all: unchanged.
-        let plain = vec![serde_json::json!({ "x": 1 }), serde_json::json!({ "x": 2 })];
-        assert_eq!(current_branch(plain.clone()), plain);
-    }
-}
-
-/// pi's replies sit between 14 px chat text and 12 px tool cards, so markdown
-/// headings stay close to the body (the default scale is for documents: an
-/// `#` would be ~25 px here). Weight carries the hierarchy, as everywhere else.
-fn chat_text_style() -> TextViewStyle {
-    TextViewStyle::default().heading_font_size(|level, base| match level {
-        1 => base * 1.25,
-        2 => base * 1.125,
-        _ => base,
-    })
 }

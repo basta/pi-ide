@@ -70,6 +70,16 @@ fn resolve(cwd: &Path, rel: &str) -> PathBuf {
     }
 }
 
+/// Collaborator events carry the extension's (usually relative) path; make it
+/// absolute the same way as `edit`/`write` paths, so it matches the change list.
+fn resolve_collab_path(ev: &mut AgentEvent, cwd: &Path) {
+    match ev {
+        AgentEvent::Pin(pin) => pin.path = resolve(cwd, &pin.path.to_string_lossy()),
+        AgentEvent::ExplainChange { path, .. } => *path = resolve(cwd, &path.to_string_lossy()),
+        _ => {}
+    }
+}
+
 /// Before-snapshots taken while a tool call's arguments are still streaming.
 ///
 /// `tool_execution_start` is too late to read the "before" text: pi runs the tool
@@ -250,7 +260,10 @@ pub async fn run<R, W>(
                                 bash_snaps.insert(id, tokio::task::spawn_blocking(move || crate::bash_watch::snapshot(&root)));
                             }
                         }
-                        for rec in parse_line(&line) {
+                        for mut rec in parse_line(&line) {
+                            if let (Inbound::Event(ev), Some(cwd)) = (&mut rec, &cwd) {
+                                resolve_collab_path(ev, cwd);
+                            }
                             let touched = match (&rec, &cwd) {
                                 (Inbound::Event(ev), Some(cwd)) => early.touched(ev, cwd),
                                 _ => None,
@@ -297,6 +310,21 @@ pub async fn run<R, W>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn collab_paths_resolve_against_cwd() {
+        let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+        let mut ev = AgentEvent::ExplainChange {
+            path: "calc.py".into(),
+            summary: String::new(),
+            hunks: vec![],
+        };
+        resolve_collab_path(&mut ev, &dir);
+        match ev {
+            AgentEvent::ExplainChange { path, .. } => assert_eq!(path, dir.join("calc.py")),
+            _ => unreachable!(),
+        }
+    }
 
     #[test]
     fn partial_path_waits_for_closing_quote() {

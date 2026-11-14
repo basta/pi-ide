@@ -87,6 +87,8 @@ struct Doc {
     version: i32,
     text: Rope,
     opened: bool,
+    /// Tracked for pi without an editor (`check_file`); an editor buffer takes it over.
+    headless: bool,
 }
 
 /// A server asked us to apply an edit (`workspace/applyEdit`). Whoever applies
@@ -253,6 +255,14 @@ impl LspStore {
         let Some(spec) = registry::spec_for(&self.specs, &path).cloned() else {
             return;
         };
+        // Already open in the server (checked for pi without an editor): the editor takes it over.
+        if let Some(d) = self.docs.get_mut(&path)
+            && d.opened
+        {
+            d.headless = false;
+            self.sync_text(&path, &text);
+            return;
+        }
         self.docs.insert(
             path.clone(),
             Doc {
@@ -260,10 +270,42 @@ impl LspStore {
                 version: 1,
                 text,
                 opened: false,
+                headless: false,
             },
         );
         self.ensure_server(spec.id, cx);
         self.open_docs(spec.id);
+    }
+
+    /// Have the language server check a file no editor has open (pi's
+    /// `ide_diagnostics` asks about files it changed): track it with `text`, as
+    /// read from disk, starting the server if needed; or update a file tracked
+    /// this way. False if no server handles it. Diagnostics arrive later.
+    pub fn check_file(&mut self, path: &Path, text: String, cx: &mut Context<Self>) -> bool {
+        let rope = Rope::from(text.as_str());
+        if let Some(doc) = self.docs.get(path) {
+            // An editor's buffer is the source of truth for its file: never overwrite it from disk.
+            if doc.headless {
+                self.sync_text(path, &rope);
+            }
+            return true;
+        }
+        let Some(spec) = registry::spec_for(&self.specs, path).cloned() else {
+            return false;
+        };
+        self.docs.insert(
+            path.to_path_buf(),
+            Doc {
+                server: spec.id,
+                version: 1,
+                text: rope,
+                opened: false,
+                headless: true,
+            },
+        );
+        self.ensure_server(spec.id, cx);
+        self.open_docs(spec.id);
+        true
     }
 
     /// Bring the server's copy of `path` up to date with `text` (no-op if equal).

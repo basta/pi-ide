@@ -86,6 +86,9 @@ impl EditorPanel {
                     e.create_gutter_decorations_collection(marks, cx)
                 });
                 self.gutter = Some(g);
+                // pi's marks go on top: make their collection again, after this one.
+                self.pi_marks_stale();
+                self.refresh_pi_marks(cx);
             }
         }
     }

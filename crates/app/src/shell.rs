@@ -447,6 +447,7 @@ impl Shell {
         } else {
             format!("pi: {}", parts.join(", "))
         };
+        let to_review = pide_core::collab::sessions_to_review(sessions, cx).len();
         let active = sessions.active();
         let items: Vec<String> = active
             .read(cx)
@@ -493,6 +494,22 @@ impl Shell {
                     .gap_3()
                     .children(server_label)
                     .children(items)
+                    .when(to_review > 0, |this| {
+                        let color = pide_core::colors::pi_note(cx);
+                        this.child(
+                            div()
+                                .id("pi-review-chip")
+                                .cursor_pointer()
+                                .px_1p5()
+                                .rounded(px(4.))
+                                .bg(color.opacity(0.14))
+                                .text_color(cx.theme().foreground)
+                                .child(format!("◆ {to_review} to review"))
+                                .on_click(|_, window, cx| {
+                                    pide_core::collab::review_next(window, cx);
+                                }),
+                        )
+                    })
                     .child(
                         div()
                             .id("agent-status")

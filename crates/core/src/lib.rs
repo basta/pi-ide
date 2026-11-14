@@ -5,13 +5,16 @@
 pub mod agent;
 pub mod buffer;
 pub mod changes;
+pub mod collab;
 pub mod colors;
 pub mod commands;
+pub mod commit_notes;
 pub mod context;
 pub mod events;
 pub mod fswatch;
 pub mod git;
 pub mod keymap;
+pub mod notes;
 pub mod opener;
 pub mod panel;
 pub mod paths;
@@ -19,6 +22,7 @@ pub mod recent;
 pub mod sessions;
 pub mod settings;
 pub mod toolwindow;
+pub mod walk;
 pub mod workspace;
 
 pub use agent::{

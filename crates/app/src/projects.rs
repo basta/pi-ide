@@ -113,8 +113,9 @@ fn open_now(root: PathBuf, cx: &mut App) {
     let result = gpui_kit::open_window(options, cx, move |window, cx| {
         let workspace = cx.new(|cx| Workspace::new(root.clone(), cx));
         let backend_root = root.clone();
+        let queries = crate::collab_queries::handler(workspace.downgrade());
         let factory: pide_core::sessions::BackendFactory = Rc::new(move |resume| {
-            Box::new(PiBackend::new(backend_root.clone(), resume))
+            Box::new(PiBackend::new(backend_root.clone(), resume).with_queries(queries.clone()))
                 as Box<dyn pide_core::AgentBackend>
         });
         let sessions = cx.new(|cx| Sessions::new(factory, cx));

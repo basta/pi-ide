@@ -31,6 +31,9 @@ pub struct Settings {
     pub save_before_send: bool,
     /// `"editor.format_on_save"`: reformat through the language server before saving. Default off.
     pub format_on_save: bool,
+    /// `"agent.collab"`: load pide's pi extension (collaborator mode: pins,
+    /// explanations, tours, diagnostics) into the pi processes pide starts. Default on.
+    pub collab: bool,
 }
 
 impl Default for Settings {
@@ -42,6 +45,7 @@ impl Default for Settings {
             notify: true,
             save_before_send: true,
             format_on_save: false,
+            collab: true,
         }
     }
 }
@@ -87,6 +91,10 @@ pub fn load() -> Settings {
             .get("editor.format_on_save")
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
+        collab: raw
+            .get("agent.collab")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true),
     }
 }
 

@@ -117,6 +117,9 @@ pub struct GitLogPanel {
     visible: Rc<Vec<usize>>,
     selected: Option<gix::ObjectId>,
     files: Option<Result<Vec<ChangedFile>, String>>,
+    /// pi's reasons kept with the selected commit (collaborator mode), once read.
+    pi_notes: Option<pide_core::commit_notes::CommitNotes>,
+    sessions: Entity<pide_core::Sessions>,
     scroll: UniformListScrollHandle,
     focus: FocusHandle,
     _load: Option<Task<()>>,
@@ -130,6 +133,7 @@ impl EventEmitter<PanelEvent> for GitLogPanel {}
 impl GitLogPanel {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let workspace = Services::of(window, cx).workspace;
+        let sessions = Services::of(window, cx).sessions;
         let root = workspace.read(cx).root().to_path_buf();
         let win = window.window_handle().window_id();
         let me = cx.weak_entity();
@@ -162,6 +166,8 @@ impl GitLogPanel {
             visible: Rc::new(Vec::new()),
             selected: None,
             files: None,
+            pi_notes: None,
+            sessions,
             scroll: UniformListScrollHandle::new(),
             focus: cx.focus_handle(),
             _load: None,
@@ -312,14 +318,21 @@ impl GitLogPanel {
             return;
         };
         let workdir = loaded.log.workdir.clone();
-        let work = cx
-            .background_executor()
-            .spawn(async move { log::changed_files(&workdir, &commit) });
+        self.pi_notes = None;
+        let (root, hash) = (self.root.clone(), id.to_string());
+        let work = cx.background_executor().spawn(async move {
+            (
+                log::changed_files(&workdir, &commit),
+                pide_core::commit_notes::load(&root, &hash),
+            )
+        });
         self._files = Some(cx.spawn(async move |this, cx| {
-            let files = work.await.map_err(|e| format!("{e:#}"));
+            let (files, notes) = work.await;
+            let files = files.map_err(|e| format!("{e:#}"));
             let _ = this.update(cx, |this, cx| {
                 if this.selected == Some(id) {
                     this.files = Some(files);
+                    this.pi_notes = notes;
                     cx.notify();
                 }
             });
@@ -646,8 +659,71 @@ impl GitLogPanel {
                             ),
                     ),
             )
+            .children(self.render_pi_notes(cx))
             .child(files)
             .into_any_element()
+    }
+
+    /// Why pi changed this commit's files, as pi explained them when it was made.
+    fn render_pi_notes(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let notes = self.pi_notes.clone().filter(|n| !n.is_empty())?;
+        let theme = cx.theme().clone();
+        let color = pide_core::colors::pi_note(cx);
+        Some(
+            v_flex()
+                .px_3()
+                .py_2()
+                .gap_1()
+                .border_b_1()
+                .border_color(theme.border)
+                .bg(color.opacity(0.06))
+                .child(
+                    div()
+                        .text_xs()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme.muted_foreground)
+                        .child("WHY, PER PI"),
+                )
+                .children(notes.files.into_iter().enumerate().map(|(i, f)| {
+                    let session = f.session.clone();
+                    let (file, name) = (f.session_file.clone(), f.session.clone());
+                    let sessions = self.sessions.clone();
+                    v_flex()
+                        .gap_0p5()
+                        .text_sm()
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(div().font_family(theme.mono_font_family.clone()).text_xs().child(f.path.clone()))
+                                .child(
+                                    div()
+                                        .id(("pi-session", i))
+                                        .text_xs()
+                                        .text_color(color)
+                                        .cursor_pointer()
+                                        .hover(|d| d.underline())
+                                        .child(format!("from \u{201c}{session}\u{201d}"))
+                                        .when_some(file, |d, file| {
+                                            d.on_click(move |_, window, cx| {
+                                                let (file, name) = (file.clone(), name.clone());
+                                                sessions.update(cx, |s, cx| {
+                                                    s.add(Some(file), Some(name), cx);
+                                                });
+                                                pide_core::CommandRegistry::run("agent.ask", window, cx);
+                                            })
+                                        }),
+                                ),
+                        )
+                        .when_some(f.summary.clone(), |d, s| d.child(div().child(s)))
+                        .children(f.notes.iter().map(|(line, note)| {
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(format!("line {line}: {note}"))
+                        }))
+                }))
+                .into_any_element(),
+        )
     }
 }
 

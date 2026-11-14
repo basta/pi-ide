@@ -25,6 +25,8 @@ use crate::conn::{self, RawLog};
 use crate::wire::Inbound;
 
 const STDERR_TAIL: usize = 20;
+/// A side question (`ask_aside`) that takes longer than this is given up.
+const ASIDE_TIMEOUT: Duration = Duration::from_secs(120);
 const ABORT_DEADLINE: Duration = Duration::from_secs(1);
 /// An idle session stops its pi process after this long (spec M2); the next
 /// prompt resumes it with `--session <file>`.
@@ -73,9 +75,17 @@ pub struct PiBackend {
     /// Tags this session's lines in the shared raw log.
     tag: u64,
     abort_deadline: Option<Task<()>>,
+    /// Answers the extension's `pide:query` requests (collaborator mode).
+    queries: Option<pide_core::collab::QueryHandler>,
 }
 
 impl PiBackend {
+    /// Answer pide's extension's questions (e.g. `ide_diagnostics`) with `handler`.
+    pub fn with_queries(mut self, handler: pide_core::collab::QueryHandler) -> Self {
+        self.queries = Some(handler);
+        self
+    }
+
     /// `resume`: an existing pi session file to continue.
     pub fn new(root: PathBuf, resume: Option<PathBuf>) -> Self {
         let shared = Shared {
@@ -89,6 +99,7 @@ impl PiBackend {
             next_id: 0,
             tag: NEXT_SESSION_TAG.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             abort_deadline: None,
+            queries: None,
         }
     }
 
@@ -133,6 +144,17 @@ impl PiBackend {
         };
 
         let mut args = vec!["--mode".to_string(), "rpc".to_string()];
+        // pide's own extension (collaborator tools; setting `agent.collab`, default on);
+        // `supervise` writes the file before spawning.
+        let collab = cx
+            .try_global::<pide_core::settings::Settings>()
+            .is_none_or(|s| s.collab);
+        if collab {
+            args.extend([
+                "-e".to_string(),
+                extension_path().to_string_lossy().into_owned(),
+            ]);
+        }
         // Extra flags for every pi process, e.g. PIDE_PI_ARGS="-e dev/pi-ask-test.ts" or "--model …".
         if let Ok(extra) = std::env::var("PIDE_PI_ARGS") {
             args.extend(extra.split_whitespace().map(str::to_string));
@@ -175,6 +197,7 @@ impl PiBackend {
         // UI side: apply everything pi sends, then handle its exit.
         let shared = self.shared.clone();
         let stats_tx = cmd_tx.clone();
+        let queries = self.queries.clone();
         let tag = self.tag;
         let inbound = cx.spawn(async move |agent: WeakEntity<Agent>, cx| {
             while let Some(rec) = in_rx.recv().await {
@@ -206,6 +229,16 @@ impl PiBackend {
                         ..
                     } => handle_response(&shared, agent, &command, success, error, data, cx),
                     Inbound::Dialog(req) => agent.handle_event(AgentEvent::Dialog(req), cx),
+                    Inbound::Query { id, payload } => {
+                        let answer = match &queries {
+                            Some(q) => q(&payload, cx),
+                            None => json!({"notes": ["This pide window can't answer that."]}),
+                        };
+                        let _ = stats_tx.send(
+                            json!({"type": "extension_ui_response", "id": id, "value": answer.to_string()})
+                                .to_string(),
+                        );
+                    }
                 });
                 if ok.is_err() {
                     return;
@@ -589,11 +622,62 @@ impl AgentBackend for PiBackend {
         self.shared.borrow_mut().session_file = None;
     }
 
+    fn ask_aside(
+        &mut self,
+        prompt: String,
+        agent: &mut Agent,
+        cx: &mut Context<Agent>,
+    ) -> Task<anyhow::Result<String>> {
+        // One-shot pi: no session, no tools, the session's model, little thinking.
+        let model = agent.model.as_ref().map(|m| format!("{}/{}", m.provider, m.id));
+        let root = self.root.clone();
+        let (tx, rx) = oneshot::channel();
+        pide_runtime::spawn(async move {
+            let _ = tx.send(ask_once(root, model, prompt).await);
+        });
+        cx.background_executor()
+            .spawn(async move { rx.await.map_err(|_| anyhow::anyhow!("pi stopped"))? })
+    }
+
     fn restart(&mut self, agent: &mut Agent, cx: &mut Context<Agent>) {
         self.kill();
         self.abort_deadline = None;
         agent.set_status(AgentStatus::Idle, cx);
     }
+}
+
+/// `pi -p` once (runtime thread): its stdout, trimmed.
+async fn ask_once(root: PathBuf, model: Option<String>, prompt: String) -> anyhow::Result<String> {
+    let pi = find_pi().ok_or_else(|| anyhow::anyhow!("pi isn't installed"))?;
+    let mut path = pi.parent().map(Path::to_path_buf).into_iter().collect::<Vec<_>>();
+    if let Some(p) = std::env::var_os("PATH") {
+        path.extend(std::env::split_paths(&p));
+    }
+    let mut cmd = tokio::process::Command::new(&pi);
+    cmd.args(["-p", "--no-session", "--no-tools", "--thinking", "low"]);
+    if let Some(m) = model {
+        cmd.args(["--model", &m]);
+    }
+    let run = cmd
+        .arg(prompt)
+        .current_dir(root)
+        .env("PATH", std::env::join_paths(path).unwrap_or_default())
+        .stdin(Stdio::null())
+        .kill_on_drop(true) // the timeout drops it: pi is killed
+        .output();
+    let out = tokio::time::timeout(ASIDE_TIMEOUT, run)
+        .await
+        .map_err(|_| anyhow::anyhow!("pi didn't answer within {} s", ASIDE_TIMEOUT.as_secs()))??;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+        anyhow::bail!("pi failed: {last}");
+    }
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if text.is_empty() {
+        anyhow::bail!("pi gave no answer");
+    }
+    Ok(text)
 }
 
 /// After a run settles, stop the process if the session stays idle for [`IDLE_STOP`].
@@ -639,6 +723,33 @@ fn find_pi() -> Option<PathBuf> {
     dirs.into_iter().map(|d| d.join("pi")).find(|p| p.is_file())
 }
 
+/// pide's pi extension (collaborator mode: `ide_pin`, `ide_explain_change`,
+/// `ide_progress`; docs/COLLAB.md). Its tool results reach pide inside the
+/// `tool_execution_end` records pi already sends (see `wire.rs`).
+pub const EXTENSION_SOURCE: &str = include_str!("../ext/pide.ts");
+
+/// Where [`EXTENSION_SOURCE`] is written for pi to load.
+pub fn extension_path() -> PathBuf {
+    paths::state_dir().join("pi-extension").join("pide.ts")
+}
+
+/// Write the extension if it's missing or out of date. Blocking: runtime thread only.
+fn write_extension() {
+    let path = extension_path();
+    if std::fs::read_to_string(&path).is_ok_and(|s| s == EXTENSION_SOURCE) {
+        return;
+    }
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let tmp = path.with_extension("ts.tmp");
+    if let Err(e) =
+        std::fs::write(&tmp, EXTENSION_SOURCE).and_then(|_| std::fs::rename(&tmp, &path))
+    {
+        log::warn!("write {}: {e}", path.display());
+    }
+}
+
 /// Runs on the runtime thread: owns the child, its pipes and the connection.
 async fn supervise(
     pi: PathBuf,
@@ -650,6 +761,9 @@ async fn supervise(
     kill: oneshot::Receiver<()>,
     exit: oneshot::Sender<(Option<i32>, Vec<String>, Option<String>)>,
 ) {
+    if args.iter().any(|a| *a == extension_path().to_string_lossy()) {
+        write_extension();
+    }
     // pi is a node script (`#!/usr/bin/env node`); make sure node's dir is on PATH.
     let mut path = pi
         .parent()

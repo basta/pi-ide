@@ -53,6 +53,12 @@ pub fn accent(cx: &App) -> Hsla {
     cx.theme().blue
 }
 
+/// pi's notes in the code (collaborator mode): pins and hunk notes in the
+/// gutter, the note bar. Magenta, so it never reads as a git status.
+pub fn pi_note(cx: &App) -> Hsla {
+    cx.theme().magenta
+}
+
 /// Background of an inline notice (read-only file, conflict, pending
 /// restart): a tint, with body-colored text, instead of a solid fill.
 pub fn notice_bg(error: bool, cx: &App) -> Hsla {

@@ -4,6 +4,7 @@
 use gpui_kit::*;
 
 use crate::changes::{FileChange, Touch};
+use crate::collab::{Pin, ProgressStep, Stop, StopRef};
 use crate::events::{AgentEvent, DialogAnswer, DialogRequest};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,6 +57,16 @@ pub trait AgentBackend: 'static {
     fn compact(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
     /// Ask for the session's slash commands; they arrive in `agent.commands`.
     fn request_commands(&mut self, _agent: &mut Agent, _cx: &mut Context<Agent>) {}
+    /// Ask the model one question on the side: no session, no tools, nothing added
+    /// to this session's conversation (e.g. a "catch me up" briefing).
+    fn ask_aside(
+        &mut self,
+        _prompt: String,
+        _agent: &mut Agent,
+        _cx: &mut Context<Agent>,
+    ) -> Task<anyhow::Result<String>> {
+        Task::ready(Err(anyhow::anyhow!("this agent can't answer on the side")))
+    }
     /// Switch this session's model; `agent.model` updates when the backend confirms.
     fn set_model(
         &mut self,
@@ -142,6 +153,17 @@ pub struct Agent {
     pub queue: (Vec<String>, Vec<String>),
     /// Files pi changed in this session, in first-touched order.
     pub changes: Vec<FileChange>,
+    /// What pi pinned for the user (`ide_pin`), in order.
+    pub pins: Vec<Pin>,
+    /// pi's checklist for this session (`ide_progress`), latest version.
+    pub progress: Vec<ProgressStep>,
+    /// The last "catch me up" briefing (collaborator mode).
+    pub catch_up: Option<crate::collab::CatchUp>,
+    /// Bumped whenever the changes, pins, notes or the walkthrough change
+    /// (cheap "did anything I draw change?" for views).
+    pub notes_rev: u64,
+    /// The walkthrough's current stop (see [`Agent::stops`]).
+    pub current_stop: Option<StopRef>,
     /// Pending write of `changes` to disk (debounced; dropping cancels).
     persist: Option<Task<()>>,
     /// Tool call id -> path, for file-changing calls still running.
@@ -179,6 +201,11 @@ impl Agent {
             dialogs: Vec::new(),
             _dialog_timers: Vec::new(),
             changes: Vec::new(),
+            pins: Vec::new(),
+            progress: Vec::new(),
+            current_stop: None,
+            notes_rev: 0,
+            catch_up: None,
             persist: None,
             pending_touches: Vec::new(),
         }
@@ -243,6 +270,14 @@ impl Agent {
     pub fn set_reviewed(&mut self, path: &std::path::Path, reviewed: bool, cx: &mut Context<Self>) {
         if let Some(c) = self.changes.iter_mut().find(|c| c.path == path) {
             c.reviewed = reviewed;
+            if reviewed {
+                // Reviewed in Changes = walked through.
+                c.seen = true;
+                c.notes.iter_mut().for_each(|n| n.seen = true);
+                for p in self.pins.iter_mut().filter(|p| p.path == path) {
+                    p.seen = true;
+                }
+            }
             self.persist_changes(cx);
             cx.notify();
         }
@@ -250,14 +285,22 @@ impl Agent {
 
     /// Save the change list next to pi's session, so it survives a restart.
     fn persist_changes(&mut self, cx: &mut Context<Self>) {
+        // Every change to the changes, pins, notes or the walkthrough comes through
+        // here: views that draw them compare this instead of recomputing.
+        self.notes_rev += 1;
         let Some(session) = self.session_file.clone() else {
             return;
         };
-        let changes = self.changes.clone();
+        let saved = crate::changes::Saved {
+            changes: self.changes.clone(),
+            pins: self.pins.clone(),
+            progress: self.progress.clone(),
+            catch_up: self.catch_up.clone(),
+        };
         let bg = cx.background_executor().clone();
         self.persist = Some(cx.background_executor().spawn(async move {
             bg.timer(std::time::Duration::from_millis(300)).await;
-            if let Err(e) = crate::changes::save(&session, &changes) {
+            if let Err(e) = crate::changes::save(&session, &saved) {
                 log::warn!("save change list: {e}");
             }
         }));
@@ -274,11 +317,32 @@ impl Agent {
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let loaded = load.await;
             let _ = this.update(cx, |this, cx| {
-                if !this.changes.is_empty() || loaded.is_empty() {
+                if loaded.is_empty() {
                     return;
                 }
-                let paths: Vec<_> = loaded.iter().map(|c| c.path.clone()).collect();
-                this.changes = loaded;
+                // Merge: something may have arrived while the file was read.
+                let mut paths = Vec::new();
+                if this.changes.is_empty() {
+                    paths = loaded.changes.iter().map(|c| c.path.clone()).collect();
+                    this.changes = loaded.changes;
+                }
+                let mut pins: Vec<Pin> = loaded
+                    .pins
+                    .into_iter()
+                    .filter(|p| !this.pins.iter().any(|q| q.id == p.id))
+                    .collect();
+                if !pins.is_empty() {
+                    pins.append(&mut this.pins);
+                    this.pins = pins;
+                    this.current_stop = None; // pin indices moved
+                }
+                if this.progress.is_empty() {
+                    this.progress = loaded.progress;
+                }
+                if this.catch_up.is_none() {
+                    this.catch_up = loaded.catch_up;
+                }
+                this.persist_changes(cx);
                 for p in paths {
                     this.refresh_stats(p, cx);
                 }
@@ -325,18 +389,24 @@ impl Agent {
             let path = path.clone();
             async move {
                 let now = crate::changes::snapshot(&path);
-                let stats = crate::changes::line_stats(
+                let (b, n) = (
                     before.as_deref().unwrap_or(""),
                     now.as_deref().unwrap_or(""),
                 );
-                (stats, now.is_none())
+                let stats = crate::changes::line_stats(b, n);
+                let first = crate::changes::hunks(b, n)
+                    .first()
+                    .map(|h| h.after.start + 1);
+                (stats, now.is_none(), first)
             }
         });
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
-            let (stats, gone) = work.await;
+            let (stats, gone, first) = work.await;
             let _ = this.update(cx, |this, cx| {
                 if let Some(c) = this.changes.iter_mut().find(|c| c.path == path) {
                     c.stats = Some(stats);
+                    c.first_line = first;
+                    this.notes_rev += 1;
                     c.deleted_now = gone && c.before.is_some();
                 }
                 cx.notify();
@@ -420,6 +490,20 @@ impl Agent {
         self.with_backend(cx, |b, a, cx| b.request_commands(a, cx));
     }
 
+    /// See [`AgentBackend::ask_aside`].
+    pub fn ask_aside(&mut self, prompt: String, cx: &mut Context<Self>) -> Task<anyhow::Result<String>> {
+        let mut task = None;
+        self.with_backend(cx, |b, a, cx| task = Some(b.ask_aside(prompt, a, cx)));
+        task.unwrap_or_else(|| Task::ready(Err(anyhow::anyhow!("no backend"))))
+    }
+
+    /// Keep a new "catch me up" briefing (saved with the session).
+    pub fn set_catch_up(&mut self, catch_up: Option<crate::collab::CatchUp>, cx: &mut Context<Self>) {
+        self.catch_up = catch_up;
+        self.persist_changes(cx);
+        cx.notify();
+    }
+
     pub fn set_model(&mut self, provider: String, id: String, cx: &mut Context<Self>) {
         self.with_backend(cx, |b, a, cx| b.set_model(provider, id, a, cx));
     }
@@ -465,22 +549,16 @@ impl Agent {
                 match self.changes.iter_mut().find(|c| &c.path == path) {
                     Some(c) => {
                         c.touches.push(touch);
-                        c.reviewed = false;
+                        crate::walk::touched_again(c);
                         if c.reverted {
                             // Reverted, then touched again: the new baseline is what was on disk now.
                             c.reverted = false;
                             c.before = before.clone();
                         }
                     }
-                    None => self.changes.push(FileChange {
-                        path: path.clone(),
-                        before: before.clone(),
-                        touches: vec![touch],
-                        stats: None,
-                        deleted_now: false,
-                        reviewed: false,
-                        reverted: false,
-                    }),
+                    None => self
+                        .changes
+                        .push(FileChange::new(path.clone(), before.clone(), touch)),
                 }
                 if tool == "bash" {
                     // Reported after the call ended (see agent-pi's bash_watch).
@@ -533,6 +611,42 @@ impl Agent {
                 self.queue = (steering.clone(), follow_up.clone());
                 cx.notify();
             }
+            AgentEvent::Pin(pin) => {
+                // Same id again (a reused tool call id): update it in place, so
+                // pin indices (walkthrough stops) stay valid.
+                match self.pins.iter_mut().find(|p| p.id == pin.id) {
+                    Some(p) => *p = pin.clone(),
+                    None => self.pins.push(pin.clone()),
+                }
+                self.persist_changes(cx);
+                cx.notify();
+            }
+            AgentEvent::ExplainChange {
+                path,
+                summary,
+                hunks,
+            } => {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0);
+                crate::walk::explain(
+                    &mut self.changes,
+                    &mut self.pins,
+                    &mut self.current_stop,
+                    path,
+                    summary,
+                    hunks,
+                    now_ms,
+                );
+                self.persist_changes(cx);
+                cx.notify();
+            }
+            AgentEvent::Progress(steps) => {
+                self.progress = steps.clone();
+                self.persist_changes(cx);
+                cx.notify();
+            }
             AgentEvent::Status { key, text } => {
                 self.status_items.retain(|(k, _)| k != key);
                 if let Some(t) = text {
@@ -543,6 +657,67 @@ impl Agent {
             _ => {}
         }
         cx.emit(event);
+    }
+}
+
+/// Collaborator mode: the walkthrough (logic in [`crate::walk`], on plain data).
+impl Agent {
+    /// See [`crate::walk::stops`].
+    pub fn stops(&self) -> Vec<Stop> {
+        crate::walk::stops(&self.changes, &self.pins)
+    }
+
+    /// The anchor text behind a stop (to re-find it in an edited buffer).
+    pub fn anchor_text(&self, at: &StopRef) -> Option<String> {
+        crate::walk::anchor_text(&self.changes, &self.pins, at)
+    }
+
+    /// The stop of the pin made by tool call `id`.
+    pub fn pin_stop_by_id(&self, id: &str) -> Option<Stop> {
+        let i = self.pins.iter().position(|p| p.id == id)?;
+        Some(crate::walk::pin_stop(&self.pins, i))
+    }
+
+    /// Stops not stepped onto yet.
+    pub fn unseen_stops(&self) -> usize {
+        self.stops().iter().filter(|s| !s.seen).count()
+    }
+
+    /// Has changes or pins you haven't stepped through or reviewed yet.
+    pub fn needs_review(&self) -> bool {
+        self.unseen_stops() > 0
+    }
+
+    /// See [`crate::walk::step`].
+    pub fn step_stop(&self, delta: isize) -> Option<Stop> {
+        crate::walk::step(&self.stops(), self.current_stop.as_ref(), delta)
+    }
+
+    /// The stop the walkthrough is on, if it still exists.
+    pub fn current(&self) -> Option<Stop> {
+        let c = self.current_stop.as_ref()?;
+        self.stops().into_iter().find(|s| &s.at == c)
+    }
+
+    /// Make `at` the current stop and mark it seen (see [`crate::walk::visit`]).
+    pub fn visit_stop(&mut self, at: &StopRef, cx: &mut Context<Self>) {
+        crate::walk::visit(&mut self.changes, &mut self.pins, &mut self.current_stop, at);
+        self.persist_changes(cx);
+        cx.notify();
+    }
+
+    /// Hide a tour a newer one replaced (see [`crate::walk::dismiss_tour`]).
+    pub fn dismiss_tour(&mut self, call_id: &str, cx: &mut Context<Self>) {
+        crate::walk::dismiss_tour(&mut self.pins, &mut self.current_stop, call_id);
+        self.persist_changes(cx);
+        cx.notify();
+    }
+
+    /// Hide a pin or hunk note (see [`crate::walk::dismiss`]).
+    pub fn dismiss_stop(&mut self, at: &StopRef, cx: &mut Context<Self>) {
+        crate::walk::dismiss(&mut self.changes, &mut self.pins, &mut self.current_stop, at);
+        self.persist_changes(cx);
+        cx.notify();
     }
 }
 

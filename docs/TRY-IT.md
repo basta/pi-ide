@@ -33,6 +33,34 @@ cargo run -p pide --release -- ~/some/project
 3. Ask pi to change something. While it works, keep editing elsewhere; a file it changes while open reloads as an undoable edit.
 4. **Changes**: click a file for the diff, ↶ reverts one change, **Revert** the file, **Revert all…** the session. Changes it makes through `bash` (sed, formatters) are listed too.
 5. Quit and reopen pide, resume the session from the ▾ menu: its Changes list is still there.
+6. pi can check the errors your editor shows (`ide_diagnostics`) and fixes them before it's done.
+
+## Ten minutes with collaborator mode (following pi's code)
+
+You don't write the code; this is how you keep up with it. Details: docs/COLLAB.md.
+
+1. **What's here.** Open a new session (or click **?** in the pi toolbar): the Understand card lists the
+   five ways to follow the code and what the marks in the editor mean. Click any row to run it.
+2. **Understand something first.** **pi → Take a Tour…**, ask "how does X work?". pi answers in a
+   session of its own with a tour card (numbered stops across files). **Start tour**: the editor opens
+   at stop 1 with a bar above it (pi's note, **Back** / **Next**). Select code and **Code → Explain
+   This Code (pi)** for a smaller question.
+3. **Ask for a change.** Type it in the pi box. For a longer task pi shows a PLAN checklist above
+   the chat. When it's done, each changed file has a one-line reason in **Changes**, and pi may pin a
+   spot it wants you to decide on (a PINNED card in the chat, with the code).
+4. **Review it where it happened.** Click **◆ n to review** in the status bar (or **Walk Through
+   Changes**): the editor goes to pi's first note (the line often lands at the top or bottom edge of
+   the view; GPUI Kit can't centre it yet); magenta marks in the gutter are pi's notes,
+   blue/green are git's. **Next** steps through every note across files; stepping through a file's
+   last note ticks it reviewed. **Reply** puts "file:line (about your note "…"): " in the pi box, so
+   you answer in place. A file pi changed without saying why says **no reason given · ask why**.
+5. **See the whole change.** **Tell It as a Story** (Changes, or the pi menu) retells the change as a
+   tour in the order that explains it. **Catch Me Up** writes a short briefing (asked / done / needs
+   you / start here); handy when you come back to a session later.
+6. **Commit.** The Commit tool window (**Cmd+K**) marks files with **◆ n pi notes** you haven't stepped
+   through; click to walk them. **✦ Draft with pi** writes the message.
+7. **Later.** Tours stay in **▾ → TOURS**. **pi → pi's Notes in This File** lists every session's
+   notes on the file you're in, also from closed sessions.
 
 ## Settings
 
