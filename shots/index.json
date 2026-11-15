@@ -1,5 +1,89 @@
 [
  {
+  "file": "shots/20261115T040013Z-inline3-g-reply-answered.png",
+  "time": "2026-11-15T04:00:13Z",
+  "milestone": "inline-comments",
+  "caption": "pi's answer joined the card's thread (markdown, body scrolls); lens shows '· 2 replies'."
+ },
+ {
+  "file": "shots/20261115T040012Z-inline3-g-reply-sent.png",
+  "time": "2026-11-15T04:00:12Z",
+  "milestone": "inline-comments",
+  "caption": "Reply sent from the card with Cmd+Enter: 'You' entry, 'pi is answering…', Send disabled ('pi is busy'), lens shows '· 1 reply'; the card grows upward."
+ },
+ {
+  "file": "shots/20261115T040011Z-inline3-f-card-above.png",
+  "time": "2026-11-15T04:00:11Z",
+  "milestone": "inline-comments",
+  "caption": "Line 33 near the bottom of the view: its card opens above the line, bottom edge ~8 pt above line 33."
+ },
+ {
+  "file": "shots/20261115T040010Z-inline3-e-scrolled-200-anchor-offscreen.png",
+  "time": "2026-11-15T04:00:10Z",
+  "milestone": "inline-comments",
+  "caption": "Scrolled 200 pt with the line-9 card open: line 9 left the view, so the whole card vanished (by design: off-screen notes show nothing)."
+ },
+ {
+  "file": "shots/20261115T040009Z-inline3-e-scrolled-200-card-follows.png",
+  "time": "2026-11-15T04:00:09Z",
+  "milestone": "inline-comments",
+  "caption": "Scrolled 200 pt with the line-25 card open: the card follows its line (already right 0.15 s after the scroll)."
+ },
+ {
+  "file": "shots/20261115T040008Z-inline3-e-card-before-scroll.png",
+  "time": "2026-11-15T04:00:08Z",
+  "milestone": "inline-comments",
+  "caption": "Line-25 card open before scrolling."
+ },
+ {
+  "file": "shots/20261115T040007Z-inline3-d-pill-line55.png",
+  "time": "2026-11-15T04:00:07Z",
+  "milestone": "inline-comments",
+  "caption": "Lower notes: pill on line 55 (long def), lens on line 62."
+ },
+ {
+  "file": "shots/20261115T040006Z-inline3-d-pill-card.png",
+  "time": "2026-11-15T04:00:06Z",
+  "milestone": "inline-comments",
+  "caption": "Clicking the line-33 pill opens its card above the line (no room below)."
+ },
+ {
+  "file": "shots/20261115T040005Z-inline3-d-pill-narrow.png",
+  "time": "2026-11-15T04:00:05Z",
+  "milestone": "inline-comments",
+  "caption": "File tree shown (narrower tab): line 33's lens became a '◆ pi · 2' pill at the editor's right edge; lenses on 9 and 25 truncate earlier."
+ },
+ {
+  "file": "shots/20261115T040004Z-inline3-c-collapsed-esc.png",
+  "time": "2026-11-15T04:00:04Z",
+  "milestone": "inline-comments",
+  "caption": "After Esc: card collapsed back to its lens; line 25 stays the current stop (stronger tint)."
+ },
+ {
+  "file": "shots/20261115T040003Z-inline3-b-card-line9.png",
+  "time": "2026-11-15T04:00:03Z",
+  "milestone": "inline-comments",
+  "caption": "Card for line 9 (same gap: line 10's glyph tops show above the card). Cursor was placed by a click on line 23 while it was open (status 23:21)."
+ },
+ {
+  "file": "shots/20261115T040002Z-inline3-b-card-top-crop.png",
+  "time": "2026-11-15T04:00:02Z",
+  "milestone": "inline-comments",
+  "caption": "Crop (2x): the card's top border cuts through line 26."
+ },
+ {
+  "file": "shots/20261115T040001Z-inline3-b-card-open.png",
+  "time": "2026-11-15T04:00:01Z",
+  "milestone": "inline-comments",
+  "caption": "Card opened by clicking the line-25 lens: Back/Next/✕, note, reply box, Resolve/Send. Its top edge sits ~7 pt below line 25, so the top half of line 26's glyphs peeks out above the card."
+ },
+ {
+  "file": "shots/20261115T040000Z-inline3-a-lenses-rest.png",
+  "time": "2026-11-15T04:00:00Z",
+  "milestone": "inline-comments",
+  "caption": "2c9c164, 1400 pt window, tree hidden: lenses at rest on lines 9, 25, 33 ('◆ pi <first words>…'), ~20 pt after the code, vertically level with their lines."
+ },
+ {
   "file": "shots/20261114T171004Z-inline2-c-half-off-top.png",
   "time": "2026-11-14T17:10:04Z",
   "milestone": "inline-comments",
