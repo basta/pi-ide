@@ -91,4 +91,5 @@ Needs tinymist, which bundles the Typst compiler (Settings → Language Servers 
 - `.typ` files are highlighted (headings, `#` code: calls, `let`/`set`/`show`, strings and numbers, math, labels and references, raw, bold/italic, comments) and soft-wrap like Markdown.
 - Completion, hover, go to definition, outline and diagnostics come from tinymist. Compile errors show in **Problems** as you type.
 - **Cmd+S exports the PDF** (`tinymist.exportPdf`) for the document the file belongs to: the `.typ` that `#include`s it (same folder or above), else the file itself. The PDF opens beside the source the first time, then reloads in place.
-- No forward/inverse search yet (tinymist has no SyncTeX).
+- **The PDF follows your edits:** after a save it scrolls to the paragraph you changed (the change nearest the cursor) and marks it for a moment; if it's already in view it only marks it. Found by searching the changed prose in the PDF, so a change in pure code or math (nothing to search for) leaves the PDF where it is.
+- No forward/inverse search on demand yet (tinymist has no SyncTeX).

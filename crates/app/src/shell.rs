@@ -685,6 +685,7 @@ pub fn open_pdf(path: PathBuf, window: &mut Window, cx: &mut App) {
             beside: false,
             reload: false,
             at: None,
+            find: Vec::new(),
         },
         window,
         cx,
@@ -701,7 +702,7 @@ pub fn show_pdf(req: pide_core::opener::PdfRequest, window: &mut Window, cx: &mu
     else {
         return;
     };
-    let keep_focus = (req.beside || req.reload || req.at.is_some())
+    let keep_focus = (req.beside || req.reload || req.at.is_some() || !req.find.is_empty())
         .then(|| window.focused(cx))
         .flatten();
     shell.update(cx, |shell, cx| {
@@ -742,6 +743,9 @@ pub fn show_pdf(req: pide_core::opener::PdfRequest, window: &mut Window, cx: &mu
         };
         if let Some(at) = req.at {
             p.update(cx, |p, cx| p.reveal(at, cx));
+        }
+        if !req.find.is_empty() {
+            p.update(cx, |p, cx| p.reveal_text(req.find, cx));
         }
     });
     if let Some(f) = keep_focus {

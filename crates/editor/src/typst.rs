@@ -90,13 +90,22 @@ struct ToldNoServer(bool);
 impl Global for ToldNoServer {}
 
 /// After a Typst file is saved: have tinymist export its document's PDF, then
-/// show it beside the source (or reload it). Compile errors are already in
-/// Problems: tinymist publishes them as you type.
+/// show it beside the source (or reload it), scrolled to what changed since
+/// the last export. Compile errors are already in Problems: tinymist
+/// publishes them as you type.
 pub(crate) fn export_on_save(
-    panel: &EditorPanel,
+    panel: &mut EditorPanel,
     window: &mut Window,
     cx: &mut Context<EditorPanel>,
 ) {
+    let text = panel.editor.read(cx).text().to_string();
+    let cursor = panel.editor.read(cx).cursor_position().line as usize;
+    let phrases = panel
+        .typst_base
+        .replace(text.clone())
+        .and_then(|old| changed_line(&old, &text, cursor))
+        .map(|line| phrases_near(&text, line))
+        .unwrap_or_default();
     let path = panel.path.clone();
     let project = panel.workspace.read(cx).root().to_path_buf();
     let store = pide_lsp::LspStore::for_workspace(&panel.workspace, cx);
@@ -143,6 +152,7 @@ pub(crate) fn export_on_save(
                                 beside: true,
                                 reload: true,
                                 at: None,
+                                find: phrases,
                             },
                             window,
                             cx,
@@ -236,6 +246,108 @@ pub(crate) fn pin_main(
         });
     })
     .detach();
+}
+
+/// The line (0-based, in `new`) of the change nearest the cursor, if any.
+fn changed_line(old: &str, new: &str, cursor: usize) -> Option<usize> {
+    let diff = similar::TextDiff::from_lines(old, new);
+    let last = new.lines().count().saturating_sub(1);
+    diff.ops()
+        .iter()
+        .filter(|op| op.tag() != similar::DiffTag::Equal)
+        .map(|op| {
+            let r = op.new_range();
+            // A deletion: the line after it (or the last one).
+            let (start, end) = (r.start.min(last), r.end.max(r.start + 1).min(last + 1));
+            let line = cursor.clamp(start, end.saturating_sub(1).max(start));
+            (line, line.abs_diff(cursor))
+        })
+        .min_by_key(|&(_, d)| d)
+        .map(|(l, _)| l)
+}
+
+/// Phrases to look for in the PDF: plain prose from the changed line, then
+/// from the lines around it (nearest first). Markup is dropped; anything Typst
+/// renders differently (code, math, quotes, dashes) splits a phrase.
+fn phrases_near(text: &str, line: usize) -> Vec<String> {
+    const MAX: usize = 12;
+    let lines: Vec<&str> = text.lines().collect();
+    let mut order = vec![line];
+    for d in 1..=6 {
+        order.push(line + d);
+        if let Some(l) = line.checked_sub(d) {
+            order.push(l);
+        }
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut single: Vec<String> = Vec::new();
+    for l in order {
+        let Some(src) = lines.get(l) else { continue };
+        for run in prose_runs(src) {
+            if run.len() >= 3 {
+                // Short windows: a phrase must not cross a line break in the PDF.
+                for w in run.chunks(4) {
+                    let w = if w.len() < 3 { &run[run.len() - 3..] } else { w };
+                    out.push(w.join(" "));
+                }
+            } else if run.join(" ").chars().count() >= 10 {
+                out.push(run.join(" "));
+            } else if let Some(w) = run.iter().find(|w| w.chars().count() >= 8) {
+                single.push(w.clone());
+            }
+        }
+    }
+    out.extend(single);
+    out.dedup();
+    out.truncate(MAX);
+    out
+}
+
+/// The runs of plain words in a Typst source line.
+fn prose_runs(line: &str) -> Vec<Vec<String>> {
+    let mut line = line.trim_start();
+    if let Some(i) = line.find("//").filter(|&i| i == 0 || line[..i].ends_with(char::is_whitespace)) {
+        line = &line[..i];
+    }
+    // Code lines render nothing as written.
+    if let Some(code) = line.strip_prefix('#') {
+        let word = code.split(|c: char| !c.is_alphanumeric()).next().unwrap_or("");
+        if matches!(word, "let" | "set" | "show" | "import" | "include" | "if" | "for" | "while") {
+            return vec![];
+        }
+    }
+    let line = line.trim_start_matches('=').trim_start();
+    let line = ["- ", "+ ", "/ "]
+        .iter()
+        .find_map(|m| line.strip_prefix(m))
+        .unwrap_or(line);
+    let mut runs = vec![];
+    let mut cur: Vec<String> = vec![];
+    let mut in_math = false;
+    for token in line.split_whitespace() {
+        let dollars = token.matches('$').count();
+        let breaks = in_math
+            || dollars > 0
+            || token.starts_with(['#', '@', '<', '\\'])
+            || token.contains(['"', '\'', '`', '(', ')', '[', ']', '{', '}', '~', '<', '>'])
+            || token.contains("--")
+            || token.contains("...");
+        if dollars % 2 == 1 {
+            in_math = !in_math;
+        }
+        let word: String = token.chars().filter(|c| !matches!(c, '*' | '_')).collect();
+        if breaks || !word.chars().any(char::is_alphanumeric) {
+            if !cur.is_empty() {
+                runs.push(std::mem::take(&mut cur));
+            }
+            continue;
+        }
+        cur.push(word);
+    }
+    if !cur.is_empty() {
+        runs.push(cur);
+    }
+    runs
 }
 
 /// The PDF tinymist wrote: `{ "path": … }` (0.13+), or a plain path (older).
@@ -375,6 +487,47 @@ As shown in @intro, $x^2 + y$ is *bold* and _soft_.
             Some(dir.join("notes.typ"))
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn change_near_the_cursor() {
+        let old = "a\nb\nc\nd\ne\n";
+        assert_eq!(changed_line(old, old, 0), None);
+        assert_eq!(changed_line(old, "a\nB\nc\nd\ne\n", 4), Some(1));
+        // Two changes: the one nearer the cursor.
+        assert_eq!(changed_line(old, "A\nb\nc\nd\nE\n", 3), Some(4));
+        assert_eq!(changed_line(old, "A\nb\nc\nd\nE\n", 1), Some(0));
+        // Lines added: the cursor's own line inside them.
+        assert_eq!(changed_line(old, "a\nb\nx\ny\nz\nc\nd\ne\n", 3), Some(3));
+        // A deletion: the line after it.
+        assert_eq!(changed_line(old, "a\nb\nd\ne\n", 0), Some(2));
+        assert_eq!(changed_line(old, "a\nb\nc\nd\n", 3), Some(3));
+    }
+
+    #[test]
+    fn prose_without_markup() {
+        let words = |l: &str| -> Vec<String> {
+            prose_runs(l).into_iter().map(|r| r.join(" ")).collect()
+        };
+        assert_eq!(
+            words("As shown in @intro, $x^2 + y$ is *bold* and _soft_."),
+            ["As shown in", "is bold and soft."]
+        );
+        assert_eq!(words("= Introduction <intro>"), ["Introduction"]);
+        assert_eq!(words("- an item with `code`"), ["an item with"]);
+        assert!(words("#let total = 3 + 4").is_empty());
+        assert!(words("#set page(paper: \"a4\")").is_empty());
+        assert_eq!(words("Plain text // a comment"), ["Plain text"]);
+        assert_eq!(words("See https://typst.app now"), ["See https://typst.app now"]);
+    }
+
+    #[test]
+    fn phrases_changed_line_first() {
+        let text = "= Results\nWe measured the speed of light twice today.\n#let x = 1\n";
+        let p = phrases_near(text, 2);
+        assert_eq!(p[0], "We measured the speed");
+        assert_eq!(p[1], "of light twice today.");
+        assert_eq!(p.len(), 2, "{p:?}"); // "Results" is too short alone
     }
 
     #[test]

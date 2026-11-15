@@ -672,6 +672,9 @@ pub struct EditorPanel {
     pi: pi_notes::PiNotes,
     /// Typst: whether tinymist has been told this file's document.
     typst_pin: typst::Pin,
+    /// Typst: the text the PDF was last made from (or loaded), to find what
+    /// changed on the next save and scroll the PDF there.
+    typst_base: Option<String>,
     _subs: Vec<Subscription>,
     _load: Option<Task<()>>,
 }
@@ -746,6 +749,7 @@ impl EditorPanel {
             _git_marks: None,
             pi: Default::default(),
             typst_pin: Default::default(),
+            typst_base: None,
             _subs: Vec::new(),
             _load: None,
         };
@@ -789,6 +793,9 @@ impl EditorPanel {
         };
         self.path = path;
         self.applied_revision = revision;
+        if typst::is_typst(&self.path) {
+            self.typst_base = Some(text.clone());
+        }
         self.editor.update(cx, |e, cx| {
             e.set_value(text, window, cx);
             e.set_readonly(read_only, cx);
@@ -1078,6 +1085,9 @@ impl EditorPanel {
                 self.applied_revision = b.revision();
                 let text = b.text().to_string();
                 let read_only = b.read_only.is_some();
+                if self.typst_base.is_some() {
+                    self.typst_base = Some(text.clone());
+                }
                 self.diff = None;
                 self.deleted = false;
                 if read_only {

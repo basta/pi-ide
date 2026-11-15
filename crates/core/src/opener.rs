@@ -32,6 +32,10 @@ pub struct PdfRequest {
     pub reload: bool,
     /// Scroll to this spot and mark it.
     pub at: Option<PdfSpot>,
+    /// Scroll to where one of these phrases is in the PDF (after the reload),
+    /// and mark it: the first phrase found wins, a single hit over several,
+    /// the hit nearest the view. For documents without SyncTeX (Typst).
+    pub find: Vec<String>,
 }
 
 /// A point on a PDF page: 0-based page, PDF points from its top-left corner.
