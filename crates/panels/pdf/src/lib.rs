@@ -682,7 +682,10 @@ impl Render for PdfPanel {
                             .text_color(theme.muted_foreground)
                             .px_2()
                             .child(if ready {
-                                format!("{page_count} pages")
+                                match page_count {
+                                    1 => "1 page".to_string(),
+                                    n => format!("{n} pages"),
+                                }
                             } else {
                                 String::new()
                             }),

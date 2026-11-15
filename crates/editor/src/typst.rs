@@ -37,8 +37,6 @@ pub const HIGHLIGHTS: &str = r##"
   "show" "set" "return" "break" "continue" "context" "as"
   "and" "or" "not"
 ] @keyword
-(import "import" @preproc)
-(include "include" @preproc)
 
 [(add) (sub) (mul) (div) (cmp)] @operator
 
@@ -48,7 +46,7 @@ pub const HIGHLIGHTS: &str = r##"
 (emph) @emphasis
 (strong) @emphasis.strong
 (url) @link_uri
-[(label) (ref)] @label
+[(label) (ref)] @attribute
 [(shorthand) (linebreak) (symbol)] @string.special.symbol
 (math) @string.special
 [(raw_span) (raw_blck)] @text.literal
@@ -94,7 +92,11 @@ impl Global for ToldNoServer {}
 /// After a Typst file is saved: have tinymist export its document's PDF, then
 /// show it beside the source (or reload it). Compile errors are already in
 /// Problems: tinymist publishes them as you type.
-pub(crate) fn export_on_save(panel: &EditorPanel, window: &mut Window, cx: &mut Context<EditorPanel>) {
+pub(crate) fn export_on_save(
+    panel: &EditorPanel,
+    window: &mut Window,
+    cx: &mut Context<EditorPanel>,
+) {
     let path = panel.path.clone();
     let project = panel.workspace.read(cx).root().to_path_buf();
     let store = pide_lsp::LspStore::for_workspace(&panel.workspace, cx);
@@ -170,6 +172,67 @@ pub(crate) fn export_on_save(panel: &EditorPanel, window: &mut Window, cx: &mut 
                     }
                 }
             }
+        });
+    })
+    .detach();
+}
+
+/// Where pinning the document stands, per editor tab.
+#[derive(Clone, Copy, Default, PartialEq)]
+pub(crate) enum Pin {
+    #[default]
+    None,
+    InFlight,
+    Done,
+    /// The server wasn't up yet: retry when its state changes.
+    Failed,
+}
+
+/// Tell tinymist which document to compile (`tinymist.pinMain`): the one the
+/// file belongs to. Without it tinymist compiles whichever file was focused
+/// last, so after opening an included chapter it stops recompiling the main
+/// file and its errors never reach Problems.
+pub(crate) fn pin_main(
+    panel: &mut EditorPanel,
+    window: &mut Window,
+    cx: &mut Context<EditorPanel>,
+) {
+    if panel.typst_pin == Pin::InFlight {
+        return;
+    }
+    panel.typst_pin = Pin::InFlight;
+    let path = panel.path.clone();
+    let project = panel.workspace.read(cx).root().to_path_buf();
+    let store = pide_lsp::LspStore::for_workspace(&panel.workspace, cx);
+    let find = cx
+        .background_executor()
+        .spawn(async move { root_document(&path, &project).map(|r| (path, r)) });
+    cx.spawn_in(window, async move |this, cx| {
+        let pinned = match find.await {
+            Some((path, root)) => {
+                let req = cx.update(|_, cx| {
+                    store.update(cx, |s, cx| {
+                        s.request(
+                            &path,
+                            None,
+                            "workspace/executeCommand",
+                            serde_json::json!({
+                                "command": "tinymist.pinMain",
+                                "arguments": [root.to_string_lossy()],
+                            }),
+                            cx,
+                        )
+                    })
+                });
+                match req {
+                    Ok(task) => task.await.is_ok(),
+                    Err(_) => return,
+                }
+            }
+            None => false,
+        };
+        let _ = this.update(cx, |p, _| {
+            p.typst_pin = if pinned { Pin::Done } else { Pin::Failed };
         });
     })
     .detach();
@@ -265,12 +328,19 @@ As shown in @intro, $x^2 + y$ is *bold* and _soft_.
         let caps = captures();
         assert!(has(&caps, "comment", "// a comment"), "{caps:?}");
         assert!(has(&caps, "title", "= Introduction <intro>"), "{caps:?}");
-        assert!(has(&caps, "label", "<intro>"));
-        assert!(has(&caps, "label", "@intro"));
+        // After the heading: the label inside it keeps its own color.
+        assert_eq!(
+            caps.iter()
+                .rev()
+                .find(|(_, t)| t == "<intro>")
+                .map(|(n, _)| n.as_str()),
+            Some("attribute")
+        );
+        assert!(has(&caps, "attribute", "@intro"));
         assert!(has(&caps, "function", "page"));
         assert!(has(&caps, "property", "paper"));
         assert!(has(&caps, "string", "\"a4\""));
-        assert!(has(&caps, "preproc", "import"));
+        assert!(has(&caps, "keyword", "import"));
         assert!(has(&caps, "keyword", "let"));
         assert!(has(&caps, "keyword", "if"));
         assert!(has(&caps, "number", "3"));
@@ -311,7 +381,10 @@ As shown in @intro, $x^2 + y$ is *bold* and _soft_.
     fn export_response() {
         let v = serde_json::json!({ "path": "/a/main.pdf", "data": null });
         assert_eq!(exported_path(&v), Some(PathBuf::from("/a/main.pdf")));
-        assert_eq!(exported_path(&serde_json::json!("/a/b.pdf")), Some(PathBuf::from("/a/b.pdf")));
+        assert_eq!(
+            exported_path(&serde_json::json!("/a/b.pdf")),
+            Some(PathBuf::from("/a/b.pdf"))
+        );
         assert_eq!(exported_path(&serde_json::Value::Null), None);
     }
 }

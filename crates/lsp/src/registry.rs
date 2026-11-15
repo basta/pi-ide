@@ -186,6 +186,30 @@ pub enum Installed {
     No { reason: String },
 }
 
+/// The version from `--version` output: its first line, unless that is only
+/// the name (tinymist prints `tinymist`, then `Build Git Describe: v0.15.12`,
+/// …, `Typst Version: 0.15.1`): then the name and the first version-ish field.
+fn version_text(out: &str) -> String {
+    let mut lines = out.lines().map(str::trim).filter(|l| !l.is_empty());
+    let Some(first) = lines.next() else {
+        return String::new();
+    };
+    if first.chars().any(|c| c.is_ascii_digit()) {
+        return first.to_string();
+    }
+    let field = lines.find_map(|l| {
+        let (key, value) = l.split_once(':')?;
+        let key = key.to_ascii_lowercase();
+        (key.contains("describe") || key.contains("version"))
+            .then(|| value.trim())
+            .filter(|v| !v.is_empty())
+    });
+    match field {
+        Some(v) => format!("{first} {v}"),
+        None => first.to_string(),
+    }
+}
+
 /// Blocking (runs the server with `--version`, ≤ 5 s): call off the UI thread.
 pub fn detect(spec: &ServerSpec) -> Installed {
     let Some(path) = find_command(&spec.command) else {
@@ -260,7 +284,7 @@ pub fn detect(spec: &ServerSpec) -> Installed {
             .to_string()
     };
     if out.status.success() {
-        let v = first_line(&out.stdout);
+        let v = version_text(&String::from_utf8_lossy(&out.stdout));
         let version = if v.is_empty() {
             first_line(&out.stderr)
         } else {
@@ -278,6 +302,22 @@ pub fn detect(spec: &ServerSpec) -> Installed {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn version_lines() {
+        assert_eq!(
+            version_text("rust-analyzer 1.91.0 (f8297e3 2025-10-28)\n"),
+            "rust-analyzer 1.91.0 (f8297e3 2025-10-28)"
+        );
+        assert_eq!(
+            version_text(
+                "tinymist\nBuild Timestamp: 2026-10-01\nBuild Git Describe: v0.15.12\nTypst Version: 0.15.1\n"
+            ),
+            "tinymist v0.15.12"
+        );
+        assert_eq!(version_text("tinymist\n"), "tinymist");
+        assert_eq!(version_text(""), "");
+    }
 
     #[test]
     fn overrides_apply_and_lookup_is_by_extension() {

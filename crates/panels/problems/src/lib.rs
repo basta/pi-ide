@@ -352,7 +352,7 @@ impl Render for Problems {
                     .overflow_y_scroll()
                     .when(rows.is_empty(), |this| {
                         this.child(div().p_3().text_sm().text_color(theme.muted_foreground).child(if any_server {
-                            "Nothing to fix. rust-analyzer reports type errors after you save."
+                            "Nothing to fix. (rust-analyzer only checks after you save.)"
                         } else {
                             "Open a file with a language server (Settings → Language Servers…) to see problems here."
                         }))

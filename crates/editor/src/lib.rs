@@ -7,7 +7,6 @@ mod follow;
 mod git_gutter;
 mod goto_line;
 pub mod latex;
-pub mod typst;
 mod lsp;
 mod minimal;
 mod nav;
@@ -17,6 +16,7 @@ mod rename;
 mod signature;
 mod symbols;
 mod tex;
+pub mod typst;
 pub use lsp::apply_workspace_edit;
 
 use std::path::{Path, PathBuf};
@@ -670,6 +670,8 @@ pub struct EditorPanel {
     _git_marks: Option<Task<()>>,
     /// Collaborator mode: the active pi session's notes on this file.
     pi: pi_notes::PiNotes,
+    /// Typst: whether tinymist has been told this file's document.
+    typst_pin: typst::Pin,
     _subs: Vec<Subscription>,
     _load: Option<Task<()>>,
 }
@@ -743,6 +745,7 @@ impl EditorPanel {
             _git_task: None,
             _git_marks: None,
             pi: Default::default(),
+            typst_pin: Default::default(),
             _subs: Vec::new(),
             _load: None,
         };
@@ -830,15 +833,25 @@ impl EditorPanel {
 
     fn attach_lsp(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let store = pide_lsp::LspStore::for_workspace(&self.workspace, cx);
-        self._subs
-            .push(cx.subscribe_in(&store, window, |this, store, ev, _, cx| {
-                if let pide_lsp::LspEvent::Diagnostics { path } = ev
-                    && *path == this.path
-                {
-                    this.diag_edits.clear();
-                    this.apply_diagnostics(store, cx);
+        self._subs.push(
+            cx.subscribe_in(&store, window, |this, store, ev, window, cx| {
+                match ev {
+                    pide_lsp::LspEvent::Diagnostics { path } if *path == this.path => {
+                        this.diag_edits.clear();
+                        this.apply_diagnostics(store, cx);
+                    }
+                    // tinymist came up after the tab opened.
+                    pide_lsp::LspEvent::Status
+                        if this.is_active
+                            && this.typst_pin == typst::Pin::Failed
+                            && typst::is_typst(&this.path) =>
+                    {
+                        typst::pin_main(this, window, cx);
+                    }
+                    _ => {}
                 }
-            }));
+            }),
+        );
         self.apply_diagnostics(&store, cx);
         if pide_lsp::registry::spec_for(store.read(cx).specs(), &self.path).is_some() {
             let providers = lsp::Providers::new(&store, self.path.clone());
@@ -856,6 +869,9 @@ impl EditorPanel {
             });
         }
         self.lsp = Some(store);
+        if self.is_active && typst::is_typst(&self.path) {
+            typst::pin_main(self, window, cx);
+        }
     }
 
     /// A completion was just inserted: add its extra edits (auto-import), which
@@ -1172,11 +1188,15 @@ impl gpui_kit::component::dock::BasePanel for EditorPanel {
         PANEL_NAME
     }
 
-    fn set_active(&mut self, active: bool, _: &mut Window, cx: &mut Context<Self>) {
+    fn set_active(&mut self, active: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.is_active = active;
         if active {
             let buffer = self.buffer.clone();
             self.workspace.update(cx, |w, cx| w.set_active(buffer, cx));
+            // Another Typst document may have been pinned meanwhile.
+            if self.lsp.is_some() && typst::is_typst(&self.path) {
+                typst::pin_main(self, window, cx);
+            }
         }
     }
 
