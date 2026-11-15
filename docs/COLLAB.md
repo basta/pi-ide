@@ -109,15 +109,18 @@ by step") in the order that explains it, from the entry point onward, instead of
 click one to open its session (a saved one is resumed; pi itself starts only on your next message) and
 walk from its first unseen stop.
 
-## Notes in the margin
+## Notes in the code
 
-pi's notes on the open file show like Google Docs comments: each note's lines get a faint magenta
-fill, and a card in a 300 px margin right of the code sits level with the note's first line
-(`editor/src/pi_margin.rs`). Cards that would overlap are pushed apart: the active card stays level,
-the ones below move down, the ones above move up. A card at rest shows two lines of the note and
-its reply count; click it to make it active (it becomes the walkthrough's current stop and is marked
-seen). The active card shows the whole note, its thread, Back / Next, Resolve (= Dismiss) and a reply
-box (Cmd+Enter or Send). Tabs narrower than 900 px keep the note bar instead; never both.
+pi's notes on the open file float over the code and take no width from it
+(`editor/src/pi_float.rs`). Each note's lines get a faint magenta tint (the current one stronger). At
+rest a note is a "lens": one dim line after the code on its first line, "◆ pi <the note's first
+words> · 2 replies"; when the line is too long for that, a small "◆ pi" pill at the editor's right
+edge. Clicking a lens or pill opens its card (it becomes the walkthrough's current stop and is marked
+seen); Back / Next open the next note's card. The card sits just below the note's lines (above them
+when there's no room), with the whole note, its thread, Back / Next, ✕, Resolve (= Dismiss) and a
+reply box (Cmd+Enter or Send). ✕ or Esc collapses it back into its lens. GPUI Kit can't make room
+between lines, so the open card covers the code under it; that's why it collapses. (Round 1 put cards
+in a 300 px margin; it took too much width from the code.)
 
 **Replies in place.** A reply is added to the note's thread (`Pin::thread`, `HunkNote::thread`,
 `FileChange::thread`, saved with the session) and sent to pi in the session with the location prefix
@@ -126,10 +129,11 @@ and "don't change code unless I ask". When the run settles, pi's last text of th
 card. If pi re-explains the file meanwhile, the answer and the thread follow the note with the same
 line text. Next step: an `ide_reply(thread, text)` tool so pi answers on the card explicitly.
 
-**Positions.** GPUI Kit's `EditorState::range_to_bounds` gives a line's bounds from the editor's last
-paint; the margin corrects them by the scroll since then and asks for one more frame when what it drew
-from was stale (a line came into view, a card's height changed). A card whose line is off screen
-isn't shown (the scrollbar marks still are).
+**Positions.** GPUI Kit's `EditorState::range_to_bounds` gives a range's bounds from the editor's last
+paint; the overlay corrects them by the scroll since then and asks for one more frame when what it drew
+from was stale (a line came into view, the card's height changed). For a line above the laid-out rows
+`range_to_bounds` reports the first laid-out line, not `None`, so visibility also checks
+`visible_row_range()`. A note whose line is off screen shows nothing (the scrollbar marks still do).
 
 ## Notes across sessions
 

@@ -1,17 +1,14 @@
 //! Collaborator mode in the editor (docs/COLLAB.md): the active pi session's pins
 //! and hunk notes on this file as gutter marks (drawn over the git marks),
-//! scrollbar marks, a tint on the shown note's lines, and the note bar above the
-//! editor ("pi · <session>: <note>" with Reply, Dismiss, Back, Next).
+//! scrollbar marks and a tint on every note's lines (the current one stronger).
+//! The notes themselves float over the code: `pi_float`.
 //! All drawing is GPUI Kit's decorations; we only compute where.
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{
     GutterDecoration, GutterDecorationCollection, OverviewRulerDecoration,
     OverviewRulerDecorationCollection, OverviewRulerLane, Position, RangeDecoration,
     RangeDecorationCollection, RangeDecorationStyle, Rope, RopeExt as _,
 };
-use gpui_kit::component::{ActiveTheme, Sizable as _, h_flex, v_flex};
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use pide_core::collab::{Anchor, Stop};
 use pide_core::{Agent, Services, SessionsEvent};
@@ -36,12 +33,12 @@ pub(crate) struct PiNotes {
     /// Any session changed (notes of the other open sessions show too, dimmer).
     _sessions_obs: Option<Subscription>,
     sessions: Option<Entity<pide_core::Sessions>>,
-    /// The margin's reply box and what the margin last drew from (`pi_margin`).
+    /// The open card's reply box and what the overlay last drew from (`pi_float`).
     pub(crate) reply: Option<Entity<gpui_kit::component::input::TextareaState>>,
     pub(crate) _reply_sub: Option<Subscription>,
-    pub(crate) geom: crate::pi_margin::Geom,
-    /// The last render showed the margin (its width counts toward the tab's).
-    pub(crate) margin_was_on: bool,
+    pub(crate) geom: crate::pi_float::Geom,
+    /// The current note you collapsed (✕ / Esc): its card stays closed.
+    pub(crate) collapsed: Option<pide_core::collab::StopRef>,
     /// Rendered markdown of notes and pi's answers in the active card, by text.
     pub(crate) markdown: std::collections::HashMap<String, Entity<gpui_kit::component::text::TextViewState>>,
 }
@@ -151,16 +148,11 @@ impl EditorPanel {
                 s.line = n;
             }
         }
-        // In the margin only the active card's range is stronger; the bar shows
-        // (and so stresses) the first unseen note too.
-        let shown = if self.pi.margin_was_on {
-            current
-                .as_ref()
-                .and_then(|c| stops.iter().find(|s| &s.at == c))
-                .cloned()
-        } else {
-            shown_stop(&stops, current.as_ref()).cloned()
-        };
+        // The current note's range is stronger.
+        let shown = current
+            .as_ref()
+            .and_then(|c| stops.iter().find(|s| &s.at == c))
+            .cloned();
         let color = pide_core::colors::pi_note(cx);
         let gutter: Vec<GutterDecoration> = others
             .iter()
@@ -222,119 +214,6 @@ impl EditorPanel {
         self.pi.stops = stops;
         cx.notify();
     }
-
-    /// The note bar, when the active session has a note on this file.
-    pub(crate) fn render_pi_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let agent = self.pi.agent.clone()?;
-        let a = agent.read(cx);
-        let stop = shown_stop(&self.pi.stops, a.current_stop.as_ref())?.clone();
-        let all = a.stops();
-        let index = all.iter().position(|s| s.at == stop.at);
-        let total = all.len();
-        let session = a.name.clone();
-        let root = self.workspace.read(cx).root().to_path_buf();
-        let reply = stop.reply_prefix(&root);
-        let theme = cx.theme();
-        let color = pide_core::colors::pi_note(cx);
-        let (a_reply, a_dismiss, a_back, a_next) =
-            (agent.clone(), agent.clone(), agent.clone(), agent.clone());
-        let at = stop.at.clone();
-        let at_reply = stop.at.clone();
-        // Who and where on top (with the buttons), the note itself below at full width.
-        let head = h_flex()
-            .w_full()
-            .gap_2()
-            .child(
-                div()
-                    .flex_none()
-                    .max_w(px(220.))
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .whitespace_nowrap()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(color)
-                    .child(format!("pi · {session}")),
-            )
-            .child(div().flex_1())
-            .when_some(index, |this, i| {
-                this.child(
-                    div()
-                        .flex_none()
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child(format!("{}/{total}", i + 1)),
-                )
-            })
-            .child(
-                Button::new("pi-note-reply")
-                    .xsmall()
-                    .label("Reply")
-                    .tooltip("Answer pi in this session, about this spot")
-                    .on_click(move |_, window, cx| {
-                        a_reply.update(cx, |a, cx| a.visit_stop(&at_reply, cx));
-                        pide_core::opener::ask_agent(reply.clone(), window, cx);
-                    }),
-            )
-            .child(
-                Button::new("pi-note-dismiss")
-                    .xsmall()
-                    .ghost()
-                    .label("Dismiss")
-                    .on_click(move |_, _, cx| {
-                        a_dismiss.update(cx, |a, cx| a.dismiss_stop(&at, cx));
-                    }),
-            )
-            .child(
-                Button::new("pi-note-back")
-                    .xsmall()
-                    .ghost()
-                    .label("Back")
-                    .on_click(move |_, window, cx| {
-                        pide_core::collab::walk(&a_back, -1, window, cx);
-                    }),
-            )
-            .child(
-                Button::new("pi-note-next")
-                    .xsmall()
-                    .ghost()
-                    .label("Next")
-                    .on_click(move |_, window, cx| {
-                        pide_core::collab::walk(&a_next, 1, window, cx);
-                    }),
-            );
-        Some(
-            v_flex()
-                .w_full()
-                .gap_0p5()
-                .px_3()
-                .py_1()
-                .text_sm()
-                .bg(color.opacity(0.12))
-                .border_b_1()
-                .border_color(theme.border)
-                .child(head)
-                .child(div().w_full().child(stop.label()).when(stop.outdated, |d| {
-                    d.child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child("outdated: the line it was about changed"),
-                    )
-                }))
-                .into_any_element(),
-        )
-    }
-}
-
-/// The stop the bar shows: the walkthrough's current stop if it's in this file,
-/// else this file's first unseen one.
-fn shown_stop<'a>(
-    stops: &'a [Stop],
-    current: Option<&pide_core::collab::StopRef>,
-) -> Option<&'a Stop> {
-    current
-        .and_then(|c| stops.iter().find(|s| &s.at == c))
-        .or_else(|| stops.iter().find(|s| !s.seen))
 }
 
 /// 1-based `line` as a byte range (the whole line; clamped to the text).
