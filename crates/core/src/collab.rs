@@ -109,17 +109,29 @@ pub const TOUR_PREFIX: &str = "tour:";
 /// A tour stop's note is "<title> · <i>/<n>: <note>"; split it into (title, note)
 /// at the first " · i/n: " (either part may contain " · " or ": " itself).
 pub fn split_tour_note(text: &str) -> (&str, &str) {
+    match parse_tour_note(text) {
+        Some((title, _, _, note)) => (title, note),
+        None => ("", text),
+    }
+}
+
+/// A tour stop's note as (title, i, n, note), 1-based `i`; `None` for other notes.
+pub fn parse_tour_note(text: &str) -> Option<(&str, usize, usize, &str)> {
     for (at, sep) in text.match_indices(" · ") {
         let rest = &text[at + sep.len()..];
         let Some((count, body)) = rest.split_once(": ") else {
             continue;
         };
         let numeric = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
-        if count.split_once('/').is_some_and(|(i, n)| numeric(i) && numeric(n)) {
-            return (&text[..at], body);
+        if let Some((i, n)) = count.split_once('/')
+            && numeric(i)
+            && numeric(n)
+            && let (Ok(i), Ok(n)) = (i.parse(), n.parse())
+        {
+            return Some((&text[..at], i, n, body));
         }
     }
-    ("", text)
+    None
 }
 
 /// One of `ide_explain_change`'s hunk notes.

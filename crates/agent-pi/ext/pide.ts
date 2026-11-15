@@ -284,7 +284,7 @@ export default function (pi: any) {
     parameters: {
       type: "object",
       properties: {
-        title: { type: "string", description: "What the tour shows, a few words" },
+        title: { type: "string", description: "What the tour shows, a few words (shown as the heading of every stop)" },
         stops: {
           type: "array",
           items: {
@@ -294,7 +294,12 @@ export default function (pi: any) {
               line: { type: "integer", minimum: 1 },
               code: { type: "string", description: CODE_DOC },
               end_line: { type: "integer", minimum: 1 },
-              note: { type: "string" },
+              note: {
+                type: "string",
+                description:
+                  "One to three plain sentences shown under the title in the editor. Don't number it or " +
+                  "start with 'Step N' or a label (pide shows the title and position); no Markdown.",
+              },
             },
             required: ["path", "line", "code", "note"],
           },

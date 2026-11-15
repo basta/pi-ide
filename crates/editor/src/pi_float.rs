@@ -198,7 +198,7 @@ impl EditorPanel {
                                 .min_w_0()
                                 .overflow_hidden()
                                 .text_ellipsis()
-                                .child(lens_text(&s.label())),
+                                .child(lens_text(&note_body(&s.label()))),
                         )
                         .when(replies > 0, |d| {
                             d.child(div().flex_none().child(if replies == 1 {
@@ -368,6 +368,8 @@ impl EditorPanel {
             .reply
             .as_ref()
             .is_none_or(|r| r.read(cx).value().trim().is_empty());
+        let label = stop.label();
+        let tour = pide_core::collab::parse_tour_note(&label);
         let head = h_flex()
             .w_full()
             .gap_1p5()
@@ -385,9 +387,13 @@ impl EditorPanel {
                     .text_ellipsis()
                     .whitespace_nowrap()
                     .text_color(theme.muted_foreground)
-                    .child(match index {
-                        Some(i) => format!("{kind} · {}/{total} · {session}", i + 1),
-                        None => format!("{kind} · {session}"),
+                    .child(match tour {
+                        // A tour stop: the tour's title and the stop's own count on top.
+                        Some((title, i, n, _)) => format!("{title} · {i}/{n}"),
+                        None => match index {
+                            Some(i) => format!("{kind} · {}/{total} · {session}", i + 1),
+                            None => format!("{kind} · {session}"),
+                        },
                     }),
             )
             .child(
@@ -427,7 +433,7 @@ impl EditorPanel {
                 .clone();
             TextView::new(&view).selectable(true).into_any_element()
         };
-        let note = md(&stop.label(), cx);
+        let note = md(&note_body(&label), cx);
         let replies: Vec<(bool, AnyElement)> = stop
             .thread
             .iter()
@@ -531,6 +537,14 @@ impl EditorPanel {
     }
 }
 
+/// A note without the "<title> · i/n: " a tour stop's note starts with.
+fn note_body(label: &str) -> String {
+    match pide_core::collab::parse_tour_note(label) {
+        Some((_, _, _, note)) => note.to_string(),
+        None => label.to_string(),
+    }
+}
+
 /// The lens's text: the note's first line.
 fn lens_text(label: &str) -> String {
     let first = label.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
@@ -596,11 +610,17 @@ fn kind_label(at: &StopRef, pins: &[pide_core::collab::Pin]) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{lens_text, plain_numbers};
+    use super::{lens_text, note_body, plain_numbers};
 
     #[::core::prelude::v1::test]
     fn numbered_parens_stay_plain() {
         assert_eq!(plain_numbers("1) a\n  12) b\nx 3) c"), "1\\) a\n  12\\) b\nx 3) c");
+    }
+
+    #[::core::prelude::v1::test]
+    fn a_tour_note_loses_its_heading() {
+        assert_eq!(note_body("Story · 2/5: The cache is filled here."), "The cache is filled here.");
+        assert_eq!(note_body("Plain note: with a colon"), "Plain note: with a colon");
     }
 
     #[::core::prelude::v1::test]
