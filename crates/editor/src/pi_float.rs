@@ -161,11 +161,11 @@ impl EditorPanel {
                 let is_open = open.as_ref().is_some_and(|o| o.at == s.at);
                 let top = start.top() + dy - ob.top();
                 // The lens after the line's text, or a pill at the right edge.
-                let end = crate::pi_notes::line_range(&rope, s.line).end;
-                let line_end = editor
-                    .range_to_bounds(&(end..end))
-                    .map(|b| b.left())
-                    .unwrap_or(start.left());
+                // A soft-wrapped line ends on its last visual row: the lens
+                // goes there, not on the first row over the wrapped text.
+                let end_b = line_end_bounds(editor, &rope, s.line).unwrap_or(start);
+                let line_end = end_b.left();
+                let lens_top = end_b.top() + dy - ob.top();
                 let x = line_end + px(LENS_GAP) - ob.left();
                 let room = view.right() - px(RIGHT_PAD) - (line_end + px(LENS_GAP));
                 let replies = s.thread.len();
@@ -174,8 +174,8 @@ impl EditorPanel {
                 let el = div()
                     .id(("pi-lens", i))
                     .absolute()
-                    .top(top)
-                    .h(start.size.height)
+                    .top(lens_top)
+                    .h(end_b.size.height)
                     .flex()
                     .items_center()
                     .gap_1p5()
@@ -225,7 +225,10 @@ impl EditorPanel {
 
                 if is_open {
                     // Below the note's last line; above its first if that doesn't fit.
-                    let last = line_bounds(editor, &rope, s.end_line).unwrap_or(start);
+                    // (its last visual row, when it wraps).
+                    let last = line_bounds(editor, &rope, s.end_line)
+                        .and_then(|_| line_end_bounds(editor, &rope, s.end_line))
+                        .unwrap_or(end_b);
                     // On line boundaries, so no line shows half above the card.
                     let below = last.bottom() + dy - ob.top();
                     let above = top - card_h;
@@ -603,6 +606,17 @@ fn line_bounds(
     let b = editor.range_to_bounds(&(start..start))?;
     let view = editor.input_bounds();
     (b.bottom() > view.top() && b.top() < view.bottom()).then_some(b)
+}
+
+/// Where 1-based `line` ends (an empty range at its end): on its last visual
+/// row when the line is soft-wrapped.
+fn line_end_bounds(
+    editor: &gpui_kit::component::input::EditorState,
+    rope: &gpui_kit::component::input::Rope,
+    line: usize,
+) -> Option<Bounds<Pixels>> {
+    let end = crate::pi_notes::line_range(rope, line).end;
+    editor.range_to_bounds(&(end..end))
 }
 
 fn kind_label(at: &StopRef, pins: &[pide_core::collab::Pin]) -> &'static str {
