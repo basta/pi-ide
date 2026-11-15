@@ -686,6 +686,7 @@ pub fn open_pdf(path: PathBuf, window: &mut Window, cx: &mut App) {
             reload: false,
             at: None,
             find: Vec::new(),
+            raise: true,
         },
         window,
         cx,
@@ -712,9 +713,11 @@ pub fn show_pdf(req: pide_core::opener::PdfRequest, window: &mut Window, cx: &mu
         });
         let p = if let Some(p) = open {
             let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
-            shell
-                .dock
-                .update(cx, |d, cx| d.select_panel(pid, window, cx));
+            if req.raise {
+                shell
+                    .dock
+                    .update(cx, |d, cx| d.select_panel(pid, window, cx));
+            }
             if req.reload {
                 p.update(cx, |p, cx| p.reload(cx));
             }
@@ -745,7 +748,7 @@ pub fn show_pdf(req: pide_core::opener::PdfRequest, window: &mut Window, cx: &mu
             p.update(cx, |p, cx| p.reveal(at, cx));
         }
         if !req.find.is_empty() {
-            p.update(cx, |p, cx| p.reveal_text(req.find, cx));
+            p.update(cx, |p, cx| p.reveal_text(req.find, req.raise, cx));
         }
     });
     if let Some(f) = keep_focus {

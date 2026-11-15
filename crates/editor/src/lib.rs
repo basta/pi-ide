@@ -675,6 +675,7 @@ pub struct EditorPanel {
     /// Typst: the text the PDF was last made from (or loaded), to find what
     /// changed on the next save and scroll the PDF there.
     typst_base: Option<String>,
+    typst_exports: typst::Exports,
     _subs: Vec<Subscription>,
     _load: Option<Task<()>>,
 }
@@ -704,7 +705,7 @@ impl EditorPanel {
         let focus = editor.focus_handle(cx);
 
         let mut subs = vec![
-            cx.subscribe(&editor, |this, editor, ev: &InputEvent, cx| match ev {
+            cx.subscribe_in(&editor, window, |this, editor, ev: &InputEvent, window, cx| match ev {
                 InputEvent::Change => {
                     if let Some(buffer) = this.buffer.clone() {
                         let text = editor.read(cx).text().clone();
@@ -714,6 +715,9 @@ impl EditorPanel {
                     this.signature_after_edit(cx);
                     this.refresh_git_marks(std::time::Duration::from_millis(250), cx);
                     this.pi_text_changed(cx);
+                    if this.typst_base.is_some() {
+                        typst::export_on_type(this, window, cx);
+                    }
                 }
                 InputEvent::Blur => this.hide_signature(cx),
                 _ => {}
@@ -750,6 +754,7 @@ impl EditorPanel {
             pi: Default::default(),
             typst_pin: Default::default(),
             typst_base: None,
+            typst_exports: Default::default(),
             _subs: Vec::new(),
             _load: None,
         };
@@ -843,9 +848,14 @@ impl EditorPanel {
         self._subs.push(
             cx.subscribe_in(&store, window, |this, store, ev, window, cx| {
                 match ev {
-                    pide_lsp::LspEvent::Diagnostics { path } if *path == this.path => {
-                        this.diag_edits.clear();
-                        this.apply_diagnostics(store, cx);
+                    pide_lsp::LspEvent::Diagnostics { path } => {
+                        if *path == this.path {
+                            this.diag_edits.clear();
+                            this.apply_diagnostics(store, cx);
+                        }
+                        if typst::is_typst(path) && this.typst_base.is_some() {
+                            typst::diagnostics_changed(this, window, cx);
+                        }
                     }
                     // tinymist came up after the tab opened.
                     pide_lsp::LspEvent::Status
@@ -1086,7 +1096,13 @@ impl EditorPanel {
                 let text = b.text().to_string();
                 let read_only = b.read_only.is_some();
                 if self.typst_base.is_some() {
-                    self.typst_base = Some(text.clone());
+                    if typst::on_type(cx) {
+                        // Export it (pi's edit too), scrolled to what changed.
+                        typst::export_on_type(self, window, cx);
+                    } else {
+                        // The next save shows the user's change, not this one.
+                        self.typst_base = Some(text.clone());
+                    }
                 }
                 self.diff = None;
                 self.deleted = false;

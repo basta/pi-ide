@@ -4,14 +4,14 @@
 //! theme captures. The grammar's own query is Helix's (first match wins);
 //! here later patterns win, so general ones come first.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::highlighter::{LanguageConfig, LanguageRegistry};
 use gpui_kit::component::notification::Notification;
-use gpui_kit::{Context, Global, Window};
+use gpui_kit::{App, Context, Global, Window};
 use pide_core::opener::PdfRequest;
+use pide_core::settings::Settings;
 
 use crate::EditorPanel;
 
@@ -79,112 +79,238 @@ pub fn init() {
     );
 }
 
-/// Documents exporting right now (a second save waits for the first).
+/// Exports of one editor tab: one at a time; changes meanwhile ask for one more.
 #[derive(Default)]
-struct Exporting(HashSet<PathBuf>);
-impl Global for Exporting {}
+pub(crate) struct Exports {
+    busy: bool,
+    /// Another export is wanted when this one ends (`true`: for a save).
+    again: Option<bool>,
+    /// An export as you type is queued for the end of this round of edits.
+    queued: bool,
+    /// Bumped per export, so a timed-out one that answers late is ignored.
+    generation: u64,
+    /// An export as you type was held back: the document doesn't compile.
+    held: bool,
+}
+
+/// tinymist never answers an export of a document that doesn't compile (seen
+/// with 0.15): give up on it after this long.
+const EXPORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Whether tinymist reports errors in any Typst file (the document can't
+/// export then; it doesn't answer the request at all).
+fn has_errors(store: &gpui_kit::Entity<pide_lsp::LspStore>, cx: &App) -> bool {
+    store.read(cx).diagnostics().iter().any(|(p, d)| {
+        is_typst(p)
+            && d.items
+                .iter()
+                .any(|i| i.severity == Some(lsp_types::DiagnosticSeverity::ERROR))
+    })
+}
+
+/// New diagnostics: an export held back for errors goes out once they're gone.
+pub(crate) fn diagnostics_changed(
+    panel: &mut EditorPanel,
+    window: &mut Window,
+    cx: &mut Context<EditorPanel>,
+) {
+    if panel.typst_exports.held {
+        panel.typst_exports.held = false;
+        export_on_type(panel, window, cx);
+    }
+}
 
 /// Told the user once that the PDF needs tinymist.
 #[derive(Default)]
 struct ToldNoServer(bool);
 impl Global for ToldNoServer {}
 
-/// After a Typst file is saved: have tinymist export its document's PDF, then
-/// show it beside the source (or reload it), scrolled to what changed since
-/// the last export. Compile errors are already in Problems: tinymist
-/// publishes them as you type.
+fn settings(cx: &App) -> (bool, bool) {
+    cx.try_global::<Settings>()
+        .map(|s| (s.typst_pdf_on_type, s.typst_pdf_follow))
+        .unwrap_or((true, true))
+}
+
+/// Whether the PDF is exported as you type (`typst.pdf_on_type`).
+pub(crate) fn on_type(cx: &App) -> bool {
+    settings(cx).0
+}
+
+/// The text changed (typing, undo, an outside change): export the PDF from
+/// the editor's text, without saving. Edits made in one go (an outside change
+/// applied line by line) export once, after the last of them; edits during an
+/// export, once it ends. Experimental: `typst.pdf_on_type`.
+pub(crate) fn export_on_type(
+    panel: &mut EditorPanel,
+    window: &mut Window,
+    cx: &mut Context<EditorPanel>,
+) {
+    if panel.typst_exports.queued || panel.buffer.is_none() || !on_type(cx) {
+        return;
+    }
+    panel.typst_exports.queued = true;
+    cx.spawn_in(window, async move |this, cx| {
+        let _ = this.update_in(cx, |p, window, cx| {
+            p.typst_exports.queued = false;
+            let text = p.editor.read(cx).text().to_string();
+            // Loading the file, or the same text again.
+            if p.typst_base.as_deref() != Some(text.as_str()) {
+                export(p, false, window, cx);
+            }
+        });
+    })
+    .detach();
+}
+
+/// After a Typst file is saved.
 pub(crate) fn export_on_save(
     panel: &mut EditorPanel,
     window: &mut Window,
     cx: &mut Context<EditorPanel>,
 ) {
+    export(panel, true, window, cx);
+}
+
+/// Have tinymist export the document's PDF from the text it has (the editor
+/// keeps it in sync, saved or not), then show it beside the source (or reload
+/// it), scrolled to what changed since the last export. Compile errors are
+/// already in Problems: tinymist publishes them as you type.
+fn export(
+    panel: &mut EditorPanel,
+    on_save: bool,
+    window: &mut Window,
+    cx: &mut Context<EditorPanel>,
+) {
+    if panel.typst_exports.busy {
+        *panel.typst_exports.again.get_or_insert(false) |= on_save;
+        return;
+    }
+    let store = pide_lsp::LspStore::for_workspace(&panel.workspace, cx);
+    if !on_save && has_errors(&store, cx) {
+        panel.typst_exports.held = true;
+        return;
+    }
+    panel.typst_exports.busy = true;
+    panel.typst_exports.generation += 1;
+    let generation = panel.typst_exports.generation;
+    let follow = settings(cx).1;
     let text = panel.editor.read(cx).text().to_string();
     let cursor = panel.editor.read(cx).cursor_position().line as usize;
     let phrases = panel
         .typst_base
         .replace(text.clone())
+        .filter(|_| follow)
         .and_then(|old| changed_line(&old, &text, cursor))
         .map(|line| phrases_near(&text, line))
         .unwrap_or_default();
     let path = panel.path.clone();
     let project = panel.workspace.read(cx).root().to_path_buf();
-    let store = pide_lsp::LspStore::for_workspace(&panel.workspace, cx);
     let find = cx
         .background_executor()
         .spawn(async move { root_document(&path, &project).map(|r| (path, r)) });
-    cx.spawn_in(window, async move |_, cx| {
-        let Some((path, root)) = find.await else {
-            return;
-        };
-        let started = cx
-            .update(|_, cx| cx.default_global::<Exporting>().0.insert(root.clone()))
-            .unwrap_or(false);
-        if !started {
-            return;
-        }
-        let export = cx.update(|_, cx| {
-            store.update(cx, |s, cx| {
-                s.request(
-                    &path,
-                    None,
-                    "workspace/executeCommand",
-                    serde_json::json!({
-                        "command": "tinymist.exportPdf",
-                        "arguments": [root.to_string_lossy()],
-                    }),
-                    cx,
-                )
-            })
-        });
-        let result = match export {
-            Ok(task) => task.await,
-            Err(_) => return,
-        };
-        let _ = cx.update(|window, cx| {
-            cx.default_global::<Exporting>().0.remove(&root);
-            match result {
-                Ok(v) => {
-                    let pdf = exported_path(&v).unwrap_or_else(|| root.with_extension("pdf"));
-                    if pdf.is_file() {
-                        pide_core::opener::show_pdf(
-                            PdfRequest {
-                                path: pdf,
-                                beside: true,
-                                reload: true,
-                                at: None,
-                                find: phrases,
-                            },
-                            window,
-                            cx,
-                        );
-                    }
-                }
-                Err(e) => {
-                    let msg = format!("{e:#}");
-                    if msg.contains("no language server running") {
-                        let told = &mut cx.default_global::<ToldNoServer>().0;
-                        if !*told {
-                            *told = true;
-                            window.push_notification(
-                                Notification::info(
-                                    "The Typst PDF on save needs tinymist: install it from Settings → Language Servers.",
-                                ),
-                                cx,
-                            );
-                        }
-                    } else {
-                        // Usually a compile error, which Problems shows in full.
-                        log::info!("typst export: {msg}");
-                        window.push_notification(
-                            Notification::warning("Typst couldn't compile the PDF (see Problems)."),
-                            cx,
-                        );
-                    }
-                }
+    // Free the tab for the next export if tinymist doesn't answer this one.
+    cx.spawn_in(window, async move |this, cx| {
+        cx.background_executor().timer(EXPORT_TIMEOUT).await;
+        let _ = this.update_in(cx, |p, window, cx| {
+            if p.typst_exports.busy && p.typst_exports.generation == generation {
+                log::info!("typst export: no answer from tinymist, giving up");
+                finished(p, window, cx);
             }
         });
     })
     .detach();
+    cx.spawn_in(window, async move |this, cx| {
+        if let Some((path, root)) = find.await {
+            let export = cx.update(|_, cx| {
+                store.update(cx, |s, cx| {
+                    s.request(
+                        &path,
+                        None,
+                        "workspace/executeCommand",
+                        serde_json::json!({
+                            "command": "tinymist.exportPdf",
+                            "arguments": [root.to_string_lossy()],
+                        }),
+                        cx,
+                    )
+                })
+            });
+            if let Ok(task) = export {
+                let result = task.await;
+                let _ = cx.update(|window, cx| show(result, root, phrases, on_save, window, cx));
+            }
+        }
+        let _ = this.update_in(cx, |p, window, cx| {
+            if p.typst_exports.generation == generation {
+                finished(p, window, cx);
+            }
+        });
+    })
+    .detach();
+}
+
+/// The export in flight is done (or given up): run the one asked for meanwhile.
+fn finished(panel: &mut EditorPanel, window: &mut Window, cx: &mut Context<EditorPanel>) {
+    panel.typst_exports.busy = false;
+    panel.typst_exports.generation += 1;
+    if let Some(on_save) = panel.typst_exports.again.take() {
+        export(panel, on_save, window, cx);
+    }
+}
+
+fn show(
+    result: anyhow::Result<serde_json::Value>,
+    root: PathBuf,
+    phrases: Vec<String>,
+    on_save: bool,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    match result {
+        Ok(v) => {
+            let pdf = exported_path(&v).unwrap_or_else(|| root.with_extension("pdf"));
+            if pdf.is_file() {
+                pide_core::opener::show_pdf(
+                    PdfRequest {
+                        path: pdf,
+                        beside: true,
+                        reload: true,
+                        at: None,
+                        find: phrases,
+                        // As you type: refresh it where it is, quietly.
+                        raise: on_save,
+                    },
+                    window,
+                    cx,
+                );
+            }
+        }
+        Err(e) => {
+            let msg = format!("{e:#}");
+            if msg.contains("no language server running") {
+                let told = &mut cx.default_global::<ToldNoServer>().0;
+                if !*told {
+                    *told = true;
+                    window.push_notification(
+                        Notification::info(
+                            "The Typst PDF needs tinymist: install it from Settings → Language Servers.",
+                        ),
+                        cx,
+                    );
+                }
+            } else if on_save {
+                // Usually a compile error, which Problems shows in full.
+                log::info!("typst export: {msg}");
+                window.push_notification(
+                    Notification::warning("Typst couldn't compile the PDF (see Problems)."),
+                    cx,
+                );
+            } else {
+                // Mid-word while typing: normal, Problems has it.
+                log::debug!("typst export as you type: {msg}");
+            }
+        }
+    }
 }
 
 /// Where pinning the document stands, per editor tab.
@@ -287,7 +413,11 @@ fn phrases_near(text: &str, line: usize) -> Vec<String> {
             if run.len() >= 3 {
                 // Short windows: a phrase must not cross a line break in the PDF.
                 for w in run.chunks(4) {
-                    let w = if w.len() < 3 { &run[run.len() - 3..] } else { w };
+                    let w = if w.len() < 3 {
+                        &run[run.len() - 3..]
+                    } else {
+                        w
+                    };
                     out.push(w.join(" "));
                 }
             } else if run.join(" ").chars().count() >= 10 {
@@ -306,13 +436,22 @@ fn phrases_near(text: &str, line: usize) -> Vec<String> {
 /// The runs of plain words in a Typst source line.
 fn prose_runs(line: &str) -> Vec<Vec<String>> {
     let mut line = line.trim_start();
-    if let Some(i) = line.find("//").filter(|&i| i == 0 || line[..i].ends_with(char::is_whitespace)) {
+    if let Some(i) = line
+        .find("//")
+        .filter(|&i| i == 0 || line[..i].ends_with(char::is_whitespace))
+    {
         line = &line[..i];
     }
     // Code lines render nothing as written.
     if let Some(code) = line.strip_prefix('#') {
-        let word = code.split(|c: char| !c.is_alphanumeric()).next().unwrap_or("");
-        if matches!(word, "let" | "set" | "show" | "import" | "include" | "if" | "for" | "while") {
+        let word = code
+            .split(|c: char| !c.is_alphanumeric())
+            .next()
+            .unwrap_or("");
+        if matches!(
+            word,
+            "let" | "set" | "show" | "import" | "include" | "if" | "for" | "while"
+        ) {
             return vec![];
         }
     }
@@ -506,9 +645,8 @@ As shown in @intro, $x^2 + y$ is *bold* and _soft_.
 
     #[test]
     fn prose_without_markup() {
-        let words = |l: &str| -> Vec<String> {
-            prose_runs(l).into_iter().map(|r| r.join(" ")).collect()
-        };
+        let words =
+            |l: &str| -> Vec<String> { prose_runs(l).into_iter().map(|r| r.join(" ")).collect() };
         assert_eq!(
             words("As shown in @intro, $x^2 + y$ is *bold* and _soft_."),
             ["As shown in", "is bold and soft."]
@@ -518,7 +656,10 @@ As shown in @intro, $x^2 + y$ is *bold* and _soft_.
         assert!(words("#let total = 3 + 4").is_empty());
         assert!(words("#set page(paper: \"a4\")").is_empty());
         assert_eq!(words("Plain text // a comment"), ["Plain text"]);
-        assert_eq!(words("See https://typst.app now"), ["See https://typst.app now"]);
+        assert_eq!(
+            words("See https://typst.app now"),
+            ["See https://typst.app now"]
+        );
     }
 
     #[test]

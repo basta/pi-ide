@@ -54,6 +54,20 @@ const ROWS: &[Row] = &[
         |s| s.format_on_save,
         |s, v| s.format_on_save = v,
     ),
+    (
+        "typst.pdf_on_type",
+        "Typst: PDF as you type (experimental)",
+        "Re-export the PDF after every change, without saving. Off: only on save.",
+        |s| s.typst_pdf_on_type,
+        |s, v| s.typst_pdf_on_type = v,
+    ),
+    (
+        "typst.pdf_follow_edits",
+        "Typst: PDF follows your edits",
+        "After an export, scroll the PDF to the text you changed.",
+        |s| s.typst_pdf_follow,
+        |s, v| s.typst_pdf_follow = v,
+    ),
 ];
 
 pub fn open(window: &mut Window, cx: &mut App) {

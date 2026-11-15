@@ -145,8 +145,11 @@ pub struct PdfPanel {
     reloading: bool,
     /// Where SyncTeX pointed, until when.
     mark: Option<(PdfSpot, Instant)>,
-    /// `reveal_text` phrases waiting for the open or reload in flight.
-    pending_find: Vec<String>,
+    /// `reveal_text` phrases (and whether to mark a spot in view) waiting for
+    /// the open or reload in flight.
+    pending_find: Option<(Vec<String>, bool)>,
+    /// The file changed again during a reload: reload once more after it.
+    reload_again: bool,
     /// On-screen bounds of the pages drawn last frame (for Cmd+click).
     page_bounds: Rc<RefCell<HashMap<usize, Bounds<Pixels>>>>,
     doc: Doc,
@@ -198,7 +201,8 @@ impl PdfPanel {
             loaded: None,
             reloading: false,
             mark: None,
-            pending_find: vec![],
+            pending_find: None,
+            reload_again: false,
             page_bounds: Rc::default(),
             doc: Doc::Loading,
             scale: 1.0,
@@ -256,6 +260,10 @@ impl PdfPanel {
             self.open(cx);
             return;
         }
+        if self.reloading {
+            self.reload_again = true;
+            return;
+        }
         let Ok(w) = worker::worker() else { return };
         let old = self.doc_id;
         let new = NEXT_ID.fetch_add(1, Ordering::Relaxed);
@@ -270,6 +278,8 @@ impl PdfPanel {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.reloading = false;
+                // Newer still: open that first, then look for the phrases in it.
+                let again = std::mem::take(&mut this.reload_again);
                 match r {
                     Ok(sizes) if !sizes.is_empty() => {
                         w.close(old);
@@ -283,13 +293,14 @@ impl PdfPanel {
                         if !this.hits.is_empty() {
                             this.run_search(cx);
                         }
-                        let find = std::mem::take(&mut this.pending_find);
-                        if !find.is_empty() {
-                            this.reveal_text(find, cx);
-                        }
                     }
                     // Half-written or broken: keep the old one, try on the next change.
                     _ => w.close(new),
+                }
+                if again {
+                    this.reload(cx);
+                } else if let Some((find, mark)) = this.pending_find.take() {
+                    this.reveal_text(find, mark, cx);
                 }
                 cx.notify();
             });
@@ -319,7 +330,7 @@ impl PdfPanel {
             }));
             return;
         }
-        self.scroll_to(spot, false, cx);
+        self.scroll_to(spot, false, true, cx);
     }
 
     /// Where a spot is in the scrolled content, in logical pixels.
@@ -341,12 +352,23 @@ impl PdfPanel {
     }
 
     /// Scroll a spot to a third of the way down (unless `if_hidden` and it's
-    /// already well in view) and mark it for a moment.
-    fn scroll_to(&mut self, spot: PdfSpot, if_hidden: bool, cx: &mut Context<Self>) {
+    /// already well in view) and mark it for a moment (a spot left in view
+    /// only if `mark_in_view`).
+    fn scroll_to(
+        &mut self,
+        spot: PdfSpot,
+        if_hidden: bool,
+        mark_in_view: bool,
+        cx: &mut Context<Self>,
+    ) {
         let Some(at) = self.content_y(spot.page, spot.y) else { return };
         let (top, view_h) = self.view();
         let margin = (view_h / 6.).min(80.);
-        if !(if_hidden && at > top + margin && at < top + view_h - margin) {
+        if if_hidden && at > top + margin && at < top + view_h - margin {
+            if !mark_in_view {
+                return;
+            }
+        } else {
             let y = at - view_h / 3.;
             self.scroll.set_offset(point(px(0.), px(-y.max(0.))));
         }
@@ -366,10 +388,11 @@ impl PdfPanel {
     /// Scroll to where the source just changed, without SyncTeX (Typst): the
     /// first phrase that's in the PDF wins, a phrase found once beats one
     /// found several times, and of several hits the one nearest the view. Waits
-    /// for an open or reload in flight (the PDF was just exported).
-    pub fn reveal_text(&mut self, phrases: Vec<String>, cx: &mut Context<Self>) {
+    /// for an open or reload in flight (the PDF was just exported). A spot
+    /// already in view is marked only if `mark_in_view` (not while typing).
+    pub fn reveal_text(&mut self, phrases: Vec<String>, mark_in_view: bool, cx: &mut Context<Self>) {
         if self.reloading || matches!(self.doc, Doc::Loading) {
-            self.pending_find = phrases;
+            self.pending_find = Some((phrases, mark_in_view));
             return;
         }
         if !matches!(self.doc, Doc::Ready(_)) {
@@ -413,7 +436,7 @@ impl PdfPanel {
                     .min_by(|a, b| a.1.total_cmp(&b.1))
                     .map(|(s, _)| s);
                 if let Some(spot) = spot {
-                    this.scroll_to(spot, true, cx);
+                    this.scroll_to(spot, true, mark_in_view, cx);
                 }
             });
         }));
@@ -481,9 +504,8 @@ impl PdfPanel {
                     Ok(_) => Doc::Failed("This PDF has no pages.".into()),
                     Err(e) => Doc::Failed(e),
                 };
-                let find = std::mem::take(&mut this.pending_find);
-                if !find.is_empty() {
-                    this.reveal_text(find, cx);
+                if let Some((find, mark)) = this.pending_find.take() {
+                    this.reveal_text(find, mark, cx);
                 }
                 cx.notify();
             });
