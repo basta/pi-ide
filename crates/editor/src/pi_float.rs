@@ -226,8 +226,9 @@ impl EditorPanel {
                 if is_open {
                     // Below the note's last line; above its first if that doesn't fit.
                     let last = line_bounds(editor, &rope, s.end_line).unwrap_or(start);
-                    let below = last.bottom() + dy - ob.top() + px(6.);
-                    let above = top - card_h - px(6.);
+                    // On line boundaries, so no line shows half above the card.
+                    let below = last.bottom() + dy - ob.top();
+                    let above = top - card_h;
                     let y = if below + card_h <= ob.size.height || above < px(0.) {
                         below
                     } else {

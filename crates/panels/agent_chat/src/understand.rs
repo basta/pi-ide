@@ -67,7 +67,7 @@ impl AgentChat {
                     .text_xs()
                     .text_color(theme.muted_foreground)
                     .child(div().font_weight(FontWeight::SEMIBOLD).child("IN THE EDITOR"))
-                    .child(h_flex().gap_2().items_start().child(swatch(pi)).child(div().min_w_0().child("A note from this session: the bar above the editor shows it, with Reply, Back and Next.")))
+                    .child(h_flex().gap_2().items_start().child(swatch(pi)).child(div().min_w_0().child("A note from this session: it shows after its line in the editor; click it to open the card, with Reply, Back and Next.")))
                     .child(h_flex().gap_2().items_start().child(swatch(pi.opacity(0.4))).child(div().min_w_0().child("A note from another open session (pi → pi's Notes in This File lists them all).")))
                     .child(h_flex().gap_2().items_start().child(swatch(pide_core::colors::change(pide_core::colors::Change::Modified, cx))).child(div().min_w_0().child("Changed since the last commit (git).")))
                     .child(div().child("“outdated” means the line a note was about has changed since.")),
