@@ -120,6 +120,27 @@ fn builtin() -> Vec<ServerSpec> {
             version_command: None,
             organize_imports_command: None,
         },
+        // Typst: completion, hover, outline, diagnostics as you type, and the
+        // PDF: the editor asks it to export on save (`tinymist.exportPdf`).
+        ServerSpec {
+            id: "tinymist",
+            language: "Typst",
+            language_id: "typst",
+            extensions: &["typ"],
+            command: "tinymist".into(),
+            args: vec!["lsp".into()],
+            // Not on crates.io as a binary; elsewhere it's a GitHub release download.
+            install: cfg!(target_os = "macos")
+                .then(|| vec!["brew".into(), "install".into(), "tinymist".into()]),
+            source: if cfg!(target_os = "macos") {
+                "Homebrew"
+            } else {
+                "GitHub releases"
+            },
+            overridden: false,
+            version_command: None,
+            organize_imports_command: None,
+        },
     ]
 }
 

@@ -77,6 +77,8 @@ similar = "3.2.1"
 # stay the version GPUI Kit uses (its Language type is shared).
 tree-sitter = "0.26"
 codebook-tree-sitter-latex = "0.6.1"
+# Typst highlighting, same arrangement (editor/src/typst.rs).
+codebook-tree-sitter-typst = "0.12.1"
 base64 = "0.22.1"
 tokio = { version = "1.54.1", features = ["rt", "process", "io-util", "sync", "time", "macros"] }
 

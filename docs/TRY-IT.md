@@ -83,3 +83,12 @@ Needs a TeX install with latexmk (macOS: `brew install --cask basictex`, then `s
 - LaTeX errors and warnings from the log show in **Problems** (Cmd+6) with Ask pi; a build with errors also shows a notice.
 - **SyncTeX:** Cmd+Alt+Shift+J (Code → LaTeX: Show in PDF) scrolls the PDF to the cursor's line and marks it. **Cmd+click** in the PDF jumps to that source line.
 - The PDF tab also reloads when the file changes from outside (latexmk in a terminal).
+
+## Typst
+
+Needs tinymist, which bundles the Typst compiler (Settings → Language Servers → Install, or `brew install tinymist`). No separate `typst` install.
+
+- `.typ` files are highlighted (headings, `#` code: calls, `let`/`set`/`show`, strings and numbers, math, labels and references, raw, bold/italic, comments) and soft-wrap like Markdown.
+- Completion, hover, go to definition, outline and diagnostics come from tinymist. Compile errors show in **Problems** as you type.
+- **Cmd+S exports the PDF** (`tinymist.exportPdf`) for the document the file belongs to: the `.typ` that `#include`s it (same folder or above), else the file itself. The PDF opens beside the source the first time, then reloads in place.
+- No forward/inverse search yet (tinymist has no SyncTeX).

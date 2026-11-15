@@ -1,0 +1,317 @@
+//! Typst highlighting: GPUI Kit has no Typst grammar, so we register one
+//! (uben0's tree-sitter-typst, MIT, as `codebook-tree-sitter-typst`) at
+//! startup, like LaTeX (`latex.rs`), with our own query mapped to GPUI Kit's
+//! theme captures. The grammar's own query is Helix's (first match wins);
+//! here later patterns win, so general ones come first.
+
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
+use gpui_kit::component::WindowExt as _;
+use gpui_kit::component::highlighter::{LanguageConfig, LanguageRegistry};
+use gpui_kit::component::notification::Notification;
+use gpui_kit::{Context, Global, Window};
+use pide_core::opener::PdfRequest;
+
+use crate::EditorPanel;
+
+pub const NAME: &str = "typst";
+
+pub const HIGHLIGHTS: &str = r##"
+(ident) @variable
+(number) @number
+(string) @string
+(bool) @boolean
+[(none) (auto)] @constant
+(escape) @string.escape
+["(" ")" "{" "}" "[" "]"] @punctuation.bracket
+["," ";" ":"] @punctuation.delimiter
+"#" @punctuation.special
+
+(call item: (ident) @function)
+(call item: (field field: (ident) @function))
+(tagged field: (ident) @property)
+
+[
+  "let" "if" "else" "while" "for" "in" "import" "include"
+  "show" "set" "return" "break" "continue" "context" "as"
+  "and" "or" "not"
+] @keyword
+(import "import" @preproc)
+(include "include" @preproc)
+
+[(add) (sub) (mul) (div) (cmp)] @operator
+
+(item "-" @punctuation.list_marker)
+(term ["/" ":"] @punctuation.list_marker)
+(heading) @title
+(emph) @emphasis
+(strong) @emphasis.strong
+(url) @link_uri
+[(label) (ref)] @label
+[(shorthand) (linebreak) (symbol)] @string.special.symbol
+(math) @string.special
+[(raw_span) (raw_blck)] @text.literal
+
+(comment) @comment
+"##;
+
+/// File extensions that open as Typst.
+pub fn is_typst_ext(ext: &str) -> bool {
+    ext == "typ"
+}
+
+pub fn is_typst(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(is_typst_ext)
+}
+
+pub fn init() {
+    LanguageRegistry::singleton().register(
+        NAME,
+        &LanguageConfig::new(
+            NAME,
+            codebook_tree_sitter_typst::LANGUAGE.into(),
+            vec![],
+            HIGHLIGHTS,
+            "",
+            "",
+        ),
+    );
+}
+
+/// Documents exporting right now (a second save waits for the first).
+#[derive(Default)]
+struct Exporting(HashSet<PathBuf>);
+impl Global for Exporting {}
+
+/// Told the user once that the PDF needs tinymist.
+#[derive(Default)]
+struct ToldNoServer(bool);
+impl Global for ToldNoServer {}
+
+/// After a Typst file is saved: have tinymist export its document's PDF, then
+/// show it beside the source (or reload it). Compile errors are already in
+/// Problems: tinymist publishes them as you type.
+pub(crate) fn export_on_save(panel: &EditorPanel, window: &mut Window, cx: &mut Context<EditorPanel>) {
+    let path = panel.path.clone();
+    let project = panel.workspace.read(cx).root().to_path_buf();
+    let store = pide_lsp::LspStore::for_workspace(&panel.workspace, cx);
+    let find = cx
+        .background_executor()
+        .spawn(async move { root_document(&path, &project).map(|r| (path, r)) });
+    cx.spawn_in(window, async move |_, cx| {
+        let Some((path, root)) = find.await else {
+            return;
+        };
+        let started = cx
+            .update(|_, cx| cx.default_global::<Exporting>().0.insert(root.clone()))
+            .unwrap_or(false);
+        if !started {
+            return;
+        }
+        let export = cx.update(|_, cx| {
+            store.update(cx, |s, cx| {
+                s.request(
+                    &path,
+                    None,
+                    "workspace/executeCommand",
+                    serde_json::json!({
+                        "command": "tinymist.exportPdf",
+                        "arguments": [root.to_string_lossy()],
+                    }),
+                    cx,
+                )
+            })
+        });
+        let result = match export {
+            Ok(task) => task.await,
+            Err(_) => return,
+        };
+        let _ = cx.update(|window, cx| {
+            cx.default_global::<Exporting>().0.remove(&root);
+            match result {
+                Ok(v) => {
+                    let pdf = exported_path(&v).unwrap_or_else(|| root.with_extension("pdf"));
+                    if pdf.is_file() {
+                        pide_core::opener::show_pdf(
+                            PdfRequest {
+                                path: pdf,
+                                beside: true,
+                                reload: true,
+                                at: None,
+                            },
+                            window,
+                            cx,
+                        );
+                    }
+                }
+                Err(e) => {
+                    let msg = format!("{e:#}");
+                    if msg.contains("no language server running") {
+                        let told = &mut cx.default_global::<ToldNoServer>().0;
+                        if !*told {
+                            *told = true;
+                            window.push_notification(
+                                Notification::info(
+                                    "The Typst PDF on save needs tinymist: install it from Settings → Language Servers.",
+                                ),
+                                cx,
+                            );
+                        }
+                    } else {
+                        // Usually a compile error, which Problems shows in full.
+                        log::info!("typst export: {msg}");
+                        window.push_notification(
+                            Notification::warning("Typst couldn't compile the PDF (see Problems)."),
+                            cx,
+                        );
+                    }
+                }
+            }
+        });
+    })
+    .detach();
+}
+
+/// The PDF tinymist wrote: `{ "path": … }` (0.13+), or a plain path (older).
+fn exported_path(v: &serde_json::Value) -> Option<PathBuf> {
+    v.get("path")
+        .and_then(|p| p.as_str())
+        .or_else(|| v.as_str())
+        .map(PathBuf::from)
+}
+
+/// The document a Typst file belongs to: the nearest `.typ` (same folder or
+/// above, up to the project) that `#include`s it, else the file itself. Blocking.
+pub fn root_document(file: &Path, project: &Path) -> Option<PathBuf> {
+    let mut at = file.parent();
+    while let Some(d) = at {
+        let found = std::fs::read_dir(d)
+            .ok()?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().is_some_and(|e| e == "typ") && p != file)
+            .find(|p| {
+                let rel = file.strip_prefix(d).unwrap_or(file);
+                std::fs::read_to_string(p).is_ok_and(|t| includes(&t, rel))
+            });
+        if found.is_some() {
+            return found;
+        }
+        if d == project {
+            break;
+        }
+        at = d.parent().filter(|p| p.starts_with(project));
+    }
+    Some(file.to_path_buf())
+}
+
+/// Whether `text` has `#include "rel"` (also `./rel`), outside `//` comments.
+fn includes(text: &str, rel: &Path) -> bool {
+    let rel = rel.to_string_lossy().replace('\\', "/");
+    text.lines()
+        .map(|l| l.split("//").next().unwrap_or(""))
+        .any(|l| {
+            l.match_indices("include").any(|(i, _)| {
+                let arg = l[i + "include".len()..].trim_start();
+                let Some(arg) = arg.strip_prefix('"') else {
+                    return false;
+                };
+                let arg = arg.split('"').next().unwrap_or("");
+                arg.strip_prefix("./").unwrap_or(arg) == rel
+            })
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE: &str = r##"#set page(paper: "a4")
+#import "@preview/cetz:0.3.0": canvas
+// a comment
+= Introduction <intro>
+As shown in @intro, $x^2 + y$ is *bold* and _soft_.
+- an item with `code`
+#let total = 3 + 4
+#if total > 5 [big] else [small]
+"##;
+
+    fn captures() -> Vec<(String, String)> {
+        let language: tree_sitter::Language = codebook_tree_sitter_typst::LANGUAGE.into();
+        let query = tree_sitter::Query::new(&language, HIGHLIGHTS).expect("query compiles");
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&language).unwrap();
+        let tree = parser.parse(SAMPLE, None).unwrap();
+        let mut cursor = tree_sitter::QueryCursor::new();
+        let mut out = Vec::new();
+        use tree_sitter::StreamingIterator as _;
+        let mut it = cursor.captures(&query, tree.root_node(), SAMPLE.as_bytes());
+        while let Some((m, ix)) = it.next() {
+            let c = m.captures[*ix];
+            let name = query.capture_names()[c.index as usize].to_string();
+            out.push((name, SAMPLE[c.node.byte_range()].to_string()));
+        }
+        out
+    }
+
+    fn has(caps: &[(String, String)], name: &str, text: &str) -> bool {
+        caps.iter().any(|(n, t)| n == name && t.trim_end() == text)
+    }
+
+    #[test]
+    fn query_compiles_and_highlights() {
+        let caps = captures();
+        assert!(has(&caps, "comment", "// a comment"), "{caps:?}");
+        assert!(has(&caps, "title", "= Introduction <intro>"), "{caps:?}");
+        assert!(has(&caps, "label", "<intro>"));
+        assert!(has(&caps, "label", "@intro"));
+        assert!(has(&caps, "function", "page"));
+        assert!(has(&caps, "property", "paper"));
+        assert!(has(&caps, "string", "\"a4\""));
+        assert!(has(&caps, "preproc", "import"));
+        assert!(has(&caps, "keyword", "let"));
+        assert!(has(&caps, "keyword", "if"));
+        assert!(has(&caps, "number", "3"));
+        assert!(has(&caps, "string.special", "$x^2 + y$"));
+        assert!(has(&caps, "emphasis.strong", "*bold*"));
+        assert!(has(&caps, "emphasis", "_soft_"));
+        assert!(has(&caps, "text.literal", "`code`"));
+    }
+
+    #[test]
+    fn include_lines() {
+        let main = "#include \"chapters/one.typ\"\n// #include \"chapters/old.typ\"\n#include \"./two.typ\"";
+        assert!(includes(main, Path::new("chapters/one.typ")));
+        assert!(!includes(main, Path::new("chapters/old.typ")));
+        assert!(includes(main, Path::new("two.typ")));
+        assert!(!includes(main, Path::new("one.typ")));
+    }
+
+    #[test]
+    fn finds_the_including_document() {
+        let dir = std::env::temp_dir().join(format!("pide-typst-root-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("chapters")).unwrap();
+        std::fs::write(dir.join("main.typ"), "#include \"chapters/one.typ\"\n").unwrap();
+        std::fs::write(dir.join("chapters/one.typ"), "= One\n").unwrap();
+        std::fs::write(dir.join("notes.typ"), "= Notes\n").unwrap();
+        assert_eq!(
+            root_document(&dir.join("chapters/one.typ"), &dir),
+            Some(dir.join("main.typ"))
+        );
+        assert_eq!(
+            root_document(&dir.join("notes.typ"), &dir),
+            Some(dir.join("notes.typ"))
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn export_response() {
+        let v = serde_json::json!({ "path": "/a/main.pdf", "data": null });
+        assert_eq!(exported_path(&v), Some(PathBuf::from("/a/main.pdf")));
+        assert_eq!(exported_path(&serde_json::json!("/a/b.pdf")), Some(PathBuf::from("/a/b.pdf")));
+        assert_eq!(exported_path(&serde_json::Value::Null), None);
+    }
+}

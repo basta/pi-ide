@@ -7,6 +7,7 @@ mod follow;
 mod git_gutter;
 mod goto_line;
 pub mod latex;
+pub mod typst;
 mod lsp;
 mod minimal;
 mod nav;
@@ -68,6 +69,7 @@ impl Global for OpenEditors {}
 pub fn init(cx: &mut App) {
     cx.set_global(OpenEditors::default());
     latex::init();
+    typst::init();
     tex::init(cx);
     diff_panel::init(cx);
     cx.set_global(pide_core::context::EditorContextSource(std::rc::Rc::new(
@@ -630,6 +632,7 @@ pub(crate) fn language_for(path: &Path) -> &'static str {
         "html" | "htm" => "html",
         "css" | "scss" => "css",
         e if latex::is_latex_ext(e) => latex::NAME,
+        e if typst::is_typst_ext(e) => typst::NAME,
         _ => "text",
     }
 }
@@ -685,8 +688,11 @@ impl EditorPanel {
                     tab_size: 4,
                     hard_tabs: false,
                 })
-                // Prose (LaTeX, Markdown) wraps; code doesn't.
-                .soft_wrap(matches!(language_for(&path), latex::NAME | "markdown"));
+                // Prose (LaTeX, Typst, Markdown) wraps; code doesn't.
+                .soft_wrap(matches!(
+                    language_for(&path),
+                    latex::NAME | typst::NAME | "markdown"
+                ));
             state.set_readonly(true, cx); // until loaded
             state
         });
@@ -1077,6 +1083,8 @@ impl EditorPanel {
                 self.load_git_base(cx);
                 if tex::is_latex(&self.path) {
                     tex::build_on_save(self, window, cx);
+                } else if typst::is_typst(&self.path) {
+                    typst::export_on_save(self, window, cx);
                 }
             }
             WorkspaceEvent::TextReplaced(buffer) if self.is_mine(buffer) => {
