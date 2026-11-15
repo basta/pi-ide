@@ -11,7 +11,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::changes::FileChange;
-use crate::collab::{Anchor, HunkNote, Pin, Stop, StopRef};
+use crate::collab::{Anchor, HunkNote, Pin, Reply, Stop, StopRef};
 
 /// Every place the walkthrough stops at, in order: per changed file (first
 /// touched first) its hunk notes, or one stop at its first change when pi gave
@@ -30,10 +30,12 @@ pub fn stops(changes: &[FileChange], pins: &[Pin]) -> Vec<Stop> {
                 at: StopRef::File(fi),
                 path: c.path.clone(),
                 line: c.first_line.unwrap_or(1),
+                end_line: c.first_line.unwrap_or(1),
                 note: String::new(),
                 summary: c.summary.clone(),
                 outdated: false,
                 seen: c.seen,
+                thread: c.thread.clone(),
             });
         }
         for (ni, n) in c.notes.iter().enumerate().filter(|(_, n)| !n.dismissed) {
@@ -41,10 +43,12 @@ pub fn stops(changes: &[FileChange], pins: &[Pin]) -> Vec<Stop> {
                 at: StopRef::Hunk { file: fi, note: ni },
                 path: c.path.clone(),
                 line: n.anchor.line,
+                end_line: n.anchor.line,
                 note: n.note.clone(),
                 summary: c.summary.clone(),
                 outdated: n.anchor.outdated,
                 seen: n.seen,
+                thread: n.thread.clone(),
             });
         }
         for (pi, p) in pins.iter().enumerate() {
@@ -103,10 +107,12 @@ pub fn pin_stop(pins: &[Pin], i: usize) -> Stop {
         at: StopRef::Pin(i),
         path: p.path.clone(),
         line: p.anchor.line,
+        end_line: p.end_line.max(p.anchor.line),
         note: p.note.clone(),
         summary: None,
         outdated: p.anchor.outdated,
         seen: p.seen,
+        thread: p.thread.clone(),
     }
 }
 
@@ -220,7 +226,18 @@ pub fn explain(
     if let Some(fi) = changes.iter().position(|c| c.path == path) {
         let c = &mut changes[fi];
         c.summary = (!summary.trim().is_empty()).then(|| summary.to_string());
+        // A note on the same line text keeps its thread (pi often re-explains
+        // after answering a reply).
+        let old = std::mem::take(&mut c.notes);
         c.notes = hunks.to_vec();
+        for n in &mut c.notes {
+            if let Some(o) = old
+                .iter()
+                .find(|o| !o.thread.is_empty() && o.anchor.text == n.anchor.text)
+            {
+                n.thread = o.thread.clone();
+            }
+        }
         c.seen = false;
         if matches!(current, Some(StopRef::Hunk { file, .. } | StopRef::File(file)) if *file == fi)
         {
@@ -242,6 +259,7 @@ pub fn explain(
         snippet,
         seen: false,
         dismissed: false,
+        thread: Vec::new(),
     };
     if hunks.is_empty() {
         pins.push(pin(
@@ -260,6 +278,43 @@ pub fn explain(
             ));
         }
     }
+}
+
+/// The thread of the note `at` points to.
+pub fn thread_mut<'a>(
+    changes: &'a mut [FileChange],
+    pins: &'a mut [Pin],
+    at: &StopRef,
+) -> Option<&'a mut Vec<Reply>> {
+    match *at {
+        StopRef::Pin(i) => pins.get_mut(i).map(|p| &mut p.thread),
+        StopRef::Hunk { file, note } => changes
+            .get_mut(file)
+            .and_then(|c| c.notes.get_mut(note))
+            .map(|n| &mut n.thread),
+        StopRef::File(i) => changes.get_mut(i).map(|c| &mut c.thread),
+    }
+}
+
+/// Where a reply's answer goes once pi has finished: `at`, or, if pi re-explained
+/// the file meanwhile (hunk notes replaced), the note on the same line text.
+pub fn resolve_reply_target(
+    changes: &[FileChange],
+    at: &StopRef,
+    anchor: Option<&str>,
+) -> Option<StopRef> {
+    let StopRef::Hunk { file, note } = *at else {
+        return Some(at.clone());
+    };
+    let c = changes.get(file)?;
+    let same = |n: &HunkNote| anchor.is_none_or(|t| n.anchor.text == t);
+    if c.notes.get(note).is_some_and(same) {
+        return Some(at.clone());
+    }
+    c.notes
+        .iter()
+        .position(|n| anchor.is_some() && same(n))
+        .map(|note| StopRef::Hunk { file, note })
 }
 
 fn path_of(changes: &[FileChange], pins: &[Pin], at: &StopRef) -> Option<PathBuf> {
@@ -330,6 +385,7 @@ mod tests {
             note: text.into(),
             seen: false,
             dismissed: false,
+            thread: Vec::new(),
         }
     }
     fn pin(id: &str, path: &str, line: usize) -> Pin {
@@ -342,6 +398,7 @@ mod tests {
             snippet: vec![],
             seen: false,
             dismissed: false,
+            thread: Vec::new(),
         }
     }
     fn at(s: &[Stop]) -> Vec<(String, usize)> {
@@ -537,4 +594,29 @@ mod tests {
         assert!(s[0].outdated);
         assert_eq!(s[0].line, 7);
     }
+
+    #[::core::prelude::v1::test]
+    fn a_reply_follows_its_note_through_a_new_explanation() {
+        let mut a = change("/a");
+        a.notes = vec![note(2, "keep"), note(9, "gone")];
+        let mut changes = vec![a];
+        let mut pins = vec![pin("p", "/a", 5)];
+        let at = StopRef::Hunk { file: 0, note: 0 };
+        thread_mut(&mut changes, &mut pins, &at).unwrap().push(Reply {
+            pi: false,
+            text: "why?".into(),
+        });
+        // pi re-explains while answering: new order, same line text.
+        let mut cur = None;
+        explain(&mut changes, &mut pins, &mut cur, Path::new("/a"), "s", &[note(1, "new"), note(3, "keep")], 1);
+        assert_eq!(changes[0].notes[1].thread.len(), 1, "the thread moved with its line");
+        let target = resolve_reply_target(&changes, &at, Some("keep"));
+        assert_eq!(target, Some(StopRef::Hunk { file: 0, note: 1 }));
+        assert_eq!(resolve_reply_target(&changes, &at, Some("nowhere")), None);
+        assert_eq!(resolve_reply_target(&changes, &StopRef::Pin(0), None), Some(StopRef::Pin(0)));
+        thread_mut(&mut changes, &mut pins, &StopRef::Pin(0)).unwrap().push(Reply { pi: true, text: "a".into() });
+        let s = stops(&changes, &pins);
+        assert_eq!(s.iter().find(|s| s.at == StopRef::Pin(0)).unwrap().thread.len(), 1);
+    }
+
 }

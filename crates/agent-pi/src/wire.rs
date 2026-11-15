@@ -289,6 +289,7 @@ pub fn tour_pins(tool_call_id: &str, d: &Value) -> Vec<pide_core::collab::Pin> {
                     .unwrap_or_default(),
                 seen: false,
                 dismissed: false,
+                thread: Vec::new(),
             }
         })
         .collect()
@@ -317,6 +318,7 @@ pub fn collab_event(tool_call_id: &str, d: &Value) -> Option<AgentEvent> {
                     .unwrap_or_default(),
                 seen: false,
                 dismissed: false,
+                thread: Vec::new(),
             }))
         }
         "explain" => Some(AgentEvent::ExplainChange {
@@ -332,6 +334,7 @@ pub fn collab_event(tool_call_id: &str, d: &Value) -> Option<AgentEvent> {
                             note: s(h, "note"),
                             seen: false,
                             dismissed: false,
+                            thread: Vec::new(),
                         })
                         .collect()
                 })

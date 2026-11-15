@@ -10,6 +10,7 @@ pub mod latex;
 mod lsp;
 mod minimal;
 mod nav;
+mod pi_float;
 mod pi_notes;
 mod rename;
 mod signature;
@@ -1234,7 +1235,7 @@ impl Panel for EditorPanel {
 }
 
 impl Render for EditorPanel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Some(err) = &self.load_error {
             return v_flex().size_full().child(self.bar(cx, true, err.clone()));
         }
@@ -1243,6 +1244,8 @@ impl Render for EditorPanel {
         let notice = buffer.and_then(|b| b.notice.clone());
         let conflict = buffer.is_some_and(|b| b.has_conflict());
         let deleted = self.deleted;
+        let _ = window;
+        let notes = self.render_pi_float(cx);
 
         v_flex()
             .size_full()
@@ -1250,6 +1253,7 @@ impl Render for EditorPanel {
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
                 if ev.keystroke.key == "escape" {
                     this.hide_signature(cx);
+                    this.collapse_pi_card(cx);
                 }
             }))
             .when_some(read_only, |this, r| this.child(self.bar(cx, false, r)))
@@ -1303,17 +1307,23 @@ impl Render for EditorPanel {
                         .child(Diff::new(&diff).line_number(true).syntax_highlight(true)),
                 )
             })
-            .children(self.render_pi_bar(cx))
             .children(self.render_signature(cx))
             .child(
-                div().flex_1().w_full().overflow_hidden().child(
-                    Editor::new(&self.editor)
-                        .bordered(false)
-                        .p_0()
-                        .h_full()
-                        .font_family(cx.theme().mono_font_family.clone())
-                        .text_size(cx.theme().mono_font_size),
-                ),
+                div()
+                    .relative()
+                    .flex_1()
+                    .w_full()
+                    .overflow_hidden()
+                    .child(
+                        Editor::new(&self.editor)
+                            .bordered(false)
+                            .p_0()
+                            .h_full()
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .text_size(cx.theme().mono_font_size),
+                    )
+                    // pi's notes float over the code (`pi_float`).
+                    .children(notes),
             )
     }
 }
