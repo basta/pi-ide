@@ -68,6 +68,7 @@ fn main() {
             .unwrap_or_default()
     );
     pide_runtime::init();
+    pide_core::math::warm_up();
 
     gpui_kit::application().with_assets(Assets).run(move |cx| {
         gpui_kit::init(cx);

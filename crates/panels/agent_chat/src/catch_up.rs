@@ -169,7 +169,8 @@ impl AgentChat {
             });
             if entry.0 != text {
                 entry.0 = text.clone();
-                entry.1.update(cx, |m, cx| m.set_text(&text, cx));
+                let shown = pide_core::math::normalize_delimiters(&text);
+                entry.1.update(cx, |m, cx| m.set_text(&shown, cx));
             }
             entry.1.clone()
         });
@@ -226,7 +227,12 @@ impl AgentChat {
                     this.child(
                         div()
                             .text_sm()
-                            .child(TextView::new(&md).style(chat_text_style()).selectable(true)),
+                            .child(
+                                TextView::new(&md)
+                                    .style(chat_text_style())
+                                    .markdown_extensions(pide_core::math::markdown_extensions())
+                                    .selectable(true),
+                            ),
                     )
                 })
                 .into_any_element(),

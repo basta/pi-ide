@@ -68,6 +68,7 @@ impl AgentChat {
                 .child(
                     TextView::new(markdown)
                         .style(chat_text_style())
+                        .markdown_extensions(pide_core::math::markdown_extensions())
                         .selectable(true),
                 )
                 .when_some(error.clone(), |this, e| {

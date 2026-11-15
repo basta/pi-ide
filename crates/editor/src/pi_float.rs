@@ -429,9 +429,15 @@ impl EditorPanel {
                 .pi
                 .markdown
                 .entry(text.to_string())
-                .or_insert_with(|| cx.new(|cx| TextViewState::markdown(&plain_numbers(text), cx)))
+                .or_insert_with(|| cx.new(|cx| TextViewState::markdown(
+                        &pide_core::math::normalize_delimiters(&plain_numbers(text)),
+                        cx,
+                    )))
                 .clone();
-            TextView::new(&view).selectable(true).into_any_element()
+            TextView::new(&view)
+                .markdown_extensions(pide_core::math::markdown_extensions())
+                .selectable(true)
+                .into_any_element()
         };
         let note = md(&note_body(&label), cx);
         let replies: Vec<(bool, AnyElement)> = stop

@@ -14,6 +14,7 @@ pub mod events;
 pub mod fswatch;
 pub mod git;
 pub mod keymap;
+pub mod math;
 pub mod notes;
 pub mod opener;
 pub mod panel;

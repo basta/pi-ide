@@ -627,7 +627,9 @@ impl AgentChat {
                             Item::User(chip, text.to_string())
                         }
                         HistItem::Text(t) => Item::Assistant {
-                            markdown: cx.new(|cx| TextViewState::markdown(&t, cx)),
+                            markdown: cx.new(|cx| {
+                                TextViewState::markdown(&pide_core::math::normalize_delimiters(&t), cx)
+                            }),
                             text: t,
                             last_index: None,
                             thinking: String::new(),
