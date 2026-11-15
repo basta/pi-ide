@@ -63,15 +63,15 @@ impl EditorPanel {
         let reply = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 6)
-                .placeholder("Reply to pi… (⌘↩ sends)")
+                .submit_on_enter(true)
+                .placeholder("Reply to pi… (Enter sends, Shift+Enter new line)")
         });
         self.pi._reply_sub = Some(cx.subscribe_in(
             &reply,
             window,
             |this, _, ev: &InputEvent, window, cx| match ev {
-                InputEvent::PressEnter {
-                    secondary: true, ..
-                } => this.send_reply(window, cx),
+                // Like the pi composer: Enter (or Cmd+Enter) sends, Shift+Enter is a new line.
+                InputEvent::PressEnter { shift: false, .. } => this.send_reply(window, cx),
                 InputEvent::Change => cx.notify(),
                 _ => {}
             },
