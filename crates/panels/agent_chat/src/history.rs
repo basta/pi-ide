@@ -32,7 +32,16 @@ pub(crate) fn summarize_args(name: &str, args: &Value) -> String {
         "bash" => field("command"),
         "read" | "write" | "edit" | "ls" => field("path"),
         "grep" | "find" => field("pattern"),
-        _ => None,
+        // Other tools: a path or paths if they take one, else their arguments.
+        _ => field("path").or_else(|| {
+            let paths: Vec<&str> = args
+                .get("paths")?
+                .as_array()?
+                .iter()
+                .filter_map(Value::as_str)
+                .collect();
+            Some(if paths.is_empty() { "all files".to_string() } else { paths.join(", ") })
+        }),
     }
     .unwrap_or_else(|| args.to_string());
     let s = s.replace('\n', " ⏎ ");
