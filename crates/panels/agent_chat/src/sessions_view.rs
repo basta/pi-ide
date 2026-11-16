@@ -90,6 +90,10 @@ impl AgentChat {
         let sessions = self.sessions.read(cx);
         let active = sessions.active_index();
         let theme = cx.theme().clone();
+        // The active session's tab is always in view (a new one was off the end).
+        if self.tabs_shown.replace(Some(active)) != Some(active) {
+            self.tabs_scroll.scroll_to_item(active);
+        }
         let tabs: Vec<AnyElement> = sessions
             .all()
             .iter()
@@ -153,6 +157,7 @@ impl AgentChat {
                     .flex_1()
                     .min_w_0()
                     .overflow_x_scroll()
+                    .track_scroll(&self.tabs_scroll)
                     .children(tabs),
             )
             .child(

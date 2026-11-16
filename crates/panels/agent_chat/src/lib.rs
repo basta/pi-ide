@@ -381,6 +381,14 @@ pub struct AgentChat {
     replacing_tour: HashMap<EntityId, Vec<String>>,
     /// The Understand card is shown on top of the conversation (the ? button).
     show_help: bool,
+    /// The session tab strip's scroll, and the tab last scrolled into view.
+    tabs_scroll: ScrollHandle,
+    tabs_shown: Cell<Option<usize>>,
+    /// Where the chat was scrolled before the ? help opened.
+    help_return: Option<Point<Pixels>>,
+    /// Unsent composer text per session, and the session the composer shows.
+    drafts: HashMap<EntityId, String>,
+    draft_for: Option<EntityId>,
     /// Sessions pi is writing "Tell it as a story" for.
     writing_story: std::collections::HashSet<EntityId>,
     /// Sessions a "catch me up" briefing is being written for.
@@ -447,7 +455,17 @@ impl AgentChat {
         let subs = vec![
             cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| {
                 match ev {
-                    InputEvent::PressEnter { shift: false, .. } => this.send(false, window, cx),
+                    InputEvent::PressEnter { shift: false, .. } => {
+                        // With suggestions open, Enter takes the highlighted one (as
+                        // Tab does), unless it's exactly what's typed already.
+                        let typed = this.input.read(cx).value().trim_end().to_string();
+                        match this.suggestions(cx).into_iter().next() {
+                            Some(first) if first.replace_with.trim_end() != typed => {
+                                this.complete(&first, window, cx)
+                            }
+                            _ => this.send(false, window, cx),
+                        }
+                    }
                     InputEvent::Change => {
                         // Typing `/`: fetch the session's commands for the suggestions.
                         // Redraw only for the suggestions: a redraw per keystroke
@@ -476,6 +494,7 @@ impl AgentChat {
                 |this, _, ev: &SessionsEvent, window, cx| {
                     let SessionsEvent::Changed = ev;
                     this.sync_sessions(window, cx);
+                    this.swap_draft(window, cx);
                     this.show_list = false;
                     cx.emit(PanelEvent::LayoutChanged); // open sessions are part of the saved layout
                 },
@@ -498,6 +517,11 @@ impl AgentChat {
             replacing_tour: HashMap::new(),
             show_help: false,
             writing_story: Default::default(),
+            help_return: None,
+            tabs_scroll: ScrollHandle::new(),
+            tabs_shown: Cell::new(None),
+            drafts: HashMap::new(),
+            draft_for: None,
             catching_up: Default::default(),
             catch_up_open: true,
             catch_up_md: HashMap::new(),
@@ -702,6 +726,31 @@ impl AgentChat {
         self.sessions.read(cx).active()
     }
 
+    /// The active session changed: keep the composer's text with the session it
+    /// was typed in and bring back this one's. A session without changes opens
+    /// on its chat (a new session showed "no changes yet").
+    fn swap_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let agent = self.active(cx);
+        let id = agent.entity_id();
+        if self.draft_for == Some(id) {
+            return;
+        }
+        let text = self.input.read(cx).value().to_string();
+        if let Some(old) = self.draft_for.replace(id) {
+            if text.trim().is_empty() {
+                self.drafts.remove(&old);
+            } else {
+                self.drafts.insert(old, text);
+            }
+        }
+        let draft = self.drafts.remove(&id).unwrap_or_default();
+        self.input.update(cx, |i, cx| i.set_value(draft, window, cx));
+        if agent.read(cx).changes.is_empty() {
+            self.show_changes = false;
+        }
+        cx.notify();
+    }
+
     /// Enter: send, or steer if pi is working. Option+Enter: queue a follow-up.
     fn send(&mut self, follow_up: bool, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.input.read(cx).value().trim().to_string();
@@ -719,6 +768,9 @@ impl AgentChat {
         }
         let images: Vec<_> = self.attachments.drain(..).map(|(a, _)| a).collect();
         self.input.update(cx, |i, cx| i.set_value("", window, cx));
+        // pi's answer goes to the chat: show it there.
+        self.show_changes = false;
+        self.show_help = false;
         // New prompts carry the editor context (when the toggle is on).
         let context = if busy || !self.send_context(cx) {
             None
@@ -757,9 +809,23 @@ impl AgentChat {
         cx.notify();
     }
 
-    /// Replace the composer's text (a draft from elsewhere, e.g. the Run panel).
+    /// Put a draft from elsewhere (Ask pi, Reply) in the composer, after what's
+    /// already there rather than over it, with the cursor at its end.
     pub fn set_draft(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.input.update(cx, |i, cx| i.set_value(text, window, cx));
+        let current = self.input.read(cx).value().trim_end().to_string();
+        let text = if current.is_empty() || text.starts_with(&current) {
+            text
+        } else if current.contains(text.trim_end()) {
+            current
+        } else {
+            format!("{current}\n\n{text}")
+        };
+        let line = text.matches('\n').count() as u32;
+        let column = text.rsplit('\n').next().unwrap_or("").chars().count() as u32;
+        self.input.update(cx, |i, cx| {
+            i.set_value(text, window, cx);
+            i.set_cursor_position(gpui_kit::component::input::Position::new(line, column), window, cx);
+        });
         cx.notify();
     }
 
