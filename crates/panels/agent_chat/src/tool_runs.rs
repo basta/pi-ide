@@ -289,7 +289,7 @@ impl AgentChat {
         let header = h_flex()
             .id(("run", first_ix))
             .gap_2()
-            .items_center()
+            .items_start()
             .py_0p5()
             .px_1()
             .rounded(theme.radius)
@@ -307,13 +307,8 @@ impl AgentChat {
             .child(div().flex_none().child(if open { "▾" } else { "▸" }))
             .when(failed > 0, |this| this.child(div().flex_none().child("✗")))
             .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .whitespace_nowrap()
-                    .child(line),
+                // Wraps rather than clipping: the summary is the point of the line.
+                div().flex_1().min_w_0().child(line),
             )
             .when(!meta.is_empty(), |this| {
                 this.child(
@@ -477,7 +472,8 @@ impl AgentChat {
                                 .child(
                                     div()
                                         .flex_none()
-                                        .w(px(36.))
+                                        .min_w(px(36.))
+                                        .whitespace_nowrap()
                                         .text_color(theme.muted_foreground)
                                         .child(name.clone()),
                                 )
