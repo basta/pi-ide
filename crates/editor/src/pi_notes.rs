@@ -71,8 +71,23 @@ impl EditorPanel {
 
     /// The text changed: find the notes' lines again once typing pauses.
     pub(crate) fn pi_text_changed(&mut self, cx: &mut Context<Self>) {
-        if self.pi.agent.is_none() {
+        let Some(agent) = self.pi.agent.clone() else {
             return;
+        };
+        // The lenses follow their lines right away (an Enter above a note moves
+        // it down now, not 0.4 s later); the marks are redone once typing pauses.
+        if !self.pi.stops.is_empty() {
+            let content = self.editor.read(cx).text().to_string();
+            let a = agent.read(cx);
+            for s in &mut self.pi.stops {
+                if let Some(text) = a.anchor_text(&s.at)
+                    && let Some(n) = Anchor::new(s.line, text).locate(&content)
+                {
+                    let moved = n as isize - s.line as isize;
+                    s.end_line = (s.end_line as isize + moved).max(n as isize) as usize;
+                    s.line = n;
+                }
+            }
         }
         self.pi._typed = Some(cx.spawn(async move |this, cx| {
             cx.background_executor()
