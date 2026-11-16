@@ -139,7 +139,7 @@ pub fn init(cx: &mut App) {
     // Cmd+Shift+F is Find in Files (JetBrains); GPUI Kit's in-file replace moves to
     // JetBrains' Cmd+R. Bound before keymap::init, so it survives keymap reloads.
     cx.bind_keys([KeyBinding::new(
-        "cmd-r",
+        if cfg!(target_os = "macos") { "cmd-r" } else { "ctrl-r" },
         gpui_kit::component::input::Replace,
         Some(pide_core::commands::EDITOR),
     )]);
@@ -201,6 +201,7 @@ pub fn init(cx: &mut App) {
         cx,
         CommandSpec::new("nav.back", "Navigate: Back")
             .key("cmd-[")
+            .other_key("ctrl-alt-left")
             .in_context(pide_core::commands::EDITOR),
         |window, cx| nav::go(false, window, cx),
     );
@@ -208,6 +209,7 @@ pub fn init(cx: &mut App) {
         cx,
         CommandSpec::new("nav.forward", "Navigate: Forward")
             .key("cmd-]")
+            .other_key("ctrl-alt-right")
             .in_context(pide_core::commands::EDITOR),
         |window, cx| nav::go(true, window, cx),
     );
@@ -265,7 +267,7 @@ pub fn init(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
-        CommandSpec::new("editor.go_to_symbol", "Navigate: Go to Symbol…").key("cmd-alt-o"),
+        CommandSpec::new("editor.go_to_symbol", "Navigate: Go to Symbol…").key("cmd-alt-o").other_key("ctrl-alt-shift-n"),
         symbols::go_to_symbol,
     );
     CommandRegistry::register(
@@ -678,6 +680,9 @@ pub struct EditorPanel {
     typst_exports: typst::Exports,
     _subs: Vec<Subscription>,
     _load: Option<Task<()>>,
+    /// The editor's width at its last paint (to undo a sideways scroll once
+    /// the cursor's line fits again).
+    view_w: std::rc::Rc<std::cell::Cell<Pixels>>,
 }
 
 impl EventEmitter<PanelEvent> for EditorPanel {}
@@ -757,6 +762,7 @@ impl EditorPanel {
             typst_exports: Default::default(),
             _subs: Vec::new(),
             _load: None,
+            view_w: Default::default(),
         };
 
         if path.as_os_str().is_empty() {
@@ -1330,6 +1336,26 @@ impl Render for EditorPanel {
         let deleted = self.deleted;
         let _ = window;
         let notes = self.render_pi_float(cx);
+        // Watches the editor's width: when it grows, a sideways scroll that's no
+        // longer needed goes back to column 0 (short lines looked empty).
+        let width_watch = {
+            let (editor, last, weak) = (self.editor.clone(), self.view_w.clone(), cx.weak_entity());
+            canvas(
+                |_, _, _| {},
+                move |_, _, window, cx| {
+                    let w = editor.read(cx).input_bounds().size.width;
+                    let before = last.replace(w);
+                    if w > before && before > px(0.) {
+                        let weak = weak.clone();
+                        window.on_next_frame(move |_, cx| {
+                            let _ = weak.update(cx, |this, cx| this.unscroll_if_fits(cx));
+                        });
+                    }
+                },
+            )
+            .absolute()
+            .size_0()
+        };
 
         v_flex()
             .size_full()
@@ -1407,8 +1433,33 @@ impl Render for EditorPanel {
                             .text_size(cx.theme().mono_font_size),
                     )
                     // pi's notes float over the code (`pi_float`).
-                    .children(notes),
+                    .children(notes)
+                    .child(width_watch),
             )
+    }
+}
+
+impl EditorPanel {
+    /// The editor got wider: if it's scrolled sideways but the cursor would be
+    /// in view at column 0, scroll back (JetBrains and VS Code do the same).
+    fn unscroll_if_fits(&mut self, cx: &mut Context<Self>) {
+        let e = self.editor.read(cx);
+        let off = e.scroll_offset();
+        if off.x >= px(0.) {
+            return;
+        }
+        let view = e.input_bounds();
+        let c = e.cursor();
+        let Some(b) = e.range_to_bounds(&(c..c)) else {
+            return;
+        };
+        // Where the cursor would be without the sideways scroll.
+        let x = b.left() - off.x - view.left();
+        if x < view.size.width - px(48.) {
+            let y = off.y;
+            self.editor
+                .update(cx, |e, cx| e.set_scroll_offset(point(px(0.), y), cx));
+        }
     }
 }
 

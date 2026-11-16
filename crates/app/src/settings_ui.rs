@@ -43,7 +43,11 @@ const ROWS: &[Row] = &[
     (
         "agent.notify",
         "Notify when pi finishes",
-        "A macOS notification when pi is done or asks something while you're in another app.",
+        if cfg!(target_os = "macos") {
+            "A macOS notification when pi is done or asks something while you're in another app."
+        } else {
+            "A desktop notification (notify-send) when pi is done or asks something while you're in another app."
+        },
         |s| s.notify,
         |s, v| s.notify = v,
     ),
@@ -127,7 +131,7 @@ pub fn open(window: &mut Window, cx: &mut App) {
                                 ))
                                 .child(theme_button(
                                     "theme-system",
-                                    "Follow macOS",
+                                    crate::theme::FOLLOW_SYSTEM,
                                     ThemeSetting::System,
                                     "view.theme_system",
                                 )),

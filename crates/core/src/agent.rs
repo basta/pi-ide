@@ -277,6 +277,31 @@ impl Agent {
             .count()
     }
 
+    /// What's left to review, in one unit everywhere (the pi toolbar, Changes,
+    /// the status bar): changed files not reviewed yet, plus pins outside those
+    /// files that you haven't looked at or that still ask something.
+    pub fn to_review(&self) -> usize {
+        let changed: Vec<&std::path::Path> = self
+            .changes
+            .iter()
+            .filter(|c| !c.reverted)
+            .map(|c| c.path.as_path())
+            .collect();
+        let loose = self
+            .pins
+            .iter()
+            .filter(|p| !p.dismissed && !crate::walk::is_tour(p))
+            .filter(|p| !changed.contains(&p.path.as_path()))
+            .filter(|p| !p.seen || crate::walk::pin_open(p))
+            .count();
+        self.unreviewed() + loose
+    }
+
+    /// Pins that still ask something (not resolved, not replied to).
+    pub fn open_questions(&self) -> usize {
+        self.pins.iter().filter(|p| crate::walk::pin_open(p)).count()
+    }
+
     pub fn set_reviewed(&mut self, path: &std::path::Path, reviewed: bool, cx: &mut Context<Self>) {
         if let Some(c) = self.changes.iter_mut().find(|c| c.path == path) {
             c.reviewed = reviewed;
@@ -708,14 +733,25 @@ impl Agent {
         self.stops().iter().filter(|s| !s.seen).count()
     }
 
-    /// Has changes or pins you haven't stepped through or reviewed yet.
+    /// Has changes or pins you haven't stepped through or reviewed yet (tours
+    /// aren't changes to review: they're listed under TOURS).
     pub fn needs_review(&self) -> bool {
-        self.unseen_stops() > 0
+        self.to_review() > 0
+            || crate::walk::unseen_change_notes(&self.changes, &self.pins)
+                .into_iter()
+                .next()
+                .is_some()
+    }
+
+    /// The stops walked together with the current one: a tour's own stops, or
+    /// the change notes and pins (see [`crate::walk::walk_group`]).
+    pub fn walk_stops(&self) -> Vec<Stop> {
+        crate::walk::walk_group(self.stops(), &self.pins, self.current_stop.as_ref())
     }
 
     /// See [`crate::walk::step`].
     pub fn step_stop(&self, delta: isize) -> Option<Stop> {
-        crate::walk::step(&self.stops(), self.current_stop.as_ref(), delta)
+        crate::walk::step(&self.walk_stops(), self.current_stop.as_ref(), delta)
     }
 
     /// The stop the walkthrough is on, if it still exists.
@@ -799,13 +835,17 @@ impl Agent {
     }
 }
 
-/// "fix the flaky replay test please" -> "fix the flaky replay test"
+/// "fix the flaky replay test please" -> "fix the flaky replay test…"
 pub fn name_from_prompt(text: &str) -> String {
     let (_, text) = crate::context::split_prompt(text); // not the editor-context block
+    let all = text.split_whitespace().count();
     let words: Vec<&str> = text.split_whitespace().take(5).collect();
     let mut name = words.join(" ");
     if name.chars().count() > 32 {
         name = name.chars().take(31).collect::<String>() + "…";
+    } else if all > words.len() {
+        // Cut mid-sentence: say so, or it reads like a broken label.
+        name.push('…');
     }
     if name.is_empty() {
         UNNAMED.to_string()

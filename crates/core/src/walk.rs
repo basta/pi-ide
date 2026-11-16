@@ -81,6 +81,37 @@ pub fn is_tour_stop(pins: &[Pin], stop: &Stop) -> bool {
     matches!(stop.at, StopRef::Pin(i) if pins.get(i).is_some_and(is_tour))
 }
 
+/// A pin pi left for you to look at or decide on stays open until you resolve
+/// it or reply to it: stepping past it doesn't settle the question.
+pub fn pin_open(p: &Pin) -> bool {
+    !is_tour(p) && !p.dismissed && !p.thread.iter().any(|r| !r.pi)
+}
+
+/// The tour (its tool call id) a stop belongs to, if any.
+fn tour_of<'a>(pins: &'a [Pin], stop: &Stop) -> Option<&'a str> {
+    let StopRef::Pin(i) = stop.at else {
+        return None;
+    };
+    let rest = pins.get(i)?.id.strip_prefix(crate::collab::TOUR_PREFIX)?;
+    Some(rest.rsplit_once(':').map_or(rest, |(c, _)| c))
+}
+
+/// The stops walked together with `current`: the same tour's stops when it's a
+/// tour stop, else the change notes and pins (tours are walked on their own, so
+/// a walk through the changes doesn't run into a tour). With no current stop:
+/// the change notes and pins, or everything if there are none.
+pub fn walk_group(stops: Vec<Stop>, pins: &[Pin], current: Option<&StopRef>) -> Vec<Stop> {
+    let cur = current.and_then(|c| stops.iter().find(|s| &s.at == c));
+    let tour = cur.and_then(|s| tour_of(pins, s)).map(str::to_string);
+    if cur.is_none() && stops.iter().all(|s| tour_of(pins, s).is_some()) {
+        return stops;
+    }
+    stops
+        .into_iter()
+        .filter(|s| tour_of(pins, s) == tour.as_deref())
+        .collect()
+}
+
 /// Notes on changes that you haven't stepped through: unseen stops that aren't
 /// part of a tour (the Commit window's "◆ n pi notes").
 pub fn unseen_change_notes(changes: &[FileChange], pins: &[Pin]) -> Vec<Stop> {
@@ -111,7 +142,7 @@ pub fn pin_stop(pins: &[Pin], i: usize) -> Stop {
         note: p.note.clone(),
         summary: None,
         outdated: p.anchor.outdated,
-        seen: p.seen,
+        seen: p.seen && !pin_open(p),
         thread: p.thread.clone(),
     }
 }
@@ -330,10 +361,16 @@ fn path_of(changes: &[FileChange], pins: &[Pin], at: &StopRef) -> Option<PathBuf
 /// too: ticking a file marks its stops seen, `Agent::set_reviewed`).
 fn review_if_walked(changes: &mut [FileChange], pins: &[Pin], path: &Path) {
     let tour = |s: &Stop| matches!(s.at, StopRef::Pin(i) if pins.get(i).is_some_and(is_tour));
+    // A visited pin counts here even while its question is open: being open
+    // keeps it in the to-review count, not the file's tick.
+    let seen = |s: &Stop| match s.at {
+        StopRef::Pin(i) => pins.get(i).is_some_and(|p| p.seen),
+        _ => s.seen,
+    };
     if stops(changes, pins)
         .iter()
         .filter(|s| s.path == path && !tour(s))
-        .all(|s| s.seen)
+        .all(seen)
         && let Some(c) = changes.iter_mut().find(|c| c.path == path && !c.reverted)
     {
         c.reviewed = true;
@@ -534,6 +571,35 @@ mod tests {
             at(&stops(&[a], &pins)),
             [("/a", 1), ("/a", 9), ("/b", 2), ("/a", 3)].map(|(p, l)| (p.to_string(), l))
         );
+    }
+
+    #[::core::prelude::v1::test]
+    fn a_pin_stays_open_until_answered_or_resolved() {
+        let mut pins = vec![pin("p1", "/a.rs", 3)];
+        let mut current = None;
+        visit(&mut [], &mut pins, &mut current, &StopRef::Pin(0));
+        assert!(pins[0].seen);
+        assert!(!stops(&[], &pins)[0].seen, "seen, but the question is still open");
+        pins[0].thread.push(Reply { pi: false, text: "yes".into() });
+        assert!(stops(&[], &pins)[0].seen);
+        let mut pins = vec![pin("p1", "/a.rs", 3)];
+        dismiss(&mut [], &mut pins, &mut current, &StopRef::Pin(0));
+        assert!(stops(&[], &pins).is_empty());
+    }
+
+    #[::core::prelude::v1::test]
+    fn walking_changes_does_not_run_into_a_tour() {
+        let a = change("/a.rs");
+        let mut t1 = pin(&format!("{}c1:0", crate::collab::TOUR_PREFIX), "/b.rs", 1);
+        t1.seen = true;
+        let t2 = pin(&format!("{}c1:1", crate::collab::TOUR_PREFIX), "/b.rs", 5);
+        let pins = vec![t1, t2];
+        let all = stops(&[a], &pins);
+        assert_eq!(all.len(), 3);
+        let changes = walk_group(all.clone(), &pins, None);
+        assert_eq!(changes.len(), 1);
+        let tour = walk_group(all, &pins, Some(&StopRef::Pin(1)));
+        assert_eq!(tour.len(), 2);
     }
 
     #[::core::prelude::v1::test]

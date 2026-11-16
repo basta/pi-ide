@@ -240,13 +240,14 @@ impl Stop {
     /// your text, and to answer without changing code unless asked.
     pub fn reply_prompt(&self, root: &std::path::Path, text: &str) -> String {
         format!(
-            "{}{}\n\n(Answer this in a short reply. Don't change code unless I ask you to.)",
+            "{}{}{REPLY_INSTRUCTION}",
             self.reply_prefix(root),
             text.trim()
         )
     }
 
     /// "path:line" relative to `root`, for a reply's location prefix.
+    /// (See [`split_reply`] for reading one back.)
     pub fn location(&self, root: &std::path::Path) -> String {
         let rel = self.path.strip_prefix(root).unwrap_or(&self.path);
         format!("{}:{}", rel.display(), self.line)
@@ -342,9 +343,37 @@ pub fn review_next(window: &mut Window, cx: &mut App) -> bool {
     start_walk(&agent, window, cx)
 }
 
+
+/// A reply to a note as sent to pi ([`Stop::reply_prefix`] + your words, maybe
+/// [`Stop::reply_prompt`]'s instruction) → the note's location and your words,
+/// so the chat shows what you typed rather than the wrapper.
+pub fn split_reply(prompt: &str) -> Option<(&str, &str)> {
+    let (loc, rest) = prompt.split_once(" (about your note \"")?;
+    if loc.contains(char::is_whitespace) || !loc.contains(':') {
+        return None;
+    }
+    let (_, words) = rest.split_once("\"): ")?;
+    let words = words
+        .strip_suffix(REPLY_INSTRUCTION)
+        .unwrap_or(words)
+        .trim_end();
+    Some((loc, words))
+}
+
+const REPLY_INSTRUCTION: &str =
+    "\n\n(Answer this in a short reply. Don't change code unless I ask you to.)";
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn replies_read_back_as_your_words() {
+        let p = format!("src/report.rs:5 (about your note \"An empty store: prints a line.\"): Keep it{REPLY_INSTRUCTION}");
+        assert_eq!(split_reply(&p), Some(("src/report.rs:5", "Keep it")));
+        assert_eq!(split_reply("src/a.rs:3 (about your note \"x\"): yes"), Some(("src/a.rs:3", "yes")));
+        assert_eq!(split_reply("just a question (about your note \"x\"): y"), None);
+    }
 
     #[::core::prelude::v1::test]
     fn tour_notes_split_at_the_counter() {

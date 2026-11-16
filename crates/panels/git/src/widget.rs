@@ -191,15 +191,16 @@ fn open_branches(window: &mut Window, cx: &mut App) {
 
 fn show_branches(list: Vec<BranchInfo>, window: &mut Window, cx: &mut App) {
     let current = list.iter().find(|b| b.current).map(|b| b.name.clone());
+    let key = |id: &str| pide_core::keymap::keys_for(cx, id).unwrap_or_default();
     let picks: Rc<Vec<(String, String, Pick)>> = Rc::new(
         [
-            ("Update Project (pull)…", "⌘T", Pick::Pull),
-            ("Push…", "⇧⌘K", Pick::Push),
-            ("Fetch", "", Pick::Fetch),
-            ("New Branch…", "", Pick::NewBranch),
+            ("Update Project (pull)…", key("git.pull"), Pick::Pull),
+            ("Push…", key("git.push"), Pick::Push),
+            ("Fetch", String::new(), Pick::Fetch),
+            ("New Branch…", String::new(), Pick::NewBranch),
         ]
         .into_iter()
-        .map(|(a, b, p)| (a.to_string(), b.to_string(), p))
+        .map(|(a, b, p)| (a.to_string(), b, p))
         .chain(list.into_iter().map(|b| {
             let mut hint = Vec::new();
             if b.ahead > 0 {
@@ -693,10 +694,11 @@ impl Render for PushView {
                         .border_color(theme.warning)
                         .text_sm()
                         .child(format!(
-                            "{} has {} commit{} you don't have: a push will be rejected. Update Project (⌘T) first, or Force Push.",
+                            "{} has {} commit{} you don't have: a push will be rejected. Update Project ({}) first, or Force Push.",
                             out.target,
                             out.behind,
-                            if out.behind == 1 { "" } else { "s" }
+                            if out.behind == 1 { "" } else { "s" },
+                            pide_core::keymap::keys_for(cx, "git.pull").unwrap_or_else(|| "Git → Pull".into())
                         )),
                 )
             })

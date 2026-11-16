@@ -345,7 +345,7 @@ impl Render for RunPanel {
                             .child(if has_command {
                                 format!("$ {}", self.command)
                             } else {
-                                "Run: Run Command… (Ctrl+Alt+R) runs a shell command here.".into()
+                                format!("Run: Run Command… ({}) runs a shell command here.", pide_core::keymap::label("ctrl-alt-r"))
                             }),
                     )
                     .when_some(self.status.clone(), |this, s| {

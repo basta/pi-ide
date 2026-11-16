@@ -153,9 +153,9 @@ impl AgentChat {
             }
             DialogKind::Input | DialogKind::Editor => {
                 let hint = if d.kind == DialogKind::Editor {
-                    "⌘Enter to submit"
+                    format!("{} to submit", pide_core::keymap::label("secondary-enter"))
                 } else {
-                    "Enter to submit"
+                    "Enter to submit".to_string()
                 };
                 if let Some((input, _)) = self.dialog_inputs.get(&d.id) {
                     card = card.child(Textarea::new(input));

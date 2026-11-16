@@ -85,7 +85,7 @@ fn menus() -> Vec<Menu> {
                     items: vec![
                         cmd("Dark", "view.theme_dark"),
                         cmd("Light", "view.theme_light"),
-                        cmd("Follow macOS", "view.theme_system"),
+                        cmd(crate::theme::FOLLOW_SYSTEM, "view.theme_system"),
                     ],
                     disabled: false,
                 }),

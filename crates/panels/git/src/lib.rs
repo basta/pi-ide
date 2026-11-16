@@ -153,7 +153,10 @@ impl GitPanel {
         let message = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(3, 10)
-                .placeholder("Commit message  (⌘↩ commits)")
+                .placeholder(format!(
+                    "Commit message  ({} commits)",
+                    pide_core::keymap::label("secondary-enter")
+                ))
         });
         let subs = vec![
             cx.subscribe(&workspace, |this, _, ev: &WorkspaceEvent, cx| {
@@ -1126,9 +1129,12 @@ impl Render for GitPanel {
                                         .label(if self.amend { "Amend Commit" } else { "Commit" })
                                         .disabled(!can_commit)
                                         .tooltip(if full.is_empty() && partial.is_empty() && !self.amend {
-                                            "Check files to commit"
+                                            "Check files to commit".to_string()
                                         } else {
-                                            "Commit the checked changes (⌘↩)"
+                                            format!(
+                                                "Commit the checked changes ({})",
+                                                pide_core::keymap::label("secondary-enter")
+                                            )
                                         })
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             this.commit(false, window, cx)
