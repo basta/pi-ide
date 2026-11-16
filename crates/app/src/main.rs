@@ -84,6 +84,7 @@ fn main() {
         pide_agent_chat::init(cx);
         pide_language_servers::init(cx);
         pide_problems::init(cx);
+        pide_structure::init(cx);
         pide_pi_settings::init(cx);
         pide_search::init(cx);
         pide_preview::init(cx);

@@ -63,6 +63,7 @@ fn menus() -> Vec<Menu> {
                     items: vec![
                         cmd("Project", "view.toggle_project"),
                         cmd("pi", "view.toggle_agent"),
+                        cmd("Structure", "view.structure"),
                         cmd("Problems", "view.problems"),
                         cmd("Find", "view.find"),
                         cmd("Run", "view.run"),

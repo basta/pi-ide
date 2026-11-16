@@ -102,3 +102,12 @@ Needs Codebook (`brew install codebook-lsp`, or Settings → Language Servers �
 - LaTeX, Typst and Markdown prose, and in code only comments, strings and the names you define, get a quiet hint-colored underline. It runs next to the file's own server (texlab, tinymist, rust-analyzer…).
 - Spelling isn't in **Problems** or the status-bar counts, and F2 skips it.
 - **Alt+Enter** on a word: Replace with …, Add to dictionary (the project's `codebook.toml`), Add to global dictionary, ignore the file. Click the item: Enter in that menu also inserts a newline (GAPS.md).
+
+## Structure
+
+**Cmd+7** (View → Tool Windows → Structure) shows the outline of the file in the active tab, in the left dock.
+
+- Typst, LaTeX and Markdown: the headings as a tree (Typst and LaTeX from tinymist/texlab; Markdown, or a document whose server isn't up yet, from the text). **Headings** in the header switches to everything the server reports (labels, `#let`s, figures).
+- Code: the language server's symbols (structs, impls, functions…) with their kind.
+- The entry the cursor is in is highlighted and kept in view; new headings show up as you type.
+- Click an entry to jump there. With the panel focused: ↑/↓ move, ← collapses (or goes to the parent), → expands, Enter jumps. The chevron folds one entry; the ⇕ button collapses or expands everything.
