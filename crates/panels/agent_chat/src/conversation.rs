@@ -269,8 +269,12 @@ impl AgentChat {
         let id = agent.entity_id();
         let (items, scroll, empty) = match self.views.get(&id) {
             Some(view) => {
-                let els: Vec<AnyElement> = (0..view.items.len())
-                    .map(|ix| self.render_item(view, ix, cx))
+                let els: Vec<AnyElement> = tool_runs::segments(&view.items)
+                    .into_iter()
+                    .map(|seg| match seg {
+                        tool_runs::Segment::Item(ix) => self.render_item(view, ix, cx),
+                        tool_runs::Segment::Run(ixs) => self.render_run(view, &ixs, cx),
+                    })
                     .collect();
                 (els, view.scroll.clone(), view.items.is_empty())
             }

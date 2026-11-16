@@ -149,7 +149,7 @@ impl AgentChat {
             }),
             AgentEvent::ToolUpdate { id, partial } => {
                 if let Some(Item::Tool { output, .. }) = tool_mut(items, id) {
-                    *output = result_text(partial);
+                    *output = result_text(partial, true);
                 }
             }
             AgentEvent::ToolEnd {
@@ -171,7 +171,7 @@ impl AgentChat {
                     } else {
                         ToolState::Done
                     };
-                    *output = result_text(result);
+                    *output = result_text(result, *is_error);
                     *d = *duration_ms;
                 }
             }

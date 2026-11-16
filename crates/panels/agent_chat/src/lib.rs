@@ -32,6 +32,7 @@ mod model_picker;
 mod rename;
 mod sessions_view;
 mod slash;
+mod tool_runs;
 mod tour;
 mod understand;
 
@@ -362,6 +363,12 @@ struct SessionView {
     items: Vec<Item>,
     scroll: ScrollHandle,
     history_requested: bool,
+    /// Runs of tool calls opened or closed by hand, by their first call's id
+    /// (default: open when a call failed).
+    run_open: HashMap<String, bool>,
+    /// Calls in an open run whose output is shown or hidden by hand, by call id
+    /// (default: shown when it failed).
+    tool_open: HashMap<String, bool>,
 }
 
 #[derive(Default)]
