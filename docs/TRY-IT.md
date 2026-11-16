@@ -94,3 +94,11 @@ Needs tinymist, which bundles the Typst compiler (Settings → Language Servers 
 - **PDF as you type (experimental, on by default):** the PDF is re-exported after every change, without saving (the tab stays unsaved). While the document doesn't compile the PDF keeps its last good version. Off in Settings → pide… ("Typst: PDF as you type") to export only on save. Outside changes (pi's edits) export too.
 - **The PDF follows your edits** (Settings → pide… → "Typst: PDF follows your edits"): after an export it scrolls to the paragraph you changed (the change nearest the cursor) and marks it for a moment; if it's already in view it only marks it. Found by searching the changed prose in the PDF, so a change in pure code or math (nothing to search for) leaves the PDF where it is.
 - No forward/inverse search on demand yet (tinymist has no SyncTeX).
+
+## Spell checking
+
+Needs Codebook (`brew install codebook-lsp`, or Settings → Language Servers → Spelling → Install). It downloads its dictionaries once, then works offline. On by default; Settings → pide… → "Spell check" turns it off at once.
+
+- LaTeX, Typst and Markdown prose, and in code only comments, strings and the names you define, get a quiet hint-colored underline. It runs next to the file's own server (texlab, tinymist, rust-analyzer…).
+- Spelling isn't in **Problems** or the status-bar counts, and F2 skips it.
+- **Alt+Enter** on a word: Replace with …, Add to dictionary (the project's `codebook.toml`), Add to global dictionary, ignore the file. Click the item: Enter in that menu also inserts a newline (GAPS.md).

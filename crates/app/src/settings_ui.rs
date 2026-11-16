@@ -55,6 +55,13 @@ const ROWS: &[Row] = &[
         |s, v| s.format_on_save = v,
     ),
     (
+        "spellcheck.enabled",
+        "Spell check",
+        "Underlines spelling in prose (LaTeX, Typst, Markdown) and in code comments, strings and the names you define, with fixes on Alt+Enter. Needs Codebook: install it from Settings → Language Servers (Spelling).",
+        |s| s.spellcheck,
+        |s, v| s.spellcheck = v,
+    ),
+    (
         "typst.pdf_on_type",
         "Typst: PDF as you type (experimental)",
         "Re-export the PDF after every change, without saving. Off: only on save.",

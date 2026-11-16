@@ -870,7 +870,24 @@ impl EditorPanel {
             }),
         );
         self.apply_diagnostics(&store, cx);
-        if pide_lsp::registry::spec_for(store.read(cx).specs(), &self.path).is_some() {
+        let has_main =
+            pide_lsp::registry::spec_for(store.read(cx).specs(), &self.path).is_some();
+        // Add-on servers (spelling) by spec, not by setting: their providers
+        // ask the running server each time, so turning it on later just works.
+        let addons: Vec<std::rc::Rc<lsp::Providers>> =
+            pide_lsp::registry::addons_for(store.read(cx).specs(), &self.path)
+                .into_iter()
+                .map(|s| lsp::Providers::addon(&store, self.path.clone(), s.id))
+                .collect();
+        if !has_main && !addons.is_empty() {
+            self.editor.update(cx, |e, _| {
+                e.lsp_mut().code_action_providers = addons
+                    .iter()
+                    .map(|p| p.clone() as std::rc::Rc<dyn gpui_kit::component::input::CodeActionProvider>)
+                    .collect();
+            });
+        }
+        if has_main {
             let providers = lsp::Providers::new(&store, self.path.clone());
             let show = lsp::show_document_handler(self.path.clone());
             self.providers = Some(providers.clone());
@@ -882,6 +899,9 @@ impl EditorPanel {
                 l.hover_provider = Some(providers.clone());
                 l.definition_provider = Some(providers.clone());
                 l.code_action_providers = vec![providers];
+                for a in addons {
+                    l.code_action_providers.push(a);
+                }
                 l.show_document = Some(show);
             });
         }
@@ -987,11 +1007,21 @@ impl EditorPanel {
         text: &gpui_kit::component::input::Rope,
         cx: &App,
     ) -> Vec<lsp_types::Diagnostic> {
-        let diags = store.read(cx).diagnostics_for(&self.path).cloned();
-        let shifts = &self.diag_edits;
-        diags
+        let store = store.read(cx);
+        let main = store
+            .diagnostics_for(&self.path)
             .into_iter()
-            .flat_map(|f| f.items.into_iter().map(move |i| (f.encoding, i)))
+            .flat_map(|f| f.items.iter().map(move |i| (f.encoding, i.clone())));
+        // Spelling: a quiet hint, whatever the checker calls it.
+        let spelling = store.addon_diagnostics_for(&self.path).flat_map(|(_, f)| {
+            f.items.iter().map(move |i| {
+                let mut i = i.clone();
+                i.severity = Some(lsp_types::DiagnosticSeverity::HINT);
+                (f.encoding, i)
+            })
+        });
+        let shifts = &self.diag_edits;
+        main.chain(spelling)
             .map(|(enc, mut i)| {
                 i.range.start.line = follow::shift_line(i.range.start.line, shifts);
                 i.range.end.line = follow::shift_line(i.range.end.line, shifts);

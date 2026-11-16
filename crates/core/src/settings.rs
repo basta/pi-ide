@@ -40,6 +40,10 @@ pub struct Settings {
     /// `"typst.pdf_follow_edits"`: after an export, scroll the PDF to what
     /// changed. Default on.
     pub typst_pdf_follow: bool,
+    /// `"spellcheck.enabled"`: spell check through Codebook (`codebook-lsp`),
+    /// alongside each file's language server. Default on (nothing happens
+    /// until it's installed).
+    pub spellcheck: bool,
 }
 
 impl Default for Settings {
@@ -54,6 +58,7 @@ impl Default for Settings {
             collab: true,
             typst_pdf_on_type: true,
             typst_pdf_follow: true,
+            spellcheck: true,
         }
     }
 }
@@ -109,6 +114,10 @@ pub fn load() -> Settings {
             .unwrap_or(true),
         typst_pdf_follow: raw
             .get("typst.pdf_follow_edits")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true),
+        spellcheck: raw
+            .get("spellcheck.enabled")
             .and_then(|v| v.as_bool())
             .unwrap_or(true),
     }

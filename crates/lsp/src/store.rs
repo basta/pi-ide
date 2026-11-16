@@ -83,10 +83,13 @@ pub struct FileDiagnostics {
 }
 
 struct Doc {
-    server: &'static str,
+    /// The servers that handle it: the main one first (if any), then add-ons
+    /// (spell checking).
+    servers: Vec<&'static str>,
+    /// The ones it's open in (didOpen sent).
+    opened: Vec<&'static str>,
     version: i32,
     text: Rope,
-    opened: bool,
     /// Tracked for pi without an editor (`check_file`); an editor buffer takes it over.
     headless: bool,
 }
@@ -121,6 +124,11 @@ pub struct LspStore {
     servers: HashMap<&'static str, Server>,
     docs: HashMap<PathBuf, Doc>,
     diagnostics: BTreeMap<PathBuf, FileDiagnostics>,
+    /// From add-on servers (spelling), per file and server. Kept apart: the
+    /// editor shows them, Problems and the error counts don't.
+    addon_diagnostics: BTreeMap<PathBuf, BTreeMap<&'static str, FileDiagnostics>>,
+    /// `spellcheck.enabled`: run the add-on servers.
+    spellcheck: bool,
     missing_reported: Vec<&'static str>,
     _subs: Vec<Subscription>,
 }
@@ -154,17 +162,25 @@ impl LspStore {
     }
 
     fn new(workspace: &Entity<Workspace>, cx: &mut Context<Self>) -> Self {
-        let lsp_settings = cx
-            .try_global::<pide_core::settings::Settings>()
-            .and_then(|s| s.lsp.clone());
+        let settings = cx.try_global::<pide_core::settings::Settings>();
+        let lsp_settings = settings.and_then(|s| s.lsp.clone());
+        let spellcheck = settings.is_none_or(|s| s.spellcheck);
         let mut this = Self {
             root: workspace.read(cx).root().to_path_buf(),
             specs: registry::specs(lsp_settings.as_ref()),
             servers: HashMap::new(),
             docs: HashMap::new(),
             diagnostics: BTreeMap::new(),
+            addon_diagnostics: BTreeMap::new(),
+            spellcheck,
             missing_reported: Vec::new(),
-            _subs: vec![cx.subscribe(workspace, Self::on_workspace_event)],
+            _subs: vec![
+                cx.subscribe(workspace, Self::on_workspace_event),
+                cx.observe_global::<pide_core::settings::Settings>(|this, cx| {
+                    let on = cx.global::<pide_core::settings::Settings>().spellcheck;
+                    this.set_spellcheck(on, cx);
+                }),
+            ],
         };
         // Buffers opened before the store existed.
         for buffer in workspace.read(cx).buffers().to_vec() {
@@ -205,6 +221,96 @@ impl LspStore {
         self.diagnostics.get(path)
     }
 
+    /// Diagnostics from the add-on servers (spelling), by server.
+    pub fn addon_diagnostics_for(
+        &self,
+        path: &Path,
+    ) -> impl Iterator<Item = (&'static str, &FileDiagnostics)> {
+        self.addon_diagnostics
+            .get(path)
+            .into_iter()
+            .flat_map(|m| m.iter().map(|(id, d)| (*id, d)))
+    }
+
+    /// The add-on servers that handle a file (none while spell checking is off).
+    pub fn addons_for(&self, path: &Path) -> Vec<&'static str> {
+        if !self.spellcheck {
+            return vec![];
+        }
+        registry::addons_for(&self.specs, path)
+            .into_iter()
+            .map(|s| s.id)
+            .collect()
+    }
+
+    /// A server by id, if it's running.
+    pub fn running(&self, id: &str) -> Option<&Server> {
+        self.servers.get(id).filter(|s| s.is_running())
+    }
+
+    /// Every server for a file: the main one first, then the add-ons.
+    fn servers_for(&self, path: &Path) -> Vec<&'static str> {
+        let mut ids: Vec<&'static str> = registry::spec_for(&self.specs, path)
+            .map(|s| s.id)
+            .into_iter()
+            .collect();
+        ids.extend(self.addons_for(path));
+        ids
+    }
+
+    /// Turn the add-on servers (spell checking) on or off for open files.
+    fn set_spellcheck(&mut self, on: bool, cx: &mut Context<Self>) {
+        if self.spellcheck == on {
+            return;
+        }
+        self.spellcheck = on;
+        let addons: Vec<&'static str> = self
+            .specs
+            .iter()
+            .filter(|s| s.addon)
+            .map(|s| s.id)
+            .collect();
+        if on {
+            let paths: Vec<PathBuf> = self
+                .docs
+                .iter()
+                .filter(|(_, d)| !d.headless)
+                .map(|(p, _)| p.clone())
+                .collect();
+            let mut wanted = Vec::new();
+            for p in paths {
+                let ids = self.addons_for(&p);
+                if let Some(d) = self.docs.get_mut(&p) {
+                    for id in ids {
+                        if !d.servers.contains(&id) {
+                            d.servers.push(id);
+                        }
+                        if !wanted.contains(&id) {
+                            wanted.push(id);
+                        }
+                    }
+                }
+            }
+            for id in wanted {
+                self.ensure_server(id, cx);
+                self.open_docs(id);
+            }
+        } else {
+            for id in &addons {
+                if self.servers.contains_key(id) {
+                    self.stop(id, cx);
+                }
+            }
+            for d in self.docs.values_mut() {
+                d.servers.retain(|s| !addons.contains(s));
+            }
+            for path in std::mem::take(&mut self.addon_diagnostics).into_keys() {
+                cx.emit(LspEvent::Diagnostics { path });
+            }
+            cx.notify();
+        }
+    }
+
     fn on_workspace_event(
         &mut self,
         _: Entity<Workspace>,
@@ -223,9 +329,7 @@ impl LspStore {
             }
             WorkspaceEvent::BufferSaved(b) => {
                 let path = b.read(cx).path.clone();
-                if let Some(doc) = self.docs.get(&path).filter(|d| d.opened)
-                    && let Some(rpc) = self.servers.get(doc.server).and_then(|s| s.rpc.clone())
-                {
+                for rpc in self.rpcs_of(&path) {
                     rpc.notify(
                         "textDocument/didSave",
                         json!({ "textDocument": { "uri": file_uri(&path) } }),
@@ -233,18 +337,32 @@ impl LspStore {
                 }
             }
             WorkspaceEvent::BufferClosed(path) => {
-                if let Some(doc) = self.docs.remove(path)
-                    && doc.opened
-                    && let Some(rpc) = self.servers.get(doc.server).and_then(|s| s.rpc.clone())
-                {
+                for rpc in self.rpcs_of(path) {
                     rpc.notify(
                         "textDocument/didClose",
                         json!({ "textDocument": { "uri": file_uri(path) } }),
                     );
                 }
+                self.docs.remove(path);
+                if self.addon_diagnostics.remove(path).is_some() {
+                    cx.emit(LspEvent::Diagnostics { path: path.clone() });
+                }
             }
             _ => {}
         }
+    }
+
+    /// The connections of the servers a file is open in.
+    fn rpcs_of(&self, path: &Path) -> Vec<Rpc> {
+        self.docs
+            .get(path)
+            .map(|d| {
+                d.opened
+                    .iter()
+                    .filter_map(|id| self.servers.get(id)?.rpc.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn buffer_opened(&mut self, buffer: &Entity<Buffer>, cx: &mut Context<Self>) {
@@ -252,29 +370,35 @@ impl LspStore {
             let b = buffer.read(cx);
             (b.path.clone(), b.text().clone())
         };
-        let Some(spec) = registry::spec_for(&self.specs, &path).cloned() else {
-            return;
-        };
-        // Already open in the server (checked for pi without an editor): the editor takes it over.
-        if let Some(d) = self.docs.get_mut(&path)
-            && d.opened
-        {
-            d.headless = false;
-            self.sync_text(&path, &text);
+        let servers = self.servers_for(&path);
+        if servers.is_empty() {
             return;
         }
-        self.docs.insert(
-            path.clone(),
-            Doc {
-                server: spec.id,
-                version: 1,
-                text,
-                opened: false,
-                headless: false,
-            },
-        );
-        self.ensure_server(spec.id, cx);
-        self.open_docs(spec.id);
+        if let Some(d) = self.docs.get_mut(&path) {
+            // Tracked for pi without an editor: the editor takes it over.
+            d.headless = false;
+            for id in &servers {
+                if !d.servers.contains(id) {
+                    d.servers.push(id);
+                }
+            }
+            self.sync_text(&path, &text);
+        } else {
+            self.docs.insert(
+                path.clone(),
+                Doc {
+                    servers: servers.clone(),
+                    opened: vec![],
+                    version: 1,
+                    text,
+                    headless: false,
+                },
+            );
+        }
+        for id in servers {
+            self.ensure_server(id, cx);
+            self.open_docs(id);
+        }
     }
 
     /// Have the language server check a file no editor has open (pi's
@@ -293,13 +417,14 @@ impl LspStore {
         let Some(spec) = registry::spec_for(&self.specs, path).cloned() else {
             return false;
         };
+        // Only the main server: pi asks about errors, not spelling.
         self.docs.insert(
             path.to_path_buf(),
             Doc {
-                server: spec.id,
+                servers: vec![spec.id],
+                opened: vec![],
                 version: 1,
                 text: rope,
-                opened: false,
                 headless: true,
             },
         );
@@ -318,10 +443,13 @@ impl LspStore {
         }
         doc.text = text.clone();
         doc.version += 1;
-        if !doc.opened {
-            return; // didOpen will carry it
-        }
-        if let Some(rpc) = self.servers.get(doc.server).and_then(|s| s.rpc.clone()) {
+        // Servers it isn't open in yet get it with didOpen.
+        let doc = &self.docs[path];
+        for rpc in doc
+            .opened
+            .iter()
+            .filter_map(|id| self.servers.get(id)?.rpc.clone())
+        {
             rpc.notify(
                 "textDocument/didChange",
                 json!({
@@ -338,20 +466,21 @@ impl LspStore {
             return;
         };
         let Some(rpc) = s.rpc.clone() else { return };
-        let language_id = s.spec.language_id;
+        let spec = s.spec.clone();
         for (path, doc) in self
             .docs
             .iter_mut()
-            .filter(|(_, d)| d.server == server && !d.opened)
+            .filter(|(_, d)| d.servers.contains(&server) && !d.opened.contains(&server))
         {
             rpc.notify(
                 "textDocument/didOpen",
                 json!({ "textDocument": {
-                    "uri": file_uri(path), "languageId": language_id,
+                    "uri": file_uri(path),
+                    "languageId": registry::language_id_for(&spec, path),
                     "version": doc.version, "text": doc.text.to_string(),
                 } }),
             );
-            doc.opened = true;
+            doc.opened.push(server);
         }
     }
 
@@ -415,8 +544,8 @@ impl LspStore {
         }
         s.state = ServerState::Stopped;
         s.progress.clear();
-        for doc in self.docs.values_mut().filter(|d| d.server == id) {
-            doc.opened = false;
+        for doc in self.docs.values_mut() {
+            doc.opened.retain(|s| *s != id);
         }
         cx.emit(LspEvent::Status);
         cx.notify();
@@ -475,7 +604,9 @@ impl LspStore {
             log::info!("{id}: not installed ({reason})");
             s.state = ServerState::NotInstalled { reason };
             cx.emit(LspEvent::Status);
-            if !self.missing_reported.contains(&id) {
+            // A missing spell checker isn't worth a notice on every project:
+            // the Language Servers tab and the setting say how to get it.
+            if !s.spec.addon && !self.missing_reported.contains(&id) {
                 self.missing_reported.push(id);
                 cx.emit(LspEvent::MissingServer { server: id });
             }
@@ -583,10 +714,20 @@ impl LspStore {
             message,
             stderr_tail: exit.stderr_tail,
         };
-        for doc in self.docs.values_mut().filter(|d| d.server == id) {
-            doc.opened = false;
+        for doc in self.docs.values_mut() {
+            doc.opened.retain(|s| *s != id);
         }
         // Its diagnostics are no longer maintained.
+        let mut gone_addon = Vec::new();
+        for (p, by) in &mut self.addon_diagnostics {
+            if by.remove(id).is_some() {
+                gone_addon.push(p.clone());
+            }
+        }
+        self.addon_diagnostics.retain(|_, by| !by.is_empty());
+        for p in gone_addon {
+            cx.emit(LspEvent::Diagnostics { path: p });
+        }
         let stale: Vec<PathBuf> = self
             .diagnostics
             .keys()
@@ -647,7 +788,23 @@ impl LspStore {
                     let Some(path) = uri_path(p.uri.as_str()) else {
                         return;
                     };
-                    if p.diagnostics.is_empty() {
+                    if s.spec.addon {
+                        let by = self.addon_diagnostics.entry(path.clone()).or_default();
+                        if p.diagnostics.is_empty() {
+                            by.remove(id);
+                        } else {
+                            by.insert(
+                                id,
+                                FileDiagnostics {
+                                    encoding: s.encoding,
+                                    items: p.diagnostics,
+                                },
+                            );
+                        }
+                        if by.is_empty() {
+                            self.addon_diagnostics.remove(&path);
+                        }
+                    } else if p.diagnostics.is_empty() {
                         self.diagnostics.remove(&path);
                     } else {
                         self.diagnostics.insert(
@@ -745,7 +902,36 @@ impl LspStore {
         if let Some(text) = text {
             self.sync_text(path, text);
         }
-        let Some(rpc) = self.server_for(path).and_then(|s| s.rpc.clone()) else {
+        let rpc = self.server_for(path).and_then(|s| s.rpc.clone());
+        self.send(rpc, path, method, params, cx)
+    }
+
+    /// Like `request`, to one server by id (an add-on's code actions).
+    pub fn request_to(
+        &mut self,
+        server: &str,
+        path: &Path,
+        text: Option<&Rope>,
+        method: &str,
+        params: Value,
+        cx: &mut Context<Self>,
+    ) -> Task<anyhow::Result<Value>> {
+        if let Some(text) = text {
+            self.sync_text(path, text);
+        }
+        let rpc = self.running(server).and_then(|s| s.rpc.clone());
+        self.send(rpc, path, method, params, cx)
+    }
+
+    fn send(
+        &self,
+        rpc: Option<Rpc>,
+        path: &Path,
+        method: &str,
+        params: Value,
+        cx: &mut Context<Self>,
+    ) -> Task<anyhow::Result<Value>> {
+        let Some(rpc) = rpc else {
             return Task::ready(Err(anyhow!(
                 "no language server running for {}",
                 path.display()
