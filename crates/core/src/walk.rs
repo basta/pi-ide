@@ -361,10 +361,16 @@ fn path_of(changes: &[FileChange], pins: &[Pin], at: &StopRef) -> Option<PathBuf
 /// too: ticking a file marks its stops seen, `Agent::set_reviewed`).
 fn review_if_walked(changes: &mut [FileChange], pins: &[Pin], path: &Path) {
     let tour = |s: &Stop| matches!(s.at, StopRef::Pin(i) if pins.get(i).is_some_and(is_tour));
+    // A visited pin counts here even while its question is open: being open
+    // keeps it in the to-review count, not the file's tick.
+    let seen = |s: &Stop| match s.at {
+        StopRef::Pin(i) => pins.get(i).is_some_and(|p| p.seen),
+        _ => s.seen,
+    };
     if stops(changes, pins)
         .iter()
         .filter(|s| s.path == path && !tour(s))
-        .all(|s| s.seen)
+        .all(seen)
         && let Some(c) = changes.iter_mut().find(|c| c.path == path && !c.reverted)
     {
         c.reviewed = true;
