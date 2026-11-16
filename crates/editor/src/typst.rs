@@ -97,6 +97,21 @@ pub(crate) fn export_on_save(
     window: &mut Window,
     cx: &mut Context<EditorPanel>,
 ) {
+    export(panel, true, window, cx);
+}
+
+/// The file changed on disk (pi edited it, or another editor): rebuild the PDF
+/// so it doesn't show the old text. An open PDF tab reloads by itself; none is
+/// opened for it.
+pub(crate) fn export_on_disk_change(
+    panel: &EditorPanel,
+    window: &mut Window,
+    cx: &mut Context<EditorPanel>,
+) {
+    export(panel, false, window, cx);
+}
+
+fn export(panel: &EditorPanel, show: bool, window: &mut Window, cx: &mut Context<EditorPanel>) {
     let path = panel.path.clone();
     let project = panel.workspace.read(cx).root().to_path_buf();
     let store = pide_lsp::LspStore::for_workspace(&panel.workspace, cx);
@@ -136,7 +151,7 @@ pub(crate) fn export_on_save(
             match result {
                 Ok(v) => {
                     let pdf = exported_path(&v).unwrap_or_else(|| root.with_extension("pdf"));
-                    if pdf.is_file() {
+                    if show && pdf.is_file() {
                         pide_core::opener::show_pdf(
                             PdfRequest {
                                 path: pdf,
@@ -151,7 +166,10 @@ pub(crate) fn export_on_save(
                 }
                 Err(e) => {
                     let msg = format!("{e:#}");
-                    if msg.contains("no language server running") {
+                    if !show {
+                        // A rebuild after pi's edit: Problems has the errors.
+                        log::info!("typst export: {msg}");
+                    } else if msg.contains("no language server running") {
                         let told = &mut cx.default_global::<ToldNoServer>().0;
                         if !*told {
                             *told = true;
