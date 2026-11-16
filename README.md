@@ -1,123 +1,103 @@
-# pide
+<h1 align="center">pide</h1>
 
-A personal, native code editor in Rust on GPUI + GPUI Kit, with the pi coding agent built in.
-Spec: the claude.ai doc "pi IDE — Implementation Spec". Contributor/agent guide: `AGENTS.md`.
+<p align="center"><b>The editor for code you didn't type.</b></p>
 
-Status: milestones **M0–M5** built (M6 scripted panels: options written up in `docs/M6-SCRIPTED-PANELS.md`, waiting on a decision). `docs/GAPS.md` lists what GPUI Kit or pi can't do yet and the PDF part that still needs a first run; `docs/IDEAS.md` what's deliberately not built. M0 results: `docs/SPIKE.md`. New here (or back after a while)? `docs/TRY-IT.md` is a 10-minute tour.
+<p align="center">
+A fast, native desktop IDE built around the <a href="https://www.npmjs.com/package/@earendil-works/pi-coding-agent">pi</a> coding agent.<br>
+pi writes the code. pide makes sure you still understand it.
+</p>
 
-## Run
+<p align="center">
+  <img src="docs/images/walkthrough.gif" alt="Stepping through pi's notes on a change, right in the code" width="900">
+</p>
+
+---
+
+Agents now write most of the code in many projects, and the usual tools give you two choices: read
+every diff in a side chat, or stop reading and hope. pide sits in between. pi's work lands **in the
+code**: every change comes with a reason, every hunk with a note, and the spots that need your call
+are pinned to the line. You walk through a change the way a colleague would explain it, reply on the
+line you're looking at, and ask for a guided tour of anything you don't know yet.
+
+Under that is a real IDE: language servers, git, find in files, a run panel, LaTeX with a live PDF.
+It's written in Rust on [GPUI](https://www.gpui.rs/), so it is a native app, not a browser in a window.
+
+## Follow pi's code where it lands
+
+<img src="docs/images/notes-in-code.png" alt="A pi note open under the line it explains, with the walkthrough controls" width="900">
+
+- **Notes in the code.** pi explains each file and each hunk it changed. The notes float over the
+  code as a dim line after the code, and open into a card under the lines they're about. They take
+  no width from the editor.
+- **Walk through a change.** Click **◆ n to review** in the status bar. pide opens each note in
+  reading order, across files, with Back and Next. Stepping past a file's last note marks it
+  reviewed.
+- **Pins for decisions.** When pi is unsure, it pins the line and asks. You answer in the card,
+  on that line, and the reply goes to pi with the file, the line and the note attached.
+
+## Understand code you didn't write
+
+<img src="docs/images/tour.png" alt="A five-stop tour card in the pi panel, with the second stop open in the editor" width="900">
+
+- **Take a Tour.** Ask "how does a session resume after a restart?". pi answers with a numbered
+  tour across files, and the editor walks you through the stops.
+- **Explain This Code.** Select something and pi pins 2–5 notes on it, in the order to read them.
+- **Tell It as a Story.** pi retells its own change as a tour, starting from the entry point
+  instead of file by file.
+- **Catch Me Up.** Back after a break? A short briefing on the session: what you asked, what got
+  done, what needs you, where to start.
+
+## Work with pi, not just chat to it
+
+<img src="docs/images/changes.png" alt="pi's diff of a file with its reason and hunk notes, beside the session's Changes list" width="900">
+
+- **Changes, per session.** Every file pi touched, with its reason and a diff against the version
+  before pi. Revert one hunk, one file or the whole session. Edits pi makes through shell
+  commands are caught too.
+- Several pi sessions at once, each a thread with its own plan checklist, cost and context meter.
+- The editor's context (open file, selection) goes with your message. Mention files with `@`,
+  run pi's commands with `/`, paste screenshots.
+- Steer pi while it works, or queue a follow-up.
+- pi can read the errors your language servers report and fix them before it says it's done.
+- **Ask pi** buttons on problems, run output, commits and blame lines.
+- Settings → pi… manages pi's packages, tools, skills, MCP servers and models without touching its
+  config files.
+
+## And a proper IDE
+
+<img src="docs/images/git-log.png" alt="The Git Log tool window with branch graph and commit details under the editor" width="900">
+
+- **Language servers**: completion, go to definition, usages, rename, quick fixes, inline errors.
+  rust-analyzer, pyright and typescript-language-server out of the box, installed from inside pide.
+- **Git**: gutter marks, partial commits, a log with a branch graph, blame, push and pull, branches.
+  **✦ Draft with pi** writes the commit message.
+- **LaTeX**: build on save, the PDF beside the source, SyncTeX both ways, errors in Problems.
+- **PDF, Markdown and image previews**, find in files with replace, a run panel with clickable
+  `file:line`.
+- JetBrains-style shortcuts, a keymap you can rebind by typing, light and dark themes.
+
+## Get started
+
+pide runs on **macOS** (Apple Silicon) and **Linux** (X11 or Wayland with Vulkan). It needs Rust
+1.92 or newer and the pi agent:
 
 ```sh
-cargo run -p pide --release -- ~/some/project   # or no folder: reopens the last project
+npm i -g @earendil-works/pi-coding-agent
+git clone https://github.com/basta/pi-ide && cd pi-ide
+cargo run -p pide --release --locked -- ~/your/project
 ```
 
-As a Mac app: `dev/bundle-macos.sh` builds `target/release/pide.app` (copy it to /Applications to start pide from Spotlight or the Dock; it reopens the last project).
+On macOS, `dev/bundle-macos.sh` builds `pide.app` for Spotlight and the Dock.
 
-Each project gets its own window. Right-click in the project tree for New File / New Folder / Rename / Move to Trash / Copy Path / Reveal in Finder. Find Action → **File: Open Project…** (folder picker), **File: Recent Projects…** (fuzzy switcher; × forgets an entry), **File: Close Project**.
+Then press **Cmd+Shift+I** and ask pi for something. [TRY-IT.md](docs/TRY-IT.md) is a ten-minute tour
+of everything above.
 
-Requires `pi` (`npm i -g @earendil-works/pi-coding-agent`) for the chat panel; it starts on your first message.
+## Documentation
 
-## Keys (JetBrains-style, macOS)
+- [Try it](docs/TRY-IT.md): a ten-minute first run
+- [Keyboard shortcuts](docs/KEYS.md)
+- [Using pide](docs/GUIDE.md): panels, settings, previews, language servers, where files live
+- [Collaborator mode](docs/COLLAB.md): how pi's notes, pins and tours work
+- [Developing pide](docs/DEVELOPMENT.md) and [AGENTS.md](AGENTS.md): building, architecture, status
 
-**General**
-
-| Key | Command |
-| --- | --- |
-| Cmd+Shift+A | Find Action (every command) |
-| Cmd+, | pide settings (theme, switches; Keymap… from there) |
-| Cmd+S | Save |
-| Cmd+W / Cmd+Shift+T | Close tab / reopen the last closed tab |
-| Cmd+1 / Cmd+6 | Project panel / Problems panel |
-| Ctrl+Alt+R | Run a shell command in the project folder (Run panel: output with clickable `file:line`, Stop, Rerun, Ask pi) |
-| Cmd+Q | Quit |
-
-**Navigation**
-
-| Key | Command |
-| --- | --- |
-| Cmd+Shift+O | Go to File |
-| Cmd+E | Recent files (Enter flips to the previous file) |
-| Cmd+[ / Cmd+] | Back / forward (after Go to File, Find Usages, a declaration in another file…) |
-| Cmd+L | Go to line (`12` or `12:5`) |
-| Option+F1 | Select the open file in the project tree |
-| Cmd+Shift+F | Find in Files (replace too; file mask `*.rs, !*.lock`) |
-| Cmd+F / Cmd+R | Find / replace in the file |
-| Cmd+B | Go to declaration (also Cmd+click) |
-| Cmd+Alt+B / Ctrl+Shift+B | Go to implementation / type declaration |
-| Option+F7 | Find usages |
-| Cmd+F12 / Cmd+Option+O | File structure / go to symbol in the project |
-| F2 / Shift+F2 | Next / previous error in the file |
-
-**Code** (in the editor)
-
-| Key | Command |
-| --- | --- |
-| Option+Enter | Quick fixes |
-| F1 / Ctrl+J | Quick documentation |
-| Cmd+P | Parameter info |
-| Shift+F6 | Rename |
-| Cmd+Alt+L | Reformat file |
-| Ctrl+Option+O | Optimize imports |
-
-**Git**
-
-| Key | Command |
-| --- | --- |
-| Cmd+9 | Local changes; Enter shows a file's diff against HEAD (↶ rolls back one change) |
-| Cmd+Alt+Z | Roll back the change under the cursor (undoable) |
-| Ctrl+Alt+Shift+↓ / ↑ | Next / previous change |
-
-**pi**
-
-| Key | Command |
-| --- | --- |
-| Cmd+Shift+I | Ask pi: the pi panel, cursor in its box (with the editor context) |
-| Esc (in the pi box) | Back to the editor |
-| `/` · `@` (in the pi box) | pi's commands · mention a project file (Tab completes) |
-| Enter / Option+Enter (while pi works) | Steer / queue a follow-up |
-| Cmd+F2 | Stop pi |
-| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous session |
-
-View → Move Tab to Right Split puts two files side by side.
-
-**Settings → Keymap…** lists every command with its shortcut; pick one and type a new shortcut (`cmd-shift-k`). It's saved to `~/.config/pide/keymap.json`, where you can also override or add bindings by hand (Find Action → "Preferences: Open Keymap File"); it reloads on save:
-
-```json
-{ "cmd-alt-p": "palette.open", "cmd-1": null }
-```
-
-## pi Settings
-
-**Settings → pi…** shows and changes pi's setup without editing its files: install, update and remove packages (pi's own commands, output in the tab), switch built-in tools and extensions, skills and prompt templates on and off, add MCP servers, pick the default model and thinking level, and open or create AGENTS.md / SYSTEM.md. Choose **Everyone** (`~/.pi/agent`) or **This project** (`.pi/`). pi reads settings when a session starts; **Restart sessions** applies them (busy sessions restart when their run ends).
-
-Each pi session shows its cost, context use, thinking level and model at the top right of the chat; click the model or the thinking level to change it for that session. **pi → Compact Session** summarizes a long conversation to free context. Type `/` in the message box to see pi's commands (extension commands, prompt templates, `skill:` commands); Tab or a click completes one. Type `@` and part of a file name to mention a project file (`@src/main.rs`). Paste a screenshot (Cmd+V with an image on the clipboard) to send it with your next message. **Ask pi** buttons in the Run panel and on each problem put the output or the error in the message box, ready to send.
-
-**Changes** (in the pi panel) lists the files a session changed; click one for a side-by-side or inline diff against the file before pi touched it. **Revert** undoes the whole file; the ↶ button beside each change in the diff undoes just that change; **Mark all reviewed** / **Revert all…** act on the whole session. The list is saved with the session and comes back when you resume it. A file pi changes while it's open in the editor reloads as an undoable edit (Cmd+Z takes it back). **pi → Export Session as HTML** writes the conversation to a page and opens it; **pi → Rename Session…** names it. Unsaved files are saved before a message goes to pi (setting).
-
-## Previews
-
-- **View → Markdown Preview** opens a live preview beside a Markdown file.
-- **PDF files** open in a PDF tab (zoom, fit width, search with highlights). The first time, click **Install pdfium**: pide downloads the pinned pdfium build (about 4 MB) into `~/.local/share/pide/pdfium`.
-- **Images** (PNG, JPEG, GIF, WebP, SVG, …) open in an image tab.
-- **File → Open in Browser** for HTML and SVG.
-
-## Language servers
-
-pide starts rust-analyzer for `.rs` files, pyright for `.py` files and typescript-language-server for `.ts` files. **Settings → Language Servers…** shows what's installed, installs what's missing (`rustup component add rust-analyzer`, `npm i -g pyright`, `npm i -g typescript-language-server typescript`) with the output in the tab, and restarts servers. A server that crashes restarts by itself up to 3 times in 3 minutes. Override a server's command in `settings.json`: `"lsp": { "rust-analyzer": { "command": "/path", "args": [] } }`.
-
-Syntax highlighting: Rust, Python, TypeScript/TSX, JavaScript, JSON, TOML, YAML, Bash, HTML, CSS, Markdown.
-
-**Settings → pide…** (Cmd+,) has switches for all of these. Settings live in `~/.config/pide/settings.json` (`"theme": "dark" | "light" | "system"`, `"agent.send_context": true`, `"agent.notify": true`, `"agent.save_before_send": true`, `"editor.format_on_save": false`); the Find Action commands "View: Theme: …" change them. Edits to the file apply as soon as it is saved. With `agent.notify` on, pide posts a macOS notification when pi finishes or asks a question while you are in another app (shown as coming from Script Editor; macOS asks once whether to allow it). With `agent.save_before_send` on, unsaved files are saved before a message goes to pi, since pi reads files from disk.
-
-## Build requirements
-
-- Rust >= 1.92 (developed on 1.98). Versions are pinned in `docs/VERSIONS.md`; build with `--locked`.
-- macOS (primary target, Apple Silicon): Xcode command line tools.
-- Linux (secondary): a Wayland or X11 session with a working Vulkan driver. GPUI Kit may also need
-  `libwebkit2gtk-4.1-dev` at build time. Recommended: `mold` for linking.
-
-## Files
-
-- Logs: `~/.local/state/pide/pide.log`, pi traffic `~/.local/state/pide/pi-rpc.jsonl`, pi stderr `~/.local/state/pide/pi-stderr.log`.
-- Language servers: every message in `~/.local/state/pide/lsp-rpc.jsonl`, stderr in `lsp-<server>-stderr.log`.
-- Saved layouts: `~/.local/state/pide/layouts/`.
+pide is a personal project in active development.
