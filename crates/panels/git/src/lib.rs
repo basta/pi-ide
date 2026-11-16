@@ -1077,6 +1077,9 @@ impl Render for GitPanel {
                         .child(
                             Button::new("git-draft")
                                 .small()
+                                // One width for both labels (its edge moved).
+                                .w(px(124.))
+                                .loading(self.drafting)
                                 .label(if self.drafting {
                                     "pi is writing…"
                                 } else {
