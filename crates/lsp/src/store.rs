@@ -674,8 +674,7 @@ impl LspStore {
                                 .map(str::to_string)
                                 .or_else(|| s.progress.get(&token).cloned())
                                 .unwrap_or_default();
-                            let title = title.split(" · ").next().unwrap_or("").to_string();
-                            let mut text = title;
+                            let mut text = progress_title(&title);
                             if let Some(m) = v["message"].as_str() {
                                 text = format!("{text} · {m}");
                             }
@@ -771,5 +770,31 @@ impl LspStore {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+}
+
+/// The title part of a stored progress text ("Indexing · 4/21 (core) 19%" →
+/// "Indexing"): a report without a title reuses it, and its old percentage
+/// must not stay ("Indexing 0% 0% 57% …" grew across the status bar).
+fn progress_title(text: &str) -> String {
+    let mut t = text.split(" · ").next().unwrap_or("").trim_end();
+    while let Some((rest, last)) = t.rsplit_once(' ') {
+        if last.ends_with('%') && last[..last.len() - 1].chars().all(|c| c.is_ascii_digit()) {
+            t = rest.trim_end();
+        } else {
+            break;
+        }
+    }
+    t.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    #[::core::prelude::v1::test]
+    fn a_progress_title_drops_old_percentages() {
+        assert_eq!(super::progress_title("Indexing 0% 57%"), "Indexing");
+        assert_eq!(super::progress_title("Indexing · 4/21 (core) 19%"), "Indexing");
+        assert_eq!(super::progress_title("Fetching"), "Fetching");
+        assert_eq!(super::progress_title("Build 2 of 3"), "Build 2 of 3");
     }
 }

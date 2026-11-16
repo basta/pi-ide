@@ -492,7 +492,23 @@ impl Shell {
             .child(
                 h_flex()
                     .gap_3()
-                    .children(server_label)
+                    // A fixed-width slot: progress reports ("Indexing 42% · 4/21")
+                    // no longer push the rest of the bar around; the whole text
+                    // is in the tooltip.
+                    .children(server_label.map(|l| {
+                        div()
+                            .id("lsp-status")
+                            .w(px(240.))
+                            .flex_none()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .text_right()
+                            .child(l.clone())
+                            .tooltip(move |window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new(l.clone()).build(window, cx)
+                            })
+                    }))
                     .children(items)
                     .when(to_review > 0, |this| {
                         let color = pide_core::colors::pi_note(cx);

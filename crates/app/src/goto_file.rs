@@ -222,7 +222,9 @@ pub fn open(window: &mut Window, cx: &mut App) {
                         } else {
                             format!("Go to file ({} files)", files.len())
                         })
-                        .max_h(px(460.))
+                        // One height while you type (it grew and shrank with the
+                        // matches): what the whole list needs, up to 460.
+                        .h(px((52. + files.len().min(SHOWN) as f32 * 32.).clamp(160., 460.)))
                         .filterable(false)
                         .items(items)
                         .on_query(move |q, window, _| {

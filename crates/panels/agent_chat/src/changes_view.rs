@@ -1,6 +1,7 @@
 //! The Changes view: what pi changed in a session, revert, review.
 
 use super::*;
+use gpui_kit::component::Disableable as _;
 
 impl AgentChat {
     /// Revert one file after asking: it overwrites the file, so it also drops later edits
