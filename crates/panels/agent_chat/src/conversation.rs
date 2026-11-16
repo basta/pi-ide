@@ -466,7 +466,10 @@ impl AgentChat {
                             div()
                                 .text_xs()
                                 .text_color(theme.muted_foreground)
-                                .child(format!("{status_text}  Enter steers · ⌥Enter queues a follow-up")),
+                                .child(format!(
+                                    "{status_text}  Enter steers · {} queues a follow-up",
+                                    pide_core::keymap::label("alt-enter")
+                                )),
                         )
                     })
                     .when(!slash_rows.is_empty(), |this| {

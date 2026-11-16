@@ -63,7 +63,10 @@ impl EditorPanel {
         let reply = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 6)
-                .placeholder("Reply to pi… (⌘↩ sends)")
+                .placeholder(format!(
+                    "Reply to pi… ({} sends)",
+                    pide_core::keymap::label("secondary-enter")
+                ))
         });
         self.pi._reply_sub = Some(cx.subscribe_in(
             &reply,

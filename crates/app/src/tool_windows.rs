@@ -252,7 +252,19 @@ pub fn toggle(dock: &Entity<DockArea>, id: &str, window: &mut Window, cx: &mut A
         && p != DockPlacement::Center
         && is_showing(dock.read(cx), pid, p)
     {
+        // Hiding the dock that holds the focus would leave nothing focused (and
+        // keys with nowhere to go): hand the focus back to the editor area.
+        let had_focus = dock.read(cx).layout(p).is_some_and(|t| {
+            t.panels().any(|pid| {
+                dock.read(cx)
+                    .panel(pid)
+                    .is_some_and(|v| v.focus_handle(cx).contains_focused(window, cx))
+            })
+        });
         dock.update(cx, |d, cx| d.toggle_dock(p, window, cx));
+        if had_focus {
+            focus_center(dock, window, cx);
+        }
         return;
     }
     let (pid, p) = match found {
@@ -278,18 +290,6 @@ pub fn toggle(dock: &Entity<DockArea>, id: &str, window: &mut Window, cx: &mut A
         let focus = view.focus_handle(cx);
         window.defer(cx, move |window, cx| focus.focus(window, cx));
     }
-}
-
-/// "cmd-shift-1" → "⇧⌘1" for tooltips (macOS modifier order).
-fn key_label(key: &str) -> String {
-    let parts: Vec<&str> = key.split('-').collect();
-    let mut out = String::new();
-    for (m, sym) in [("ctrl", '⌃'), ("alt", '⌥'), ("shift", '⇧'), ("cmd", '⌘')] {
-        if parts.contains(&m) {
-            out.push(sym);
-        }
-    }
-    out + &parts.last().copied().unwrap_or("").to_uppercase()
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -321,8 +321,8 @@ pub fn stripe(side: Side, dock: &Entity<DockArea>, cx: &App) -> impl IntoElement
     let (active_bg, radius) = (cx.theme().foreground.opacity(0.14), cx.theme().radius);
     let button = |(spec, _, showing): &(ToolWindowSpec, DockPlacement, bool)| {
         let id = spec.id;
-        let tip = match spec.key {
-            Some(k) => format!("{}  {}", spec.title, key_label(k)),
+        let tip = match pide_core::keymap::keys_for(cx, spec.command) {
+            Some(k) => format!("{}  {}", spec.title, k),
             None => spec.title.to_string(),
         };
         div()
@@ -378,13 +378,4 @@ pub fn stripe(side: Side, dock: &Entity<DockArea>, cx: &App) -> impl IntoElement
         })
         .child(v_flex().gap_1().children(top.into_iter().map(button)))
         .child(v_flex().gap_1().children(bottom.into_iter().map(button)))
-}
-
-#[cfg(test)]
-mod tests {
-    #[::core::prelude::v1::test]
-    fn key_labels() {
-        assert_eq!(super::key_label("cmd-1"), "⌘1");
-        assert_eq!(super::key_label("cmd-shift-f12"), "⇧⌘F12");
-    }
 }

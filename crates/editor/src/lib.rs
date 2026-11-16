@@ -137,7 +137,7 @@ pub fn init(cx: &mut App) {
     // Cmd+Shift+F is Find in Files (JetBrains); GPUI Kit's in-file replace moves to
     // JetBrains' Cmd+R. Bound before keymap::init, so it survives keymap reloads.
     cx.bind_keys([KeyBinding::new(
-        "cmd-r",
+        "secondary-r",
         gpui_kit::component::input::Replace,
         Some(pide_core::commands::EDITOR),
     )]);
@@ -199,6 +199,7 @@ pub fn init(cx: &mut App) {
         cx,
         CommandSpec::new("nav.back", "Navigate: Back")
             .key("cmd-[")
+            .other_key("ctrl-alt-left")
             .in_context(pide_core::commands::EDITOR),
         |window, cx| nav::go(false, window, cx),
     );
@@ -206,6 +207,7 @@ pub fn init(cx: &mut App) {
         cx,
         CommandSpec::new("nav.forward", "Navigate: Forward")
             .key("cmd-]")
+            .other_key("ctrl-alt-right")
             .in_context(pide_core::commands::EDITOR),
         |window, cx| nav::go(true, window, cx),
     );
@@ -263,7 +265,7 @@ pub fn init(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
-        CommandSpec::new("editor.go_to_symbol", "Navigate: Go to Symbol…").key("cmd-alt-o"),
+        CommandSpec::new("editor.go_to_symbol", "Navigate: Go to Symbol…").key("cmd-alt-o").other_key("ctrl-alt-shift-n"),
         symbols::go_to_symbol,
     );
     CommandRegistry::register(

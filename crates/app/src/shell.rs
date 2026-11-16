@@ -890,7 +890,9 @@ impl Render for Shell {
                 // takes the clicks; this layer is drawn on top and ignores them).
                 let empty = self.dock.read(cx).is_empty(DockPlacement::Center, cx);
                 let muted = cx.theme().muted_foreground;
-                let hint = |keys: &'static str, what: &'static str| {
+                // Keys from the live keymap, labelled for this platform.
+                let hint = |id: &'static str, what: &'static str| {
+                    let keys = pide_core::keymap::keys_for(cx, id).unwrap_or_default();
                     h_flex()
                         .gap_3()
                         .child(div().w(px(130.)).text_right().child(keys))
@@ -917,11 +919,11 @@ impl Render for Shell {
                                     v_flex()
                                         .gap_1p5()
                                         .text_sm()
-                                        .child(hint("⌘⇧O", "Go to file"))
-                                        .child(hint("⌘E", "Recent files"))
-                                        .child(hint("⌘⇧F", "Find in files"))
-                                        .child(hint("⌘⇧A", "Find action"))
-                                        .child(hint("⌘⇧I", "Ask pi")),
+                                        .child(hint("file.goto", "Go to file"))
+                                        .child(hint("file.recent", "Recent files"))
+                                        .child(hint("find.in_files", "Find in files"))
+                                        .child(hint("palette.open", "Find action"))
+                                        .child(hint("agent.ask", "Ask pi")),
                                 ),
                         )
                     });

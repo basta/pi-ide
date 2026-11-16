@@ -27,6 +27,13 @@ pub fn on_system_appearance_changed(window: &mut Window, cx: &mut App) {
     }
 }
 
+/// The "follow the OS theme" choice, named for this platform.
+pub const FOLLOW_SYSTEM: &str = if cfg!(target_os = "macos") {
+    "Follow macOS"
+} else {
+    "Follow system"
+};
+
 pub fn register_commands(cx: &mut App) {
     for (id, title, setting) in [
         ("view.theme_dark", "View: Theme: Dark", ThemeSetting::Dark),
@@ -37,7 +44,11 @@ pub fn register_commands(cx: &mut App) {
         ),
         (
             "view.theme_system",
-            "View: Theme: Follow macOS",
+            if cfg!(target_os = "macos") {
+                "View: Theme: Follow macOS"
+            } else {
+                "View: Theme: Follow system"
+            },
             ThemeSetting::System,
         ),
     ] {

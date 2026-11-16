@@ -35,10 +35,7 @@ pub fn apply(cx: &mut App) -> Vec<String> {
     // Defaults from the registry.
     let mut map: BTreeMap<String, Option<String>> = CommandRegistry::all(cx)
         .into_iter()
-        .filter_map(|s| {
-            s.default_key
-                .map(|k| (k.to_string(), Some(s.id.to_string())))
-        })
+        .filter_map(|s| s.platform_key().map(|k| (k, Some(s.id.to_string()))))
         .collect();
 
     // User overrides.
@@ -108,10 +105,7 @@ pub fn apply(cx: &mut App) -> Vec<String> {
 pub fn defaults(cx: &App) -> BTreeMap<String, Option<String>> {
     CommandRegistry::all(cx)
         .into_iter()
-        .filter_map(|s| {
-            s.default_key
-                .map(|k| (k.to_string(), Some(s.id.to_string())))
-        })
+        .filter_map(|s| s.platform_key().map(|k| (k, Some(s.id.to_string()))))
         .collect()
 }
 
@@ -181,6 +175,85 @@ pub fn save_rebind(id: String, old: Option<String>, new: Option<String>) -> std:
     )
 }
 
+/// `cmd-shift-o` → `ctrl-shift-o` (each keystroke of a chord). Off macOS, pide's
+/// JetBrains-style `cmd` defaults go on Ctrl, like JetBrains and VS Code there.
+pub fn cmd_to_ctrl(keys: &str) -> String {
+    keys.split_whitespace()
+        .map(|k| {
+            k.split('-')
+                .map(|p| if p == "cmd" || p == "secondary" { "ctrl" } else { p })
+                .collect::<Vec<_>>()
+                .join("-")
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// A key for people: `cmd-shift-o` → `⇧⌘O` on macOS (its modifier order),
+/// `Ctrl+Shift+O` elsewhere. `secondary` is ⌘ on macOS and Ctrl elsewhere;
+/// `cmd` is ⌘ / Super. Chords are separated by a space.
+pub fn label(keys: &str) -> String {
+    label_for(keys, cfg!(target_os = "macos"))
+}
+
+fn label_for(keys: &str, mac: bool) -> String {
+    keys.split_whitespace()
+        .map(|k| {
+            let parts: Vec<&str> = k.split('-').collect();
+            let (mods, key) = parts.split_at(parts.len().saturating_sub(1));
+            let key = key.first().copied().unwrap_or("");
+            let has = |m: &str| mods.contains(&m);
+            let ctrl = has("ctrl") || (!mac && has("secondary"));
+            let cmd = has("cmd") || has("super") || has("win") || (mac && has("secondary"));
+            if mac {
+                let mut out = String::new();
+                for (on, sym) in [(ctrl, '⌃'), (has("alt"), '⌥'), (has("shift"), '⇧'), (cmd, '⌘')] {
+                    if on {
+                        out.push(sym);
+                    }
+                }
+                out + &key_name(key, true)
+            } else {
+                let mut out: Vec<String> = Vec::new();
+                for (on, name) in [(ctrl, "Ctrl"), (has("alt"), "Alt"), (has("shift"), "Shift"), (cmd, "Super")] {
+                    if on {
+                        out.push(name.to_string());
+                    }
+                }
+                out.push(key_name(key, false));
+                out.join("+")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn key_name(key: &str, mac: bool) -> String {
+    match (key, mac) {
+        ("enter", true) => "↩".into(),
+        ("enter", false) => "Enter".into(),
+        ("escape", true) => "⎋".into(),
+        ("escape", false) => "Esc".into(),
+        ("tab", true) => "⇥".into(),
+        ("backspace", true) => "⌫".into(),
+        ("up", true) => "↑".into(),
+        ("down", true) => "↓".into(),
+        ("left", true) => "←".into(),
+        ("right", true) => "→".into(),
+        (k, _) if k.chars().count() == 1 => k.to_uppercase(),
+        (k, _) => {
+            let mut c = k.chars();
+            match c.next() {
+                Some(f) if k.starts_with('f') && k[1..].chars().all(|c| c.is_ascii_digit()) => {
+                    f.to_uppercase().collect::<String>() + c.as_str()
+                }
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                None => String::new(),
+            }
+        }
+    }
+}
+
 /// The keystrokes currently bound to a command (for palette hints).
 pub fn keys_for(cx: &App, id: &str) -> Option<String> {
     let action = RunCommand::new(id.to_string());
@@ -191,7 +264,7 @@ pub fn keys_for(cx: &App, id: &str) -> Option<String> {
         binding
             .keystrokes()
             .iter()
-            .map(|k| k.display(cx.platform_info().os).to_string())
+            .map(|k| label(&k.unparse(cx.platform_info().os)))
             .collect::<Vec<_>>()
             .join(" "),
     )
@@ -212,5 +285,18 @@ mod tests {
         assert!(valid_keys("cmd-shift-k"));
         assert!(valid_keys("cmd-k cmd-s"));
         assert!(!valid_keys(""));
+    }
+
+    #[::core::prelude::v1::test]
+    fn labels_follow_the_platform() {
+        assert_eq!(label_for("cmd-shift-o", true), "⇧⌘O");
+        assert_eq!(label_for("cmd-shift-f12", true), "⇧⌘F12");
+        assert_eq!(label_for("secondary-enter", true), "⌘↩");
+        assert_eq!(label_for("ctrl-shift-o", false), "Ctrl+Shift+O");
+        assert_eq!(label_for("secondary-enter", false), "Ctrl+Enter");
+        assert_eq!(label_for("ctrl-alt-r", false), "Ctrl+Alt+R");
+        assert_eq!(label_for("alt-enter", false), "Alt+Enter");
+        assert_eq!(cmd_to_ctrl("cmd-k cmd-s"), "ctrl-k ctrl-s");
+        assert_eq!(cmd_to_ctrl("cmd-shift-o"), "ctrl-shift-o");
     }
 }
