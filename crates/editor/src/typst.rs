@@ -79,12 +79,23 @@ pub fn init() {
     );
 }
 
+/// What asked for an export.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Trigger {
+    /// The file changed on disk (pi's edit): refresh an open PDF tab only.
+    Disk,
+    /// Typing: refresh the PDF quietly (opens it beside if it isn't open).
+    Type,
+    /// A save: show the PDF and report errors.
+    Save,
+}
+
 /// Exports of one editor tab: one at a time; changes meanwhile ask for one more.
 #[derive(Default)]
 pub(crate) struct Exports {
     busy: bool,
-    /// Another export is wanted when this one ends (`true`: for a save).
-    again: Option<bool>,
+    /// Another export is wanted when this one ends (the strongest trigger asked).
+    again: Option<Trigger>,
     /// An export as you type is queued for the end of this round of edits.
     queued: bool,
     /// Bumped per export, so a timed-out one that answers late is ignored.
@@ -155,7 +166,7 @@ pub(crate) fn export_on_type(
             let text = p.editor.read(cx).text().to_string();
             // Loading the file, or the same text again.
             if p.typst_base.as_deref() != Some(text.as_str()) {
-                export(p, false, window, cx);
+                export(p, Trigger::Type, window, cx);
             }
         });
     })
@@ -168,18 +179,83 @@ pub(crate) fn export_on_save(
     window: &mut Window,
     cx: &mut Context<EditorPanel>,
 ) {
-    export(panel, true, window, cx);
+    export(panel, Trigger::Save, window, cx);
 }
 
 /// The file changed on disk (pi edited it, or another editor): rebuild the PDF
 /// so it doesn't show the old text, quietly (no raise, no toast: Problems has
-/// any errors). Also when export as you type is off.
+/// any errors; no PDF tab is opened if none is). Also when export as you type is off.
 pub(crate) fn export_on_disk_change(
     panel: &mut EditorPanel,
     window: &mut Window,
     cx: &mut Context<EditorPanel>,
 ) {
-    export(panel, false, window, cx);
+    export(panel, Trigger::Disk, window, cx);
+}
+
+/// Projects already asked about ignoring generated PDFs (this run).
+#[derive(Default)]
+struct AskedIgnore(std::collections::HashSet<PathBuf>);
+impl Global for AskedIgnore {}
+
+/// The generated PDF would show up as an unversioned file (a git project, not
+/// ignored, not tracked): offer once to add `*.pdf` to the project's .gitignore.
+fn offer_ignore(project: &Path, pdf: &Path, window: &mut Window, cx: &mut App) {
+    if !cx.default_global::<AskedIgnore>().0.insert(project.to_path_buf()) {
+        return;
+    }
+    let (project, pdf) = (project.to_path_buf(), pdf.to_path_buf());
+    let check = cx.background_executor().spawn({
+        let (project, pdf) = (project.clone(), pdf.clone());
+        async move {
+            let git = |args: &[&str]| {
+                std::process::Command::new("git")
+                    .current_dir(&project)
+                    .args(args)
+                    .arg(&pdf)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .ok()
+                    .and_then(|s| s.code())
+            };
+            // check-ignore: 0 ignored, 1 not ignored, 128 not a repo.
+            git(&["check-ignore", "-q"]) == Some(1)
+                && git(&["ls-files", "--error-unmatch"]) != Some(0)
+        }
+    });
+    window
+        .spawn(cx, async move |cx| {
+            if !check.await {
+                return;
+            }
+            let _ = cx.update(|window, cx| {
+                let name = pdf.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                let note = Notification::info(format!(
+                    "{name} is generated from Typst and would be listed as a new file to commit."
+                ))
+                .action(move |_, _, cx| {
+                    let note = cx.entity().downgrade();
+                    let project = project.clone();
+                    gpui_kit::component::button::Button::new("typst-ignore-pdf")
+                        .label("Add *.pdf to .gitignore")
+                        .on_click(move |_, window, cx| {
+                            let path = project.join(".gitignore");
+                            let mut text = std::fs::read_to_string(&path).unwrap_or_default();
+                            if !text.is_empty() && !text.ends_with('\n') {
+                                text.push('\n');
+                            }
+                            text.push_str("*.pdf\n");
+                            if let Err(e) = std::fs::write(&path, text) {
+                                log::warn!("writing {}: {e}", path.display());
+                            }
+                            let _ = note.update(cx, |n, cx| n.dismiss(window, cx));
+                        })
+                });
+                window.push_notification(note, cx);
+            });
+        })
+        .detach();
 }
 
 /// Have tinymist export the document's PDF from the text it has (the editor
@@ -188,14 +264,16 @@ pub(crate) fn export_on_disk_change(
 /// already in Problems: tinymist publishes them as you type.
 fn export(
     panel: &mut EditorPanel,
-    on_save: bool,
+    trigger: Trigger,
     window: &mut Window,
     cx: &mut Context<EditorPanel>,
 ) {
     if panel.typst_exports.busy {
-        *panel.typst_exports.again.get_or_insert(false) |= on_save;
+        let again = panel.typst_exports.again.get_or_insert(trigger);
+        *again = (*again).max(trigger);
         return;
     }
+    let on_save = trigger == Trigger::Save;
     let store = pide_lsp::LspStore::for_workspace(&panel.workspace, cx);
     if !on_save && has_errors(&store, cx) {
         panel.typst_exports.held = true;
@@ -216,9 +294,10 @@ fn export(
         .unwrap_or_default();
     let path = panel.path.clone();
     let project = panel.workspace.read(cx).root().to_path_buf();
-    let find = cx
-        .background_executor()
-        .spawn(async move { root_document(&path, &project).map(|r| (path, r)) });
+    let find = cx.background_executor().spawn({
+        let project = project.clone();
+        async move { root_document(&path, &project).map(|r| (path, r)) }
+    });
     // Free the tab for the next export if tinymist doesn't answer this one.
     cx.spawn_in(window, async move |this, cx| {
         cx.background_executor().timer(EXPORT_TIMEOUT).await;
@@ -248,7 +327,7 @@ fn export(
             });
             if let Ok(task) = export {
                 let result = task.await;
-                let _ = cx.update(|window, cx| show(result, root, phrases, on_save, window, cx));
+                let _ = cx.update(|window, cx| show(result, root, &project, phrases, trigger, window, cx));
             }
         }
         let _ = this.update_in(cx, |p, window, cx| {
@@ -264,22 +343,25 @@ fn export(
 fn finished(panel: &mut EditorPanel, window: &mut Window, cx: &mut Context<EditorPanel>) {
     panel.typst_exports.busy = false;
     panel.typst_exports.generation += 1;
-    if let Some(on_save) = panel.typst_exports.again.take() {
-        export(panel, on_save, window, cx);
+    if let Some(trigger) = panel.typst_exports.again.take() {
+        export(panel, trigger, window, cx);
     }
 }
 
 fn show(
     result: anyhow::Result<serde_json::Value>,
     root: PathBuf,
+    project: &Path,
     phrases: Vec<String>,
-    on_save: bool,
+    trigger: Trigger,
     window: &mut Window,
     cx: &mut App,
 ) {
+    let on_save = trigger == Trigger::Save;
     match result {
         Ok(v) => {
             let pdf = exported_path(&v).unwrap_or_else(|| root.with_extension("pdf"));
+            offer_ignore(project, &pdf, window, cx);
             if pdf.is_file() {
                 pide_core::opener::show_pdf(
                     PdfRequest {
@@ -290,6 +372,8 @@ fn show(
                         find: phrases,
                         // As you type: refresh it where it is, quietly.
                         raise: on_save,
+                        // After an outside change: only refresh an open tab.
+                        open: trigger != Trigger::Disk,
                     },
                     window,
                     cx,
@@ -353,7 +437,10 @@ pub(crate) fn pin_main(
     let store = pide_lsp::LspStore::for_workspace(&panel.workspace, cx);
     let find = cx
         .background_executor()
-        .spawn(async move { root_document(&path, &project).map(|r| (path, r)) });
+        .spawn({
+            let project = project.clone();
+            async move { root_document(&path, &project).map(|r| (path, r)) }
+        });
     cx.spawn_in(window, async move |this, cx| {
         let pinned = match find.await {
             Some((path, root)) => {

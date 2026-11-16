@@ -39,6 +39,9 @@ pub struct PdfRequest {
     /// Bring an open PDF's tab to the front (and mark a found spot even when
     /// it's already in view). Off for background refreshes while typing.
     pub raise: bool,
+    /// Open a tab for it when none is open. Off for a rebuild after an outside
+    /// change (pi's edit), which only refreshes a PDF already on screen.
+    pub open: bool,
 }
 
 /// A point on a PDF page: 0-based page, PDF points from its top-left corner.

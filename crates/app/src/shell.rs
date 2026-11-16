@@ -770,6 +770,7 @@ pub fn open_pdf(path: PathBuf, window: &mut Window, cx: &mut App) {
             at: None,
             find: Vec::new(),
             raise: true,
+            open: true,
         },
         window,
         cx,
@@ -805,6 +806,9 @@ pub fn show_pdf(req: pide_core::opener::PdfRequest, window: &mut Window, cx: &mu
                 p.update(cx, |p, cx| p.reload(cx));
             }
             p
+        } else if !req.open {
+            // A quiet refresh, and no tab shows this PDF.
+            return;
         } else {
             let p = cx.new(|cx| pide_pdf::PdfPanel::new(req.path.clone(), window, cx));
             let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
