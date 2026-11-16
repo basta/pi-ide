@@ -220,17 +220,16 @@ impl LspStore {
                     (b.path.clone(), b.text().clone())
                 };
                 self.sync_text(&path, &text);
+                // Reloaded from disk (pi's edit): the file is saved as it now is,
+                // so diagnostics that only run on save (rust-analyzer's cargo
+                // check) run again instead of staying on the old lines.
+                if let WorkspaceEvent::FileChangedOnDisk { reloaded: true, .. } = ev {
+                    self.did_save(&path);
+                }
             }
             WorkspaceEvent::BufferSaved(b) => {
                 let path = b.read(cx).path.clone();
-                if let Some(doc) = self.docs.get(&path).filter(|d| d.opened)
-                    && let Some(rpc) = self.servers.get(doc.server).and_then(|s| s.rpc.clone())
-                {
-                    rpc.notify(
-                        "textDocument/didSave",
-                        json!({ "textDocument": { "uri": file_uri(&path) } }),
-                    );
-                }
+                self.did_save(&path);
             }
             WorkspaceEvent::BufferClosed(path) => {
                 if let Some(doc) = self.docs.remove(path)
@@ -306,6 +305,18 @@ impl LspStore {
         self.ensure_server(spec.id, cx);
         self.open_docs(spec.id);
         true
+    }
+
+    /// Tell `path`'s server the file was saved.
+    fn did_save(&self, path: &Path) {
+        if let Some(doc) = self.docs.get(path).filter(|d| d.opened)
+            && let Some(rpc) = self.servers.get(doc.server).and_then(|s| s.rpc.clone())
+        {
+            rpc.notify(
+                "textDocument/didSave",
+                json!({ "textDocument": { "uri": file_uri(path) } }),
+            );
+        }
     }
 
     /// Bring the server's copy of `path` up to date with `text` (no-op if equal).
