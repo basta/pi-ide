@@ -180,6 +180,10 @@ pub struct Shell {
     layout_path: PathBuf,
     last_saved: Option<DockAreaState>,
     _save: Option<Task<()>>,
+    /// The side docks' widths as the user left them, and what `fit_docks` last
+    /// set (a difference means the user dragged a dock since).
+    dock_pref: Option<(Pixels, Pixels)>,
+    dock_applied: Option<(Pixels, Pixels)>,
     _subs: Vec<Subscription>,
 }
 
@@ -298,7 +302,10 @@ impl Shell {
                 }
             }
         });
+        subs.push(cx.observe_window_bounds(window, |this, window, cx| this.fit_docks(window, cx)));
         let this = Self {
+            dock_pref: None,
+            dock_applied: None,
             cursor: None,
             _cursor_poll: cursor_poll,
             images: Vec::new(),
@@ -339,6 +346,52 @@ impl Shell {
             });
         }
         this
+    }
+
+    /// A narrow window takes its width from the side docks too, not only the
+    /// editor: past the point where the center would get under `MIN_CENTER`, the
+    /// left and right docks shrink in proportion (down to `MIN_SIDE`), and grow
+    /// back to the user's widths when the window does. Nothing is collapsed.
+    fn fit_docks(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        const MIN_CENTER: f32 = 560.;
+        const MIN_SIDE: f32 = 180.;
+        let width = window.viewport_size().width;
+        let (cur, open) = {
+            let d = self.dock.read(cx);
+            let size = |p| {
+                if d.is_dock_open(p) { d.dock_size(p).unwrap_or(px(0.)) } else { px(0.) }
+            };
+            (
+                (size(DockPlacement::Left), size(DockPlacement::Right)),
+                (d.is_dock_open(DockPlacement::Left), d.is_dock_open(DockPlacement::Right)),
+            )
+        };
+        if self.dock_applied != Some(cur) {
+            self.dock_pref = Some(cur);
+        }
+        let Some((pl, pr)) = self.dock_pref else {
+            return;
+        };
+        let sides = f32::from(pl + pr);
+        let room = (f32::from(width) - MIN_CENTER).max(0.);
+        let target = if sides <= room || sides <= 0. {
+            (pl, pr)
+        } else {
+            let f = room / sides;
+            let fit = |w: Pixels| if w > px(0.) { px((f32::from(w) * f).max(MIN_SIDE)) } else { w };
+            (fit(pl), fit(pr))
+        };
+        if target != cur {
+            self.dock.update(cx, |d, cx| {
+                if open.0 {
+                    d.set_dock_size(DockPlacement::Left, target.0, window, cx);
+                }
+                if open.1 {
+                    d.set_dock_size(DockPlacement::Right, target.1, window, cx);
+                }
+            });
+        }
+        self.dock_applied = Some(target);
     }
 
     fn default_layout(dock: &Entity<DockArea>, window: &mut Window, cx: &mut Context<Self>) {
