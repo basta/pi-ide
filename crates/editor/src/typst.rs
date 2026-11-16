@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::highlighter::{LanguageConfig, LanguageRegistry};
 use gpui_kit::component::notification::Notification;
-use gpui_kit::{Context, Global, Window};
+use gpui_kit::{App, Context, Global, Window};
 use pide_core::opener::PdfRequest;
 
 use crate::EditorPanel;
@@ -111,13 +111,81 @@ pub(crate) fn export_on_disk_change(
     export(panel, false, window, cx);
 }
 
+/// Projects already asked about ignoring generated PDFs (this run).
+#[derive(Default)]
+struct AskedIgnore(std::collections::HashSet<PathBuf>);
+impl Global for AskedIgnore {}
+
+/// The generated PDF would show up as an unversioned file (a git project, not
+/// ignored, not tracked): offer once to add `*.pdf` to the project's .gitignore.
+fn offer_ignore(project: &Path, pdf: &Path, window: &mut Window, cx: &mut App) {
+    if !cx.default_global::<AskedIgnore>().0.insert(project.to_path_buf()) {
+        return;
+    }
+    let (project, pdf) = (project.to_path_buf(), pdf.to_path_buf());
+    let check = cx.background_executor().spawn({
+        let (project, pdf) = (project.clone(), pdf.clone());
+        async move {
+            let git = |args: &[&str]| {
+                std::process::Command::new("git")
+                    .current_dir(&project)
+                    .args(args)
+                    .arg(&pdf)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .ok()
+                    .and_then(|s| s.code())
+            };
+            // check-ignore: 0 ignored, 1 not ignored, 128 not a repo.
+            git(&["check-ignore", "-q"]) == Some(1)
+                && git(&["ls-files", "--error-unmatch"]) != Some(0)
+        }
+    });
+    window
+        .spawn(cx, async move |cx| {
+            if !check.await {
+                return;
+            }
+            let _ = cx.update(|window, cx| {
+                let name = pdf.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                let note = Notification::info(format!(
+                    "{name} is generated from Typst and would be listed as a new file to commit."
+                ))
+                .action(move |_, _, cx| {
+                    let note = cx.entity().downgrade();
+                    let project = project.clone();
+                    gpui_kit::component::button::Button::new("typst-ignore-pdf")
+                        .label("Add *.pdf to .gitignore")
+                        .on_click(move |_, window, cx| {
+                            let path = project.join(".gitignore");
+                            let mut text = std::fs::read_to_string(&path).unwrap_or_default();
+                            if !text.is_empty() && !text.ends_with('\n') {
+                                text.push('\n');
+                            }
+                            text.push_str("*.pdf\n");
+                            if let Err(e) = std::fs::write(&path, text) {
+                                log::warn!("writing {}: {e}", path.display());
+                            }
+                            let _ = note.update(cx, |n, cx| n.dismiss(window, cx));
+                        })
+                });
+                window.push_notification(note, cx);
+            });
+        })
+        .detach();
+}
+
 fn export(panel: &EditorPanel, show: bool, window: &mut Window, cx: &mut Context<EditorPanel>) {
     let path = panel.path.clone();
     let project = panel.workspace.read(cx).root().to_path_buf();
     let store = pide_lsp::LspStore::for_workspace(&panel.workspace, cx);
     let find = cx
         .background_executor()
-        .spawn(async move { root_document(&path, &project).map(|r| (path, r)) });
+        .spawn({
+            let project = project.clone();
+            async move { root_document(&path, &project).map(|r| (path, r)) }
+        });
     cx.spawn_in(window, async move |_, cx| {
         let Some((path, root)) = find.await else {
             return;
@@ -151,6 +219,7 @@ fn export(panel: &EditorPanel, show: bool, window: &mut Window, cx: &mut Context
             match result {
                 Ok(v) => {
                     let pdf = exported_path(&v).unwrap_or_else(|| root.with_extension("pdf"));
+                    offer_ignore(&project, &pdf, window, cx);
                     if show && pdf.is_file() {
                         pide_core::opener::show_pdf(
                             PdfRequest {
@@ -224,7 +293,10 @@ pub(crate) fn pin_main(
     let store = pide_lsp::LspStore::for_workspace(&panel.workspace, cx);
     let find = cx
         .background_executor()
-        .spawn(async move { root_document(&path, &project).map(|r| (path, r)) });
+        .spawn({
+            let project = project.clone();
+            async move { root_document(&path, &project).map(|r| (path, r)) }
+        });
     cx.spawn_in(window, async move |this, cx| {
         let pinned = match find.await {
             Some((path, root)) => {
