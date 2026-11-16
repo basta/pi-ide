@@ -308,7 +308,9 @@ impl Render for Problems {
                         .child(
                             div()
                                 .flex_1()
-                                .min_w_0()
+                                // When narrow the message keeps its room and the
+                                // position/source after it is cut instead.
+                                .min_w(px(140.))
                                 .overflow_hidden()
                                 .text_ellipsis()
                                 .whitespace_nowrap()
@@ -316,10 +318,14 @@ impl Render for Problems {
                         )
                         .child(
                             div()
-                                .flex_none()
+                                .flex_shrink(1.)
+                                .min_w_0()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .whitespace_nowrap()
                                 .text_xs()
                                 .text_color(theme.muted_foreground)
-                                .child(format!("{source} {}:{}", line + 1, character + 1)),
+                                .child(format!("{}:{} {source}", line + 1, character + 1)),
                         )
                         .child(
                             Button::new(SharedString::from(format!(
