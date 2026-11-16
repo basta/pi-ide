@@ -381,6 +381,8 @@ pub struct AgentChat {
     replacing_tour: HashMap<EntityId, Vec<String>>,
     /// The Understand card is shown on top of the conversation (the ? button).
     show_help: bool,
+    /// Sessions pi is writing "Tell it as a story" for.
+    writing_story: std::collections::HashSet<EntityId>,
     /// Sessions a "catch me up" briefing is being written for.
     catching_up: std::collections::HashSet<EntityId>,
     /// The briefing card is shown (it hides with ×; Catch me up shows it again).
@@ -495,6 +497,7 @@ impl AgentChat {
             progress_open: false,
             replacing_tour: HashMap::new(),
             show_help: false,
+            writing_story: Default::default(),
             catching_up: Default::default(),
             catch_up_open: true,
             catch_up_md: HashMap::new(),

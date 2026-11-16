@@ -303,7 +303,7 @@ mod tests {
     fn names_from_prompts() {
         assert_eq!(
             crate::agent::name_from_prompt("fix the flaky replay test please now"),
-            "fix the flaky replay test"
+            "fix the flaky replay test…"
         );
         assert_eq!(crate::agent::name_from_prompt("   "), crate::agent::UNNAMED);
         let with_context = "<editor-context>\nfile: src/main.rs\ncursor: 5:1\n</editor-context>\n\nrename add to sum";

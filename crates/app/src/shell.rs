@@ -447,7 +447,17 @@ impl Shell {
         } else {
             format!("pi: {}", parts.join(", "))
         };
-        let to_review = pide_core::collab::sessions_to_review(sessions, cx).len();
+        // Same unit as the pi panel's "Changes · n to review", summed over the
+        // sessions; it says when more than one session is counted.
+        let review_sessions = pide_core::collab::sessions_to_review(sessions, cx);
+        let to_review: usize = review_sessions
+            .iter()
+            .map(|a| a.read(cx).to_review().max(1))
+            .sum();
+        let review_label = match review_sessions.len() {
+            0 | 1 => format!("◆ {to_review} to review"),
+            n => format!("◆ {to_review} to review · {n} sessions"),
+        };
         let active = sessions.active();
         let items: Vec<String> = active
             .read(cx)
@@ -504,7 +514,7 @@ impl Shell {
                                 .rounded(px(4.))
                                 .bg(color.opacity(0.14))
                                 .text_color(cx.theme().foreground)
-                                .child(format!("◆ {to_review} to review"))
+                                .child(review_label)
                                 .on_click(|_, window, cx| {
                                     pide_core::collab::review_next(window, cx);
                                 }),

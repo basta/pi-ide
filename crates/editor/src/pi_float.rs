@@ -150,7 +150,7 @@ impl EditorPanel {
         if let Some((scroll_painted, ob)) = painted {
             let dy = scroll_now - scroll_painted;
             let a = agent.read(cx);
-            let all = a.stops();
+            let all = a.walk_stops();
             let total = all.len();
             let busy = a.is_busy();
             let answering = a.answering.as_ref().map(|(at, _)| at.clone());
@@ -386,6 +386,7 @@ impl EditorPanel {
             .child(
                 div()
                     .flex_1()
+                    .min_w_0()
                     .overflow_hidden()
                     .text_ellipsis()
                     .whitespace_nowrap()

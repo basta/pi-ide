@@ -245,7 +245,7 @@ impl AgentChat {
         let (steering, follow_ups) = a.queue.clone();
         let dialog = a.dialogs.first().cloned();
         let n_changes = a.changes.len();
-        let unreviewed = a.unreviewed();
+        let unreviewed = a.to_review();
         let show_changes = self.show_changes;
         let slash_rows = self.suggestions(cx);
         // `/` typed but the commands haven't arrived yet.

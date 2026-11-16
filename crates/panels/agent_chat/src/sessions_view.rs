@@ -196,7 +196,7 @@ impl AgentChat {
             .filter(|(_, a)| a.read(cx).needs_review())
             .map(|(i, agent)| {
                 let a = agent.read(cx);
-                let unseen = a.unseen_stops();
+                let unseen = pide_core::walk::unseen_change_notes(&a.changes, &a.pins).len();
                 let files = a.changes.iter().filter(|c| !c.reverted).count();
                 let agent = agent.clone();
                 h_flex()

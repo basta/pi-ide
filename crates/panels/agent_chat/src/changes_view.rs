@@ -122,7 +122,7 @@ impl AgentChat {
     }
 
     pub(crate) fn render_changes(
-        &self,
+        &mut self,
         agent: &Entity<Agent>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -343,10 +343,28 @@ impl AgentChat {
             .filter(|c| !c.reviewed && !c.reverted)
             .count();
         let (agent_all, agent_rev) = (agent.clone(), agent.clone());
-        let (stops, unseen) = {
+        // Walk through steps over the change notes and pins; tours (the story
+        // too) are walked on their own.
+        let (stops, unseen, to_review, story_ready, busy) = {
             let a = agent.read(cx);
-            (a.stops().len(), a.unseen_stops())
+            let all = a.stops();
+            let notes: Vec<_> = all
+                .iter()
+                .filter(|s| !pide_core::walk::is_tour_stop(&a.pins, s))
+                .collect();
+            (
+                notes.len(),
+                notes.iter().filter(|s| !s.seen).count(),
+                a.to_review(),
+                pide_core::walk::story_with_unseen(&a.pins),
+                a.is_busy(),
+            )
         };
+        let agent_id = agent.entity_id();
+        if !busy {
+            self.writing_story.remove(&agent_id);
+        }
+        let writing_story = self.writing_story.contains(&agent_id);
         let agent_walk = agent.clone();
 
         let agent_story = agent.clone();
@@ -364,16 +382,32 @@ impl AgentChat {
                 "{} file{} · {} to review",
                 changes.len(),
                 if changes.len() == 1 { "" } else { "s" },
-                unreviewed
+                to_review
             )))
             .when(story_files > 0, |this| {
-                this.child(
-                    Button::new("change-story")
-                        .xsmall()
+                // Progress on the button while pi writes; then a way to start it
+                // right here (it's a tour card on the Chat tab too).
+                let button = Button::new("change-story").xsmall();
+                let button = if writing_story {
+                    button
+                        .label("Writing the story…")
+                        .loading(true)
+                        .disabled(true)
+                } else if let Some(call_id) = story_ready {
+                    let agent_start = agent_story.clone();
+                    button
+                        .label("Start the story")
+                        .tooltip("Walk through pi's change in the order that explains it")
+                        .on_click(move |_, window, cx| {
+                            pide_core::collab::start_tour(&agent_start, &call_id, window, cx);
+                        })
+                } else {
+                    button
                         .label("Tell it as a story")
                         .tooltip("Ask pi to walk you through its change in the order that explains it, as a tour")
-                        .on_click(cx.listener(move |_, _, _, cx| {
+                        .on_click(cx.listener(move |this, _, _, cx| {
                             let prompt = story_prompt();
+                            this.writing_story.insert(agent_story.entity_id());
                             agent_story.update(cx, |a, cx| {
                                 if a.is_busy() {
                                     a.queue(prompt, true, cx);
@@ -381,8 +415,9 @@ impl AgentChat {
                                     a.prompt(prompt, cx);
                                 }
                             });
-                        })),
-                )
+                        }))
+                };
+                this.child(button)
             })
             .when(stops > 0, |this| {
                 this.child(
