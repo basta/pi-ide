@@ -162,6 +162,15 @@ impl EditorPanel {
             {
                 s.line = n;
             }
+            // A hunk note's card opens below the whole change it explains, not
+            // over its other lines (short changes; a long one keeps its line).
+            s.end_line = s.line;
+            if let pide_core::collab::StopRef::Hunk { file, .. } = s.at
+                && let Some(before) = a.changes.get(file).and_then(|c| c.before.as_deref())
+                && let Some(end) = pide_core::changes::hunk_end(before, &content, s.line, 15)
+            {
+                s.end_line = end;
+            }
         }
         // The current note's range is stronger.
         let shown = current

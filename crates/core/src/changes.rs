@@ -328,6 +328,17 @@ pub fn hunks(before: &str, after: &str) -> Vec<Hunk> {
         .collect()
 }
 
+/// The last line (1-based) of the change in `after` that holds `line` (1-based),
+/// for hunks up to `max` lines; `None` when the line isn't in one or it's longer.
+pub fn hunk_end(before: &str, after: &str, line: usize, max: usize) -> Option<usize> {
+    let l = line.checked_sub(1)?;
+    hunks(before, after)
+        .into_iter()
+        .find(|h| h.after.contains(&l))
+        .filter(|h| h.after.len() <= max)
+        .map(|h| h.after.end)
+}
+
 /// `after` with one hunk put back the way it was in `before`.
 pub fn revert_hunk(before: &str, after: &str, hunk: &Hunk) -> String {
     let old: Vec<&str> = before.split_inclusive('\n').collect();
@@ -429,6 +440,16 @@ mod tests {
     }
 
     #[::core::prelude::v1::test]
+    fn hunk_end_finds_the_changes_last_line() {
+        let before = "a\nb\nc\n";
+        let after = "a\nx\ny\nz\nb\nc\n";
+        assert_eq!(hunk_end(before, after, 2, 10), Some(4));
+        assert_eq!(hunk_end(before, after, 3, 10), Some(4));
+        assert_eq!(hunk_end(before, after, 1, 10), None);
+        assert_eq!(hunk_end(before, after, 2, 2), None);
+    }
+
+    #[test]
     fn hunks_revert_one_at_a_time() {
         let before = "a\nb\nc\nd\ne\nf\ng\n";
         let after = "a\nB\nc\nd\ne\nf\ng\nh\n";
