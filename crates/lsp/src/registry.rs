@@ -281,7 +281,7 @@ pub enum Installed {
 
 /// The version from `--version` output: its first line, unless that is only
 /// the name (tinymist prints `tinymist`, then `Build Git Describe: v0.15.12`,
-/// …, `Typst Version: 0.15.1`): then the name and the first version-ish field.
+/// …, `Typst Version: 0.15.1`): then the name and the first version field.
 fn version_text(out: &str) -> String {
     let mut lines = out.lines().map(str::trim).filter(|l| !l.is_empty());
     let Some(first) = lines.next() else {
@@ -290,12 +290,20 @@ fn version_text(out: &str) -> String {
     if first.chars().any(|c| c.is_ascii_digit()) {
         return first.to_string();
     }
+    // Only values with a digit: Homebrew's build says `VERGEN_IDEMPOTENT_OUTPUT`.
     let field = lines.find_map(|l| {
         let (key, value) = l.split_once(':')?;
-        let key = key.to_ascii_lowercase();
-        (key.contains("describe") || key.contains("version"))
-            .then(|| value.trim())
-            .filter(|v| !v.is_empty())
+        let (key, value) = (key.trim(), value.trim());
+        let k = key.to_ascii_lowercase();
+        ((k.contains("describe") || k.contains("version"))
+            && value.chars().any(|c| c.is_ascii_digit()))
+        .then(|| {
+            if k.contains("describe") {
+                value.to_string()
+            } else {
+                format!("({key} {value})")
+            }
+        })
     });
     match field {
         Some(v) => format!("{first} {v}"),
@@ -413,6 +421,12 @@ mod tests {
                 "tinymist\nBuild Timestamp: 2026-10-01\nBuild Git Describe: v0.15.12\nTypst Version: 0.15.1\n"
             ),
             "tinymist v0.15.12"
+        );
+        assert_eq!(
+            version_text(
+                "tinymist\nBuild Git Describe: VERGEN_IDEMPOTENT_OUTPUT\nTypst Version: 0.15.1\n"
+            ),
+            "tinymist (Typst Version 0.15.1)"
         );
         assert_eq!(version_text("tinymist\n"), "tinymist");
         assert_eq!(version_text(""), "");

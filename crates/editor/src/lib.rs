@@ -1154,6 +1154,9 @@ impl EditorPanel {
                     minimal::set_text(&self.editor, text, false, window, cx);
                 }
                 self.load_git_base(cx);
+                if typst::is_typst(&self.path) {
+                    typst::export_on_disk_change(self, window, cx);
+                }
                 cx.notify();
             }
             WorkspaceEvent::GitChanged => {

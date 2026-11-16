@@ -171,6 +171,17 @@ pub(crate) fn export_on_save(
     export(panel, true, window, cx);
 }
 
+/// The file changed on disk (pi edited it, or another editor): rebuild the PDF
+/// so it doesn't show the old text, quietly (no raise, no toast: Problems has
+/// any errors). Also when export as you type is off.
+pub(crate) fn export_on_disk_change(
+    panel: &mut EditorPanel,
+    window: &mut Window,
+    cx: &mut Context<EditorPanel>,
+) {
+    export(panel, false, window, cx);
+}
+
 /// Have tinymist export the document's PDF from the text it has (the editor
 /// keeps it in sync, saved or not), then show it beside the source (or reload
 /// it), scrolled to what changed since the last export. Compile errors are
