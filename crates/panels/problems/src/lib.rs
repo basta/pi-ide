@@ -151,7 +151,7 @@ impl gpui_kit::component::dock::BasePanel for Problems {
 }
 
 impl gpui_kit::component::dock::Panel for Problems {
-    fn title(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn title(&mut self, _: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let (e, w) = count(&self.shown);
         if e + w == 0 {
             "Problems".to_string()
