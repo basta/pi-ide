@@ -1,7 +1,8 @@
 //! Runs of tool calls: the calls between two bits of pi's prose collapse to one
 //! summary line ("Read lib.rs, edited diff_panel.rs, ran cargo check"). Click
 //! it for one row per call, click a row for its output. A run with a failure
-//! opens by itself, with the failed call's output showing.
+//! opens by itself when it ends in a failure, with the failed call's output
+//! showing (a failure pi recovered from is only a small red count).
 
 use super::*;
 
@@ -247,7 +248,11 @@ impl AgentChat {
             .filter(|t| t.state == ToolState::Failed)
             .count();
         let running = tools.iter().find(|t| t.state == ToolState::Running);
-        let open = view.run_open.get(&key).copied().unwrap_or(failed > 0);
+        // A call that failed and was followed by ones that worked is a detail
+        // (a small red count); only a run that ends in a failure reads as failed
+        // and opens itself.
+        let ended_failed = tools.last().is_some_and(|t| t.state == ToolState::Failed);
+        let open = view.run_open.get(&key).copied().unwrap_or(ended_failed);
 
         let calls: Vec<Call> = tools
             .iter()
@@ -262,16 +267,13 @@ impl AgentChat {
         };
         let total: u64 = tools.iter().filter_map(|t| t.ms).sum();
         let mut meta = Vec::new();
-        if failed > 0 {
-            meta.push(format!("{failed} failed"));
-        }
         if tools.len() > 1 {
             meta.push(format!("{} calls", tools.len()));
         }
         if total > 0 {
             meta.push(fmt_ms(total));
         }
-        let color = if failed > 0 {
+        let color = if ended_failed {
             theme.danger
         } else {
             theme.muted_foreground
@@ -299,17 +301,25 @@ impl AgentChat {
             .hover(|s| s.bg(theme.list_hover))
             .on_click(cx.listener(move |this, _, _, cx| {
                 if let Some(v) = this.views.get_mut(&agent_id) {
-                    let o = v.run_open.entry(toggle_key.clone()).or_insert(failed > 0);
+                    let o = v.run_open.entry(toggle_key.clone()).or_insert(ended_failed);
                     *o = !*o;
                     cx.notify();
                 }
             }))
             .child(div().flex_none().child(if open { "▾" } else { "▸" }))
-            .when(failed > 0, |this| this.child(div().flex_none().child("✗")))
+            .when(ended_failed, |this| this.child(div().flex_none().child("✗")))
             .child(
                 // Wraps rather than clipping: the summary is the point of the line.
                 div().flex_1().min_w_0().child(line),
             )
+            .when(failed > 0, |this| {
+                this.child(
+                    div()
+                        .flex_none()
+                        .text_color(theme.danger)
+                        .child(format!("{failed} failed")),
+                )
+            })
             .when(!meta.is_empty(), |this| {
                 this.child(
                     div()
