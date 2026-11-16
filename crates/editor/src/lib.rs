@@ -137,7 +137,7 @@ pub fn init(cx: &mut App) {
     // Cmd+Shift+F is Find in Files (JetBrains); GPUI Kit's in-file replace moves to
     // JetBrains' Cmd+R. Bound before keymap::init, so it survives keymap reloads.
     cx.bind_keys([KeyBinding::new(
-        "secondary-r",
+        if cfg!(target_os = "macos") { "cmd-r" } else { "ctrl-r" },
         gpui_kit::component::input::Replace,
         Some(pide_core::commands::EDITOR),
     )]);
