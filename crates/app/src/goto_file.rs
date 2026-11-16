@@ -213,6 +213,7 @@ pub fn open(window: &mut Window, cx: &mut App) {
                     .collect();
                 let (query_q, cache_c, files_c, root_c) =
                     (query.clone(), cache.clone(), files.clone(), root.clone());
+                let popup_h = (52. + files.len().min(SHOWN) as f32 * 32.).clamp(160., 460.);
                 content.child(
                     Command::new(&state)
                         .bordered(false)
@@ -224,7 +225,8 @@ pub fn open(window: &mut Window, cx: &mut App) {
                         })
                         // One height while you type (it grew and shrank with the
                         // matches): what the whole list needs, up to 460.
-                        .h(px((52. + files.len().min(SHOWN) as f32 * 32.).clamp(160., 460.)))
+                        .h(px(popup_h))
+                        .max_h(px(popup_h - 52.))
                         .filterable(false)
                         .items(items)
                         .on_query(move |q, window, _| {
