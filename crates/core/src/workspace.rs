@@ -252,6 +252,17 @@ impl Workspace {
     }
 
     fn on_disk_changes(&mut self, changes: fswatch::Changes, cx: &mut Context<Self>) {
+        let git = self.root.join(".git");
+        if changes.paths.iter().any(|p| {
+            p.strip_prefix(&git).is_ok_and(|rel| {
+                rel == std::path::Path::new("index")
+                    || rel == std::path::Path::new("HEAD")
+                    || rel.starts_with("refs")
+                    || rel == std::path::Path::new("packed-refs")
+            })
+        }) {
+            cx.emit(WorkspaceEvent::GitChanged);
+        }
         let relevant: Vec<PathBuf> = changes
             .paths
             .into_iter()

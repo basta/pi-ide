@@ -264,7 +264,11 @@ impl Shell {
                             CommandRegistry::run("lsp.servers", window, cx);
                             let _ = note.update(cx, |n, cx| n.dismiss(window, cx));
                         })
-                });
+                })
+                // An action keeps a toast up for good; this one sat over the pi
+                // panel's header. It goes away on its own (the Language Servers
+                // tab and the status bar still say it).
+                .autohide(true);
                 window.push_notification(note, cx);
             }
         }));

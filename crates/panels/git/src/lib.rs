@@ -163,6 +163,7 @@ impl GitPanel {
                         | WorkspaceEvent::FileChangedOnDisk { .. }
                         | WorkspaceEvent::FileDeleted(_)
                         | WorkspaceEvent::TreeChanged
+                        | WorkspaceEvent::GitChanged
                 ) {
                     this.refresh(cx);
                 }

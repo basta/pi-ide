@@ -216,8 +216,14 @@ pub fn detect(spec: &ServerSpec) -> Installed {
             }
             _ => {
                 let _ = child.kill();
-                return Installed::No {
-                    reason: format!("{} --version didn't answer", path.display()),
+                let _ = child.wait(); // no zombie left behind
+                // It's there but slow (a rustup proxy while everything else
+                // starts up): treat it as installed rather than raising a false
+                // "not installed"; starting it will tell if it really works.
+                log::warn!("{} --version didn't answer in 5 s", path.display());
+                return Installed::Yes {
+                    path,
+                    version: "version unknown (slow to answer)".into(),
                 };
             }
         }
