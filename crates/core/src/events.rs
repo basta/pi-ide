@@ -29,6 +29,9 @@ pub enum WorkspaceEvent {
     ActiveBufferChanged,
     /// Files were created, removed or renamed under the project root.
     TreeChanged,
+    /// Git's index, HEAD or refs changed (a commit, checkout or pull, from pide
+    /// or anywhere else): git marks need recomputing.
+    GitChanged,
 }
 
 /// Emitted by the LSP layer (M3).

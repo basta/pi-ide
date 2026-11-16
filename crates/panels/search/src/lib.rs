@@ -93,7 +93,7 @@ impl FindInFiles {
                      _: &mut Window,
                      cx: &mut Context<Self>| match ev {
             InputEvent::PressEnter { .. } => this.run(Duration::ZERO, cx),
-            InputEvent::Change => this.run(Duration::from_millis(350), cx),
+            InputEvent::Change => this.run(Duration::from_millis(200), cx),
             _ => {}
         };
         let subs = vec![
@@ -342,8 +342,10 @@ impl Render for FindInFiles {
                 .tooltip(tip)
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle(which, cx)))
         };
+        // While a new search runs, the last results stay (dimmed) and keep their
+        // count: emptying the list on every keystroke made the panel flash.
         let summary = match (&self.results, self.searching) {
-            (_, true) => "Searching…".to_string(),
+            (None, true) => "Searching…".to_string(),
             (None, _) => String::new(),
             (Some(Err(e)), _) => format!("Invalid pattern: {e}"),
             (Some(Ok(r)), _) => format!(
@@ -386,17 +388,46 @@ impl Render for FindInFiles {
                         )
                         .into_any_element(),
                 );
-                for (i, m) in f.matches.iter().enumerate().take(200) {
-                    // The line around the match, trimmed so the match stays visible.
+                // One row per line, with every match on it highlighted (a line
+                // with two matches was listed twice, the second scrolled sideways).
+                let mut by_line: Vec<(usize, Vec<&engine::Match>)> = Vec::new();
+                for m in f.matches.iter().take(200) {
+                    match by_line.last_mut() {
+                        Some((_, ms)) if ms[0].line == m.line => ms.push(m),
+                        _ => by_line.push((by_line.len(), vec![m])),
+                    }
+                }
+                for (i, ms) in by_line {
+                    let m = ms[0];
+                    // The line from a little before the first match.
                     let start = m.text[..m.range.start]
                         .char_indices()
                         .rev()
                         .nth(40)
                         .map(|(b, _)| b)
                         .unwrap_or(0);
-                    let before = m.text[start..m.range.start].trim_start().to_string();
-                    let hit = m.text[m.range.clone()].to_string();
-                    let after = m.text[m.range.end..].chars().take(160).collect::<String>();
+                    let mut pieces: Vec<AnyElement> = Vec::new();
+                    let mut at = start;
+                    for (k, hit) in ms.iter().enumerate() {
+                        if hit.range.start < at {
+                            continue;
+                        }
+                        let plain = &m.text[at..hit.range.start];
+                        pieces.push(
+                            div()
+                                .child(if k == 0 { plain.trim_start().to_string() } else { plain.to_string() })
+                                .into_any_element(),
+                        );
+                        pieces.push(
+                            div()
+                                .bg(theme.warning.opacity(0.35))
+                                .text_color(theme.foreground)
+                                .child(m.text[hit.range.clone()].to_string())
+                                .into_any_element(),
+                        );
+                        at = hit.range.end;
+                    }
+                    pieces.push(div().child(m.text[at..].chars().take(160).collect::<String>()).into_any_element());
                     let (path, line, ch) = (f.path.clone(), m.line, m.character);
                     rows.push(
                         h_flex()
@@ -427,14 +458,7 @@ impl Render for FindInFiles {
                                     .whitespace_nowrap()
                                     .font_family(theme.mono_font_family.clone())
                                     .text_xs()
-                                    .child(before)
-                                    .child(
-                                        div()
-                                            .bg(theme.warning.opacity(0.35))
-                                            .text_color(theme.foreground)
-                                            .child(hit),
-                                    )
-                                    .child(after),
+                                    .children(pieces),
                             )
                             .into_any_element(),
                     );
@@ -518,6 +542,7 @@ impl Render for FindInFiles {
                     .min_h_0()
                     .overflow_y_scroll()
                     .pb_2()
+                    .when(self.searching, |d| d.opacity(0.6))
                     .children(rows),
             )
     }

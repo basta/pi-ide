@@ -326,15 +326,16 @@ impl LspStore {
                     (b.path.clone(), b.text().clone())
                 };
                 self.sync_text(&path, &text);
+                // Reloaded from disk (pi's edit): the file is saved as it now is,
+                // so diagnostics that only run on save (rust-analyzer's cargo
+                // check) run again instead of staying on the old lines.
+                if let WorkspaceEvent::FileChangedOnDisk { reloaded: true, .. } = ev {
+                    self.did_save(&path);
+                }
             }
             WorkspaceEvent::BufferSaved(b) => {
                 let path = b.read(cx).path.clone();
-                for rpc in self.rpcs_of(&path) {
-                    rpc.notify(
-                        "textDocument/didSave",
-                        json!({ "textDocument": { "uri": file_uri(&path) } }),
-                    );
-                }
+                self.did_save(&path);
             }
             WorkspaceEvent::BufferClosed(path) => {
                 for rpc in self.rpcs_of(path) {
@@ -431,6 +432,16 @@ impl LspStore {
         self.ensure_server(spec.id, cx);
         self.open_docs(spec.id);
         true
+    }
+
+    /// Tell `path`'s servers the file was saved.
+    fn did_save(&self, path: &Path) {
+        for rpc in self.rpcs_of(path) {
+            rpc.notify(
+                "textDocument/didSave",
+                json!({ "textDocument": { "uri": file_uri(path) } }),
+            );
+        }
     }
 
     /// Bring the server's copy of `path` up to date with `text` (no-op if equal).
@@ -831,8 +842,7 @@ impl LspStore {
                                 .map(str::to_string)
                                 .or_else(|| s.progress.get(&token).cloned())
                                 .unwrap_or_default();
-                            let title = title.split(" · ").next().unwrap_or("").to_string();
-                            let mut text = title;
+                            let mut text = progress_title(&title);
                             if let Some(m) = v["message"].as_str() {
                                 text = format!("{text} · {m}");
                             }
@@ -957,5 +967,31 @@ impl LspStore {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+}
+
+/// The title part of a stored progress text ("Indexing · 4/21 (core) 19%" →
+/// "Indexing"): a report without a title reuses it, and its old percentage
+/// must not stay ("Indexing 0% 0% 57% …" grew across the status bar).
+fn progress_title(text: &str) -> String {
+    let mut t = text.split(" · ").next().unwrap_or("").trim_end();
+    while let Some((rest, last)) = t.rsplit_once(' ') {
+        if last.ends_with('%') && last[..last.len() - 1].chars().all(|c| c.is_ascii_digit()) {
+            t = rest.trim_end();
+        } else {
+            break;
+        }
+    }
+    t.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    #[::core::prelude::v1::test]
+    fn a_progress_title_drops_old_percentages() {
+        assert_eq!(super::progress_title("Indexing 0% 57%"), "Indexing");
+        assert_eq!(super::progress_title("Indexing · 4/21 (core) 19%"), "Indexing");
+        assert_eq!(super::progress_title("Fetching"), "Fetching");
+        assert_eq!(super::progress_title("Build 2 of 3"), "Build 2 of 3");
     }
 }

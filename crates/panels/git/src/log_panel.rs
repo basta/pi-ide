@@ -117,6 +117,9 @@ pub struct GitLogPanel {
     visible: Rc<Vec<usize>>,
     selected: Option<gix::ObjectId>,
     files: Option<Result<Vec<ChangedFile>, String>>,
+    /// The commit `files` belongs to (the previous one stays up, dimmed, while
+    /// the next one's files are read: "Reading changes…" flashed on every step).
+    files_for: Option<gix::ObjectId>,
     /// pi's reasons kept with the selected commit (collaborator mode), once read.
     pi_notes: Option<pide_core::commit_notes::CommitNotes>,
     sessions: Entity<pide_core::Sessions>,
@@ -166,6 +169,7 @@ impl GitLogPanel {
             visible: Rc::new(Vec::new()),
             selected: None,
             files: None,
+            files_for: None,
             pi_notes: None,
             sessions,
             scroll: UniformListScrollHandle::new(),
@@ -311,8 +315,11 @@ impl GitLogPanel {
     }
 
     fn select(&mut self, id: gix::ObjectId, cx: &mut Context<Self>) {
+        // Already showing it (↑ on the top commit): nothing to reload.
+        if self.selected == Some(id) && self.files_for == Some(id) {
+            return;
+        }
         self.selected = Some(id);
-        self.files = None;
         cx.notify();
         let (Some(loaded), Some(commit)) = (self.loaded.clone(), self.commit(id).cloned()) else {
             return;
@@ -332,6 +339,7 @@ impl GitLogPanel {
             let _ = this.update(cx, |this, cx| {
                 if this.selected == Some(id) {
                     this.files = Some(files);
+                    this.files_for = Some(id);
                     this.pi_notes = notes;
                     cx.notify();
                 }
@@ -515,6 +523,7 @@ impl GitLogPanel {
         };
         let mono = theme.mono_font_family.clone();
         let hash = c.id.to_string();
+        let stale = self.files_for != Some(c.id);
         let files: AnyElement = match &self.files {
             None => div()
                 .px_3()
@@ -529,6 +538,8 @@ impl GitLogPanel {
                 .child(e.clone())
                 .into_any_element(),
             Some(Ok(files)) => v_flex()
+                // The previous commit's files, dimmed, while this one's are read.
+                .when(stale, |d| d.opacity(0.4))
                 .child(
                     div()
                         .px_3()
@@ -881,6 +892,9 @@ impl Render for GitLogPanel {
                         let on = selected == Some(id);
                         h_flex()
                             .id(("log-row", pos))
+                            // Full-width rows: the selection spans the row, and
+                            // author and date line up in columns.
+                            .w_full()
                             .h(px(ROW_H))
                             .pr_2()
                             .gap_2()
@@ -936,8 +950,7 @@ impl Render for GitLogPanel {
                             )
                             .child(
                                 div()
-                                    .w(relative(0.16))
-                                    .max_w(px(140.))
+                                    .w(px(120.))
                                     .flex_none()
                                     .overflow_hidden()
                                     .text_ellipsis()
@@ -946,9 +959,9 @@ impl Render for GitLogPanel {
                             )
                             .child(
                                 div()
-                                    .w(relative(0.17))
-                                    .max_w(px(120.))
+                                    .w(px(112.))
                                     .flex_none()
+                                    .text_right()
                                     .overflow_hidden()
                                     .text_ellipsis()
                                     .text_color(theme.muted_foreground)

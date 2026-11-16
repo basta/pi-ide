@@ -874,8 +874,9 @@ impl PdfPanel {
     ) -> AnyElement {
         let theme = cx.theme().clone();
         let viewport = self.scroll.bounds();
-        if self.fit_width && viewport.size.width > px(0.) {
-            let widest = sizes.iter().map(|s| s.width).fold(1., f32::max);
+        let widest = sizes.iter().map(|s| s.width).fold(1., f32::max);
+        let fit = self.fit_width;
+        if fit && viewport.size.width > px(0.) {
             self.scale = ((f32::from(viewport.size.width) - 48.) / widest).clamp(0.25, 6.0);
         }
         let scale = self.scale;
@@ -961,8 +962,17 @@ impl PdfPanel {
                     .id(("pdf-page", i))
                     .relative()
                     .flex_none()
-                    .w(px(w))
-                    .h(px(h))
+                    // Fit width: sized by the layout itself, so a pane that just
+                    // got wider or narrower shows the page at the new width in
+                    // the same frame (the scale above is from the last frame,
+                    // and the page showed at the old zoom first, then jumped).
+                    .map(|d| {
+                        if fit {
+                            d.w(relative(s.width / widest)).aspect_ratio(s.width / s.height.max(1.))
+                        } else {
+                            d.w(px(w)).h(px(h))
+                        }
+                    })
                     .bg(gpui_kit::white())
                     .shadow_sm()
                     .when_some(image, |d, img| {
@@ -1005,6 +1015,7 @@ impl PdfPanel {
             .bg(theme.secondary)
             .child(
                 v_flex()
+                    .when(fit, |d| d.w_full())
                     .items_center()
                     .gap(px(PAGE_GAP))
                     .py_4()

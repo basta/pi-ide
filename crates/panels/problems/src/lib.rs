@@ -34,9 +34,13 @@ pub fn init(cx: &mut App) {
 
 /// Errors and warnings across the project (for the status bar too).
 pub fn counts(store: &LspStore) -> (usize, usize) {
+    count(store.diagnostics())
+}
+
+fn count(diags: &std::collections::BTreeMap<PathBuf, pide_lsp::FileDiagnostics>) -> (usize, usize) {
     let mut errors = 0;
     let mut warnings = 0;
-    for d in store.diagnostics().values().flat_map(|f| &f.items) {
+    for d in diags.values().flat_map(|f| &f.items) {
         match d.severity {
             Some(DiagnosticSeverity::ERROR) => errors += 1,
             Some(DiagnosticSeverity::WARNING) => warnings += 1,
@@ -62,6 +66,11 @@ pub fn existing(window: &Window, cx: &App) -> Option<Entity<Problems>> {
 
 pub struct Problems {
     store: Entity<LspStore>,
+    /// What the list shows: the store's diagnostics, taken once they've been
+    /// still for a moment. Every keystroke on a half-typed line made the list,
+    /// the tab's count and its width churn.
+    shown: std::collections::BTreeMap<PathBuf, pide_lsp::FileDiagnostics>,
+    _settle: Option<Task<()>>,
     root: PathBuf,
     show_hints: bool,
     focus: FocusHandle,
@@ -79,8 +88,29 @@ impl Problems {
         cx.default_global::<Instances>()
             .0
             .insert(window.window_handle().window_id(), me);
+        let shown = store.read(cx).diagnostics().clone();
         Self {
-            _subs: vec![cx.observe(&store, |_, _, cx| cx.notify())],
+            _subs: vec![cx.observe(&store, |this, store, cx| {
+                if store.read(cx).diagnostics().len() == this.shown.len()
+                    && store.read(cx).diagnostics().iter().zip(this.shown.iter()).all(|(a, b)| {
+                        a.0 == b.0 && a.1.items == b.1.items
+                    })
+                {
+                    cx.notify(); // server status only
+                    return;
+                }
+                this._settle = Some(cx.spawn(async move |this, cx| {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(700))
+                        .await;
+                    let _ = this.update(cx, |this, cx| {
+                        this.shown = this.store.read(cx).diagnostics().clone();
+                        cx.notify();
+                    });
+                }));
+            })],
+            shown,
+            _settle: None,
             store,
             root,
             show_hints: false,
@@ -121,8 +151,8 @@ impl gpui_kit::component::dock::BasePanel for Problems {
 }
 
 impl gpui_kit::component::dock::Panel for Problems {
-    fn title(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (e, w) = counts(self.store.read(cx));
+    fn title(&mut self, _: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let (e, w) = count(&self.shown);
         if e + w == 0 {
             "Problems".to_string()
         } else {
@@ -174,13 +204,13 @@ impl Render for Problems {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let store = self.store.read(cx);
-        let (errors, warnings) = counts(store);
+        let (errors, warnings) = count(&self.shown);
         let show_hints = self.show_hints;
         let mut encodings = std::collections::HashMap::new();
 
         // Files with an error first, then by path.
-        let mut files: Vec<(&PathBuf, Vec<&lsp_types::Diagnostic>)> = store
-            .diagnostics()
+        let mut files: Vec<(&PathBuf, Vec<&lsp_types::Diagnostic>)> = self
+            .shown
             .iter()
             .map(|(p, f)| {
                 encodings.insert(p.clone(), f.encoding);

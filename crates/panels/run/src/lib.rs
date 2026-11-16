@@ -229,7 +229,7 @@ impl RunPanel {
                     .unwrap_or(0.0);
                 this.status = Some(match code {
                     Ok(Ok(Some(0))) => format!("finished in {secs:.1}s"),
-                    Ok(Ok(Some(c))) => format!("exit code {c} after {secs:.1}s"),
+                    Ok(Ok(Some(c))) => format!("✗ failed (exit code {c}) after {secs:.1}s"),
                     Ok(Ok(None)) => format!("stopped after {secs:.1}s"),
                     Ok(Err(e)) => format!("couldn't start: {e}"),
                     Err(_) => "ended".into(),
@@ -349,7 +349,13 @@ impl Render for RunPanel {
                             }),
                     )
                     .when_some(self.status.clone(), |this, s| {
-                        this.child(div().text_color(theme.muted_foreground).child(s))
+                        // A failure shows at a glance; success stays quiet.
+                        let failed = s.starts_with('✗') || s.starts_with("couldn't");
+                        this.child(
+                            div()
+                                .text_color(if failed { theme.danger } else { theme.muted_foreground })
+                                .child(s),
+                        )
                     })
                     .when(running, |this| {
                         this.child(div().text_color(theme.muted_foreground).child("running…"))

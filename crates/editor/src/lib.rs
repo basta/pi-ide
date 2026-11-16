@@ -1156,6 +1156,10 @@ impl EditorPanel {
                 self.load_git_base(cx);
                 cx.notify();
             }
+            WorkspaceEvent::GitChanged => {
+                // Committed (or checked out): the change bars are against a new HEAD.
+                self.load_git_base(cx);
+            }
             WorkspaceEvent::BufferSaved(buffer) if self.is_mine(buffer) => {
                 // A commit may have happened since the file was opened.
                 self.load_git_base(cx);
