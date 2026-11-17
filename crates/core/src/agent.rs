@@ -149,6 +149,8 @@ pub struct Agent {
     commands_requested: bool,
     /// pi's session file, once known; used to resume after the process stops.
     pub session_file: Option<std::path::PathBuf>,
+    /// Opened from a saved session (its history loads after start), not new.
+    pub resumed: bool,
     /// Messages waiting to be delivered: (steering, follow-ups).
     pub queue: (Vec<String>, Vec<String>),
     /// Files pi changed in this session, in first-touched order.
@@ -204,6 +206,7 @@ impl Agent {
             commands_loaded: false,
             commands_requested: false,
             session_file: None,
+            resumed: false,
             queue: (Vec::new(), Vec::new()),
             dialogs: Vec::new(),
             _dialog_timers: Vec::new(),

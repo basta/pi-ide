@@ -295,6 +295,9 @@ impl AgentChat {
             }
             None => (Vec::new(), ScrollHandle::new(), true),
         };
+        // A resumed session's history is still loading: no new-session card
+        // in between (startup showed it, then swapped in the chat).
+        let resumed = agent.read(cx).resumed;
         let theme = cx.theme().clone();
         let agent_close = agent.clone();
         let narrow = self.width.get() < 520.;
@@ -478,7 +481,7 @@ impl AgentChat {
                                 .p_3()
                                 .gap_3()
                                 .text_sm()
-                                .when(empty || self.show_help, |this| this.child(self.render_understand(cx)))
+                                .when((empty && !resumed) || self.show_help, |this| this.child(self.render_understand(cx)))
                                 .children(items),
                         ),
                     )

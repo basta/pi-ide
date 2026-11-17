@@ -17,6 +17,18 @@ pub fn apply(setting: ThemeSetting, window: Option<&mut Window>, cx: &mut App) {
     }
 }
 
+/// The caret blinks while you work and then stays on: each blink redraws the
+/// window, which kept an idle pide at 25-50% CPU on software rendering (and
+/// drains a laptop battery). 10 s after the last edit, move or focus it stops.
+pub fn calm_caret(cx: &mut App) {
+    Theme::update(cx, |t| {
+        t.cursor_blink = gpui_kit::component::input::CursorBlink::blinking(
+            std::time::Duration::from_millis(500),
+        )
+        .with_idle_timeout(std::time::Duration::from_secs(10));
+    });
+}
+
 /// The window's appearance changed (macOS light/dark switch).
 pub fn on_system_appearance_changed(window: &mut Window, cx: &mut App) {
     if cx

@@ -74,6 +74,7 @@ fn main() {
         gpui_kit::init(cx);
         let settings = pide_core::settings::load();
         theme::apply(settings.theme, None, cx);
+        theme::calm_caret(cx);
         cx.set_global(settings);
 
         pide_editor::init(cx);

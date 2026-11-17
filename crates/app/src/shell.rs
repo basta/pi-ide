@@ -197,6 +197,8 @@ impl Shell {
         let layout_path = layout_file(&root);
 
         let (dock, skin) = DockSkin::dock_area(DOCK_ID, Some(DOCK_VERSION), window, cx);
+        // An × on closable tabs (editor tabs; tool windows aren't closable).
+        skin.set_close_button_visible(true, cx);
         pide_editor::set_host(window_id, dock.downgrade(), cx);
 
         if let Err(e) = Self::load_layout(&dock, &layout_path, window, cx) {
