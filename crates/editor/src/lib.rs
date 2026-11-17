@@ -1383,6 +1383,11 @@ impl Render for EditorPanel {
         if let Some(err) = &self.load_error {
             return v_flex().size_full().child(self.bar(cx, true, err.clone()));
         }
+        // Still reading the file: an empty pane, not an empty editor with a
+        // line 1 that the file then replaces (seen at startup).
+        if self.buffer.is_none() {
+            return v_flex().size_full();
+        }
         let buffer = self.buffer.as_ref().map(|b| b.read(cx));
         let read_only = buffer.and_then(|b| b.read_only.clone());
         let notice = buffer.and_then(|b| b.notice.clone());

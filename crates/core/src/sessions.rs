@@ -79,6 +79,7 @@ impl Sessions {
         let backend = (self.factory)(resume.clone());
         let agent = cx.new(|_| {
             let mut a = Agent::new(backend);
+            a.resumed = resume.is_some();
             a.session_file = resume;
             if let Some(n) = name {
                 a.name = n.into();
