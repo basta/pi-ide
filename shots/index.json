@@ -352,5 +352,59 @@
   "time": "2026-11-13T16:40:00Z",
   "milestone": "collab MVP",
   "caption": "Editor note bar during a walkthrough: pi's pin on mean() with Reply, Dismiss, Back and Next, magenta gutter and scrollbar marks over the git marks."
+ },
+ {
+  "file": "shots/range-1-pills.png",
+  "time": "2026-11-17T07:20:00Z",
+  "milestone": "range-comments",
+  "caption": "Typst, soft wrap: pi pinned 'two parts' (line 6) and 'honest measure of uncertainty' (line 8) with quote. Only the words are tinted; each note gets a '◆ pi' pill on the row where its words end, not after the paragraph."
+ },
+ {
+  "file": "shots/range-2-card-mid-row.png",
+  "time": "2026-11-17T07:20:00Z",
+  "milestone": "range-comments",
+  "caption": "Clicked the line-8 pill: the card opens right under the words' row (row 3 of 6), words framed, cursor 8:162 = start of the words."
+ },
+ {
+  "file": "shots/range-3-back.png",
+  "time": "2026-11-17T07:20:00Z",
+  "milestone": "range-comments",
+  "caption": "Back from the card: note 1/2 on 'two parts', card under row 1, cursor 6:37 on the words."
+ },
+ {
+  "file": "shots/range-4-follows-edit-before-fix.png",
+  "time": "2026-11-17T07:20:00Z",
+  "milestone": "range-comments",
+  "caption": "After typing words before both quotes (narrow editor, PDF pane open): both notes follow their words. Before the fix: the edge pill on line 8 is translucent and mixes with the word 'the' under it."
+ },
+ {
+  "file": "shots/range-5-after-restart.png",
+  "time": "2026-11-17T07:20:00Z",
+  "milestone": "range-comments",
+  "caption": "After save + quit + relaunch + session resumed from disk: notes still on their words. Pill now opaque (commit 76209bd); it still covers the row's last word in a narrow editor."
+ },
+ {
+  "file": "shots/range-6-words-deleted.png",
+  "time": "2026-11-17T07:20:00Z",
+  "milestone": "range-comments",
+  "caption": "Quoted words deleted: the note falls back to the whole paragraph (whole-line tint, lens after the last row, card opens). No crash. Card is clipped on the right: it is 440 px wide, the editor ~320 px (not new)."
+ },
+ {
+  "file": "shots/range-7-undo-restores.png",
+  "time": "2026-11-17T07:20:00Z",
+  "milestone": "range-comments",
+  "caption": "Undo: the words are back and the note re-attaches to them (tint + frame + pill)."
+ },
+ {
+  "file": "shots/range-8-hunk-note.png",
+  "time": "2026-11-17T07:20:00Z",
+  "milestone": "range-comments",
+  "caption": "ide_explain_change hunk note with quote 'optimization' (pi edited line 10): only the word tinted, pill on its row; card opens above (no room below), its bottom right above the words' row."
+ },
+ {
+  "file": "shots/range-9-plain-pin-lens.png",
+  "time": "2026-11-17T07:20:00Z",
+  "milestone": "range-comments",
+  "caption": "Regression: an ordinary pin without quote on src/util.rs:8: whole-line tint and the lens after the line, as before."
  }
 ]
