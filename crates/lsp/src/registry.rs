@@ -31,6 +31,10 @@ pub struct ServerSpec {
     /// The server's own organize-imports command, when it has no
     /// `source.organizeImports` code action (pyright runs it without advertising it).
     pub organize_imports_command: Option<&'static str>,
+    /// Runs alongside a file's main server (spell checking): it adds
+    /// diagnostics and code actions; completion, hover and the rest stay with
+    /// the main one. Its `languageId` comes from the file's extension.
+    pub addon: bool,
 }
 
 fn builtin() -> Vec<ServerSpec> {
@@ -52,6 +56,7 @@ fn builtin() -> Vec<ServerSpec> {
             overridden: false,
             version_command: None,
             organize_imports_command: None,
+            addon: false,
         },
         ServerSpec {
             id: "pyright",
@@ -70,6 +75,7 @@ fn builtin() -> Vec<ServerSpec> {
             overridden: false,
             version_command: Some(vec!["pyright".into(), "--version".into()]),
             organize_imports_command: Some("pyright.organizeimports"),
+            addon: false,
         },
         ServerSpec {
             id: "typescript-language-server",
@@ -90,6 +96,7 @@ fn builtin() -> Vec<ServerSpec> {
             overridden: false,
             version_command: None,
             organize_imports_command: None,
+            addon: false,
         },
         // Completion, references, outline, and the build: the editor asks it to
         // build on save (`textDocument/build`: latexmk -pdf -synctex=1), and
@@ -119,8 +126,104 @@ fn builtin() -> Vec<ServerSpec> {
             overridden: false,
             version_command: None,
             organize_imports_command: None,
+            addon: false,
+        },
+        // Typst: completion, hover, outline, diagnostics as you type, and the
+        // PDF: the editor asks it to export on save (`tinymist.exportPdf`).
+        ServerSpec {
+            id: "tinymist",
+            language: "Typst",
+            language_id: "typst",
+            extensions: &["typ"],
+            command: "tinymist".into(),
+            args: vec!["lsp".into()],
+            // Not on crates.io as a binary; elsewhere it's a GitHub release download.
+            install: cfg!(target_os = "macos")
+                .then(|| vec!["brew".into(), "install".into(), "tinymist".into()]),
+            source: if cfg!(target_os = "macos") {
+                "Homebrew"
+            } else {
+                "GitHub releases"
+            },
+            overridden: false,
+            version_command: None,
+            organize_imports_command: None,
+            addon: false,
+        },
+        // Spell checking (Codebook): prose in LaTeX, Typst and Markdown, and in
+        // code only comments, strings and the names you define. Alongside each
+        // file's main server; "spellcheck.enabled" turns it off.
+        ServerSpec {
+            id: CODEBOOK,
+            language: "Spelling",
+            language_id: "plaintext",
+            extensions: &[
+                "tex", "typ", "md", "markdown", "txt", "rs", "py", "pyi", "ts", "mts", "cts",
+                "tsx", "js", "mjs", "cjs", "jsx", "go", "c", "h", "cpp", "cc", "hpp", "java",
+                "rb", "lua", "zig", "swift", "php", "sh", "bash", "toml", "yaml", "yml",
+                "html", "css",
+            ],
+            command: "codebook-lsp".into(),
+            args: vec!["serve".into()],
+            install: Some(if cfg!(target_os = "macos") {
+                vec!["brew".into(), "install".into(), "codebook-lsp".into()]
+            } else {
+                vec![
+                    "cargo".into(),
+                    "install".into(),
+                    "--locked".into(),
+                    "codebook-lsp".into(),
+                ]
+            }),
+            source: if cfg!(target_os = "macos") {
+                "Homebrew"
+            } else {
+                "cargo install"
+            },
+            overridden: false,
+            version_command: None,
+            organize_imports_command: None,
+            addon: true,
         },
     ]
+}
+
+/// The spell checker's server id.
+pub const CODEBOOK: &str = "codebook";
+
+/// The `languageId` an add-on server gets for a file (Codebook picks its
+/// parser by it): VS Code's ids, by extension.
+pub fn language_id_for(spec: &ServerSpec, path: &Path) -> &'static str {
+    if !spec.addon {
+        return spec.language_id;
+    }
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    match ext {
+        "tex" => "latex",
+        "typ" => "typst",
+        "md" | "markdown" => "markdown",
+        "rs" => "rust",
+        "py" | "pyi" => "python",
+        "ts" | "mts" | "cts" => "typescript",
+        "tsx" => "typescriptreact",
+        "js" | "mjs" | "cjs" => "javascript",
+        "jsx" => "javascriptreact",
+        "go" => "go",
+        "c" | "h" => "c",
+        "cpp" | "cc" | "hpp" => "cpp",
+        "java" => "java",
+        "rb" => "ruby",
+        "lua" => "lua",
+        "zig" => "zig",
+        "swift" => "swift",
+        "php" => "php",
+        "sh" | "bash" => "shellscript",
+        "toml" => "toml",
+        "yaml" | "yml" => "yaml",
+        "html" => "html",
+        "css" => "css",
+        _ => spec.language_id,
+    }
 }
 
 /// Built-in servers with `settings.json`'s `"lsp"` overrides applied.
@@ -149,10 +252,21 @@ pub fn specs(lsp_settings: Option<&Value>) -> Vec<ServerSpec> {
     specs
 }
 
-/// The server for a file, by extension.
+/// The main server for a file, by extension.
 pub fn spec_for<'a>(specs: &'a [ServerSpec], path: &Path) -> Option<&'a ServerSpec> {
     let ext = path.extension()?.to_str()?;
-    specs.iter().find(|s| s.extensions.contains(&ext))
+    specs.iter().find(|s| !s.addon && s.extensions.contains(&ext))
+}
+
+/// The add-on servers for a file (spell checking), by extension.
+pub fn addons_for<'a>(specs: &'a [ServerSpec], path: &Path) -> Vec<&'a ServerSpec> {
+    let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+        return vec![];
+    };
+    specs
+        .iter()
+        .filter(|s| s.addon && s.extensions.contains(&ext))
+        .collect()
 }
 
 pub use pide_runtime::process::{find_command, search_path};
@@ -163,6 +277,38 @@ pub enum Installed {
     Yes { path: PathBuf, version: String },
     /// Not on the search path, or a stub that fails (rustup's proxy without the component).
     No { reason: String },
+}
+
+/// The version from `--version` output: its first line, unless that is only
+/// the name (tinymist prints `tinymist`, then `Build Git Describe: v0.15.12`,
+/// …, `Typst Version: 0.15.1`): then the name and the first version field.
+fn version_text(out: &str) -> String {
+    let mut lines = out.lines().map(str::trim).filter(|l| !l.is_empty());
+    let Some(first) = lines.next() else {
+        return String::new();
+    };
+    if first.chars().any(|c| c.is_ascii_digit()) {
+        return first.to_string();
+    }
+    // Only values with a digit: Homebrew's build says `VERGEN_IDEMPOTENT_OUTPUT`.
+    let field = lines.find_map(|l| {
+        let (key, value) = l.split_once(':')?;
+        let (key, value) = (key.trim(), value.trim());
+        let k = key.to_ascii_lowercase();
+        ((k.contains("describe") || k.contains("version"))
+            && value.chars().any(|c| c.is_ascii_digit()))
+        .then(|| {
+            if k.contains("describe") {
+                value.to_string()
+            } else {
+                format!("({key} {value})")
+            }
+        })
+    });
+    match field {
+        Some(v) => format!("{first} {v}"),
+        None => first.to_string(),
+    }
 }
 
 /// Blocking (runs the server with `--version`, ≤ 5 s): call off the UI thread.
@@ -216,8 +362,14 @@ pub fn detect(spec: &ServerSpec) -> Installed {
             }
             _ => {
                 let _ = child.kill();
-                return Installed::No {
-                    reason: format!("{} --version didn't answer", path.display()),
+                let _ = child.wait(); // no zombie left behind
+                // It's there but slow (a rustup proxy while everything else
+                // starts up): treat it as installed rather than raising a false
+                // "not installed"; starting it will tell if it really works.
+                log::warn!("{} --version didn't answer in 5 s", path.display());
+                return Installed::Yes {
+                    path,
+                    version: "version unknown (slow to answer)".into(),
                 };
             }
         }
@@ -239,7 +391,7 @@ pub fn detect(spec: &ServerSpec) -> Installed {
             .to_string()
     };
     if out.status.success() {
-        let v = first_line(&out.stdout);
+        let v = version_text(&String::from_utf8_lossy(&out.stdout));
         let version = if v.is_empty() {
             first_line(&out.stderr)
         } else {
@@ -259,6 +411,28 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn version_lines() {
+        assert_eq!(
+            version_text("rust-analyzer 1.91.0 (f8297e3 2025-10-28)\n"),
+            "rust-analyzer 1.91.0 (f8297e3 2025-10-28)"
+        );
+        assert_eq!(
+            version_text(
+                "tinymist\nBuild Timestamp: 2026-10-01\nBuild Git Describe: v0.15.12\nTypst Version: 0.15.1\n"
+            ),
+            "tinymist v0.15.12"
+        );
+        assert_eq!(
+            version_text(
+                "tinymist\nBuild Git Describe: VERGEN_IDEMPOTENT_OUTPUT\nTypst Version: 0.15.1\n"
+            ),
+            "tinymist (Typst Version 0.15.1)"
+        );
+        assert_eq!(version_text("tinymist\n"), "tinymist");
+        assert_eq!(version_text(""), "");
+    }
+
+    #[test]
     fn overrides_apply_and_lookup_is_by_extension() {
         let specs = specs(Some(
             &json!({ "rust-analyzer": { "command": "/opt/ra", "args": ["--log"] } }),
@@ -271,6 +445,21 @@ mod tests {
         let py = spec_for(&specs, Path::new("a/b.pyi")).unwrap();
         assert_eq!((py.id, py.overridden), ("pyright", false));
         assert!(spec_for(&specs, Path::new("README.md")).is_none());
+    }
+
+    #[test]
+    fn spelling_runs_alongside() {
+        let specs = specs(None);
+        // The main server stays the main one; Codebook comes on top.
+        assert_eq!(spec_for(&specs, Path::new("a.typ")).unwrap().id, "tinymist");
+        let addons = addons_for(&specs, Path::new("a.typ"));
+        assert_eq!(addons.iter().map(|s| s.id).collect::<Vec<_>>(), [CODEBOOK]);
+        assert_eq!(language_id_for(addons[0], Path::new("a.typ")), "typst");
+        assert_eq!(language_id_for(addons[0], Path::new("x.tex")), "latex");
+        // Markdown has no main server, only spelling.
+        assert!(spec_for(&specs, Path::new("README.md")).is_none());
+        assert_eq!(addons_for(&specs, Path::new("README.md")).len(), 1);
+        assert!(addons_for(&specs, Path::new("a.png")).is_empty());
     }
 
     /// pyright's server rejects `--version`; detection asks its CLI instead.

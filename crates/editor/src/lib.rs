@@ -16,6 +16,7 @@ mod rename;
 mod signature;
 mod symbols;
 mod tex;
+pub mod typst;
 pub use lsp::apply_workspace_edit;
 
 use std::path::{Path, PathBuf};
@@ -68,6 +69,7 @@ impl Global for OpenEditors {}
 pub fn init(cx: &mut App) {
     cx.set_global(OpenEditors::default());
     latex::init();
+    typst::init();
     tex::init(cx);
     diff_panel::init(cx);
     cx.set_global(pide_core::context::EditorContextSource(std::rc::Rc::new(
@@ -137,7 +139,7 @@ pub fn init(cx: &mut App) {
     // Cmd+Shift+F is Find in Files (JetBrains); GPUI Kit's in-file replace moves to
     // JetBrains' Cmd+R. Bound before keymap::init, so it survives keymap reloads.
     cx.bind_keys([KeyBinding::new(
-        "cmd-r",
+        if cfg!(target_os = "macos") { "cmd-r" } else { "ctrl-r" },
         gpui_kit::component::input::Replace,
         Some(pide_core::commands::EDITOR),
     )]);
@@ -199,6 +201,7 @@ pub fn init(cx: &mut App) {
         cx,
         CommandSpec::new("nav.back", "Navigate: Back")
             .key("cmd-[")
+            .other_key("ctrl-alt-left")
             .in_context(pide_core::commands::EDITOR),
         |window, cx| nav::go(false, window, cx),
     );
@@ -206,6 +209,7 @@ pub fn init(cx: &mut App) {
         cx,
         CommandSpec::new("nav.forward", "Navigate: Forward")
             .key("cmd-]")
+            .other_key("ctrl-alt-right")
             .in_context(pide_core::commands::EDITOR),
         |window, cx| nav::go(true, window, cx),
     );
@@ -263,7 +267,7 @@ pub fn init(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
-        CommandSpec::new("editor.go_to_symbol", "Navigate: Go to Symbol…").key("cmd-alt-o"),
+        CommandSpec::new("editor.go_to_symbol", "Navigate: Go to Symbol…").key("cmd-alt-o").other_key("ctrl-alt-shift-n"),
         symbols::go_to_symbol,
     );
     CommandRegistry::register(
@@ -630,6 +634,7 @@ pub(crate) fn language_for(path: &Path) -> &'static str {
         "html" | "htm" => "html",
         "css" | "scss" => "css",
         e if latex::is_latex_ext(e) => latex::NAME,
+        e if typst::is_typst_ext(e) => typst::NAME,
         _ => "text",
     }
 }
@@ -667,8 +672,17 @@ pub struct EditorPanel {
     _git_marks: Option<Task<()>>,
     /// Collaborator mode: the active pi session's notes on this file.
     pi: pi_notes::PiNotes,
+    /// Typst: whether tinymist has been told this file's document.
+    typst_pin: typst::Pin,
+    /// Typst: the text the PDF was last made from (or loaded), to find what
+    /// changed on the next save and scroll the PDF there.
+    typst_base: Option<String>,
+    typst_exports: typst::Exports,
     _subs: Vec<Subscription>,
     _load: Option<Task<()>>,
+    /// The editor's width at its last paint (to undo a sideways scroll once
+    /// the cursor's line fits again).
+    view_w: std::rc::Rc<std::cell::Cell<Pixels>>,
 }
 
 impl EventEmitter<PanelEvent> for EditorPanel {}
@@ -685,15 +699,18 @@ impl EditorPanel {
                     tab_size: 4,
                     hard_tabs: false,
                 })
-                // Prose (LaTeX, Markdown) wraps; code doesn't.
-                .soft_wrap(matches!(language_for(&path), latex::NAME | "markdown"));
+                // Prose (LaTeX, Typst, Markdown) wraps; code doesn't.
+                .soft_wrap(matches!(
+                    language_for(&path),
+                    latex::NAME | typst::NAME | "markdown"
+                ));
             state.set_readonly(true, cx); // until loaded
             state
         });
         let focus = editor.focus_handle(cx);
 
         let mut subs = vec![
-            cx.subscribe(&editor, |this, editor, ev: &InputEvent, cx| match ev {
+            cx.subscribe_in(&editor, window, |this, editor, ev: &InputEvent, window, cx| match ev {
                 InputEvent::Change => {
                     if let Some(buffer) = this.buffer.clone() {
                         let text = editor.read(cx).text().clone();
@@ -703,6 +720,9 @@ impl EditorPanel {
                     this.signature_after_edit(cx);
                     this.refresh_git_marks(std::time::Duration::from_millis(250), cx);
                     this.pi_text_changed(cx);
+                    if this.typst_base.is_some() {
+                        typst::export_on_type(this, window, cx);
+                    }
                 }
                 InputEvent::Blur => this.hide_signature(cx),
                 _ => {}
@@ -737,8 +757,12 @@ impl EditorPanel {
             _git_task: None,
             _git_marks: None,
             pi: Default::default(),
+            typst_pin: Default::default(),
+            typst_base: None,
+            typst_exports: Default::default(),
             _subs: Vec::new(),
             _load: None,
+            view_w: Default::default(),
         };
 
         if path.as_os_str().is_empty() {
@@ -780,6 +804,9 @@ impl EditorPanel {
         };
         self.path = path;
         self.applied_revision = revision;
+        if typst::is_typst(&self.path) {
+            self.typst_base = Some(text.clone());
+        }
         self.editor.update(cx, |e, cx| {
             e.set_value(text, window, cx);
             e.set_readonly(read_only, cx);
@@ -824,17 +851,49 @@ impl EditorPanel {
 
     fn attach_lsp(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let store = pide_lsp::LspStore::for_workspace(&self.workspace, cx);
-        self._subs
-            .push(cx.subscribe_in(&store, window, |this, store, ev, _, cx| {
-                if let pide_lsp::LspEvent::Diagnostics { path } = ev
-                    && *path == this.path
-                {
-                    this.diag_edits.clear();
-                    this.apply_diagnostics(store, cx);
+        self._subs.push(
+            cx.subscribe_in(&store, window, |this, store, ev, window, cx| {
+                match ev {
+                    pide_lsp::LspEvent::Diagnostics { path } => {
+                        if *path == this.path {
+                            this.diag_edits.clear();
+                            this.apply_diagnostics(store, cx);
+                        }
+                        if typst::is_typst(path) && this.typst_base.is_some() {
+                            typst::diagnostics_changed(this, window, cx);
+                        }
+                    }
+                    // tinymist came up after the tab opened.
+                    pide_lsp::LspEvent::Status
+                        if this.is_active
+                            && this.typst_pin == typst::Pin::Failed
+                            && typst::is_typst(&this.path) =>
+                    {
+                        typst::pin_main(this, window, cx);
+                    }
+                    _ => {}
                 }
-            }));
+            }),
+        );
         self.apply_diagnostics(&store, cx);
-        if pide_lsp::registry::spec_for(store.read(cx).specs(), &self.path).is_some() {
+        let has_main =
+            pide_lsp::registry::spec_for(store.read(cx).specs(), &self.path).is_some();
+        // Add-on servers (spelling) by spec, not by setting: their providers
+        // ask the running server each time, so turning it on later just works.
+        let addons: Vec<std::rc::Rc<lsp::Providers>> =
+            pide_lsp::registry::addons_for(store.read(cx).specs(), &self.path)
+                .into_iter()
+                .map(|s| lsp::Providers::addon(&store, self.path.clone(), s.id))
+                .collect();
+        if !has_main && !addons.is_empty() {
+            self.editor.update(cx, |e, _| {
+                e.lsp_mut().code_action_providers = addons
+                    .iter()
+                    .map(|p| p.clone() as std::rc::Rc<dyn gpui_kit::component::input::CodeActionProvider>)
+                    .collect();
+            });
+        }
+        if has_main {
             let providers = lsp::Providers::new(&store, self.path.clone());
             let show = lsp::show_document_handler(self.path.clone());
             self.providers = Some(providers.clone());
@@ -846,10 +905,16 @@ impl EditorPanel {
                 l.hover_provider = Some(providers.clone());
                 l.definition_provider = Some(providers.clone());
                 l.code_action_providers = vec![providers];
+                for a in addons {
+                    l.code_action_providers.push(a);
+                }
                 l.show_document = Some(show);
             });
         }
         self.lsp = Some(store);
+        if self.is_active && typst::is_typst(&self.path) {
+            typst::pin_main(self, window, cx);
+        }
     }
 
     /// A completion was just inserted: add its extra edits (auto-import), which
@@ -948,11 +1013,21 @@ impl EditorPanel {
         text: &gpui_kit::component::input::Rope,
         cx: &App,
     ) -> Vec<lsp_types::Diagnostic> {
-        let diags = store.read(cx).diagnostics_for(&self.path).cloned();
-        let shifts = &self.diag_edits;
-        diags
+        let store = store.read(cx);
+        let main = store
+            .diagnostics_for(&self.path)
             .into_iter()
-            .flat_map(|f| f.items.into_iter().map(move |i| (f.encoding, i)))
+            .flat_map(|f| f.items.iter().map(move |i| (f.encoding, i.clone())));
+        // Spelling: a quiet hint, whatever the checker calls it.
+        let spelling = store.addon_diagnostics_for(&self.path).flat_map(|(_, f)| {
+            f.items.iter().map(move |i| {
+                let mut i = i.clone();
+                i.severity = Some(lsp_types::DiagnosticSeverity::HINT);
+                (f.encoding, i)
+            })
+        });
+        let shifts = &self.diag_edits;
+        main.chain(spelling)
             .map(|(enc, mut i)| {
                 i.range.start.line = follow::shift_line(i.range.start.line, shifts);
                 i.range.end.line = follow::shift_line(i.range.end.line, shifts);
@@ -1056,6 +1131,15 @@ impl EditorPanel {
                 self.applied_revision = b.revision();
                 let text = b.text().to_string();
                 let read_only = b.read_only.is_some();
+                if self.typst_base.is_some() {
+                    if typst::on_type(cx) {
+                        // Export it (pi's edit too), scrolled to what changed.
+                        typst::export_on_type(self, window, cx);
+                    } else {
+                        // The next save shows the user's change, not this one.
+                        self.typst_base = Some(text.clone());
+                    }
+                }
                 self.diff = None;
                 self.deleted = false;
                 if read_only {
@@ -1070,13 +1154,22 @@ impl EditorPanel {
                     minimal::set_text(&self.editor, text, false, window, cx);
                 }
                 self.load_git_base(cx);
+                if typst::is_typst(&self.path) {
+                    typst::export_on_disk_change(self, window, cx);
+                }
                 cx.notify();
+            }
+            WorkspaceEvent::GitChanged => {
+                // Committed (or checked out): the change bars are against a new HEAD.
+                self.load_git_base(cx);
             }
             WorkspaceEvent::BufferSaved(buffer) if self.is_mine(buffer) => {
                 // A commit may have happened since the file was opened.
                 self.load_git_base(cx);
                 if tex::is_latex(&self.path) {
                     tex::build_on_save(self, window, cx);
+                } else if typst::is_typst(&self.path) {
+                    typst::export_on_save(self, window, cx);
                 }
             }
             WorkspaceEvent::TextReplaced(buffer) if self.is_mine(buffer) => {
@@ -1164,11 +1257,15 @@ impl gpui_kit::component::dock::BasePanel for EditorPanel {
         PANEL_NAME
     }
 
-    fn set_active(&mut self, active: bool, _: &mut Window, cx: &mut Context<Self>) {
+    fn set_active(&mut self, active: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.is_active = active;
         if active {
             let buffer = self.buffer.clone();
             self.workspace.update(cx, |w, cx| w.set_active(buffer, cx));
+            // Another Typst document may have been pinned meanwhile.
+            if self.lsp.is_some() && typst::is_typst(&self.path) {
+                typst::pin_main(self, window, cx);
+            }
         }
     }
 
@@ -1246,6 +1343,26 @@ impl Render for EditorPanel {
         let deleted = self.deleted;
         let _ = window;
         let notes = self.render_pi_float(cx);
+        // Watches the editor's width: when it grows, a sideways scroll that's no
+        // longer needed goes back to column 0 (short lines looked empty).
+        let width_watch = {
+            let (editor, last, weak) = (self.editor.clone(), self.view_w.clone(), cx.weak_entity());
+            canvas(
+                |_, _, _| {},
+                move |_, _, window, cx| {
+                    let w = editor.read(cx).input_bounds().size.width;
+                    let before = last.replace(w);
+                    if w > before && before > px(0.) {
+                        let weak = weak.clone();
+                        window.on_next_frame(move |_, cx| {
+                            let _ = weak.update(cx, |this, cx| this.unscroll_if_fits(cx));
+                        });
+                    }
+                },
+            )
+            .absolute()
+            .size_0()
+        };
 
         v_flex()
             .size_full()
@@ -1323,8 +1440,33 @@ impl Render for EditorPanel {
                             .text_size(cx.theme().mono_font_size),
                     )
                     // pi's notes float over the code (`pi_float`).
-                    .children(notes),
+                    .children(notes)
+                    .child(width_watch),
             )
+    }
+}
+
+impl EditorPanel {
+    /// The editor got wider: if it's scrolled sideways but the cursor would be
+    /// in view at column 0, scroll back (JetBrains and VS Code do the same).
+    fn unscroll_if_fits(&mut self, cx: &mut Context<Self>) {
+        let e = self.editor.read(cx);
+        let off = e.scroll_offset();
+        if off.x >= px(0.) {
+            return;
+        }
+        let view = e.input_bounds();
+        let c = e.cursor();
+        let Some(b) = e.range_to_bounds(&(c..c)) else {
+            return;
+        };
+        // Where the cursor would be without the sideways scroll.
+        let x = b.left() - off.x - view.left();
+        if x < view.size.width - px(48.) {
+            let y = off.y;
+            self.editor
+                .update(cx, |e, cx| e.set_scroll_offset(point(px(0.), y), cx));
+        }
     }
 }
 

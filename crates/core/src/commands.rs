@@ -31,6 +31,9 @@ pub struct CommandSpec {
     /// Editor-only commands use [`EDITOR`] so their keys don't shadow the same
     /// keys elsewhere (Alt+Enter in the pi composer queues a follow-up).
     pub key_context: Option<&'static str>,
+    /// Key on Linux/Windows when the plain `cmd`→`ctrl` translation of
+    /// `default_key` would clash with a text-input or another default key.
+    pub other_key: Option<&'static str>,
 }
 
 /// GPUI Kit's code editor (`Input mode=editor`).
@@ -43,12 +46,31 @@ impl CommandSpec {
             title: title.into(),
             default_key: None,
             key_context: None,
+            other_key: None,
         }
     }
 
     pub fn key(mut self, keystrokes: &'static str) -> Self {
         self.default_key = Some(keystrokes);
         self
+    }
+
+    /// The key to use off macOS instead of `default_key` with `cmd` → `ctrl`.
+    pub fn other_key(mut self, keystrokes: &'static str) -> Self {
+        self.other_key = Some(keystrokes);
+        self
+    }
+
+    /// This platform's default keystrokes: macOS uses `default_key` as written;
+    /// elsewhere `cmd` becomes `ctrl` (Super is the desktop's key on Linux),
+    /// unless [`Self::other_key`] names a different one.
+    pub fn platform_key(&self) -> Option<String> {
+        if cfg!(target_os = "macos") {
+            return self.default_key.map(str::to_string);
+        }
+        self.other_key
+            .map(str::to_string)
+            .or_else(|| self.default_key.map(crate::keymap::cmd_to_ctrl))
     }
 
     /// Only bind the key inside this context (see [`EDITOR`]).

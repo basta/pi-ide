@@ -11,12 +11,26 @@ impl AgentChat {
     ) -> AnyElement {
         let theme = cx.theme();
         match &view.items[ix] {
-            Item::User(chip, text) => v_flex()
+            Item::User(chip, text) => {
+                // A reply to a note: your words, under a small "↪ where · note".
+                let (reply_to, text) = match pide_core::collab::split_reply(text) {
+                    Some((loc, words)) => (Some(loc.to_string()), words.to_string()),
+                    None => (None, text.clone()),
+                };
+                v_flex()
                 .gap_1()
                 .px_3()
                 .py_2()
                 .rounded(theme.radius)
                 .bg(theme.secondary)
+                .when_some(reply_to, |this, loc| {
+                    this.child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(format!("↪ {loc} · reply to a note")),
+                    )
+                })
                 .when_some(chip.clone(), |this, c| {
                     this.child(
                         div()
@@ -26,8 +40,9 @@ impl AgentChat {
                             .child(format!("⌁ {c}")),
                     )
                 })
-                .child(text.clone())
-                .into_any_element(),
+                .child(text)
+                .into_any_element()
+            }
             Item::Assistant {
                 markdown,
                 thinking,
@@ -68,6 +83,7 @@ impl AgentChat {
                 .child(
                     TextView::new(markdown)
                         .style(chat_text_style())
+                        .markdown_extensions(pide_core::math::markdown_extensions())
                         .selectable(true),
                 )
                 .when_some(error.clone(), |this, e| {
@@ -245,7 +261,7 @@ impl AgentChat {
         let (steering, follow_ups) = a.queue.clone();
         let dialog = a.dialogs.first().cloned();
         let n_changes = a.changes.len();
-        let unreviewed = a.unreviewed();
+        let unreviewed = a.to_review();
         let show_changes = self.show_changes;
         let slash_rows = self.suggestions(cx);
         // `/` typed but the commands haven't arrived yet.
@@ -268,8 +284,12 @@ impl AgentChat {
         let id = agent.entity_id();
         let (items, scroll, empty) = match self.views.get(&id) {
             Some(view) => {
-                let els: Vec<AnyElement> = (0..view.items.len())
-                    .map(|ix| self.render_item(view, ix, cx))
+                let els: Vec<AnyElement> = tool_runs::segments(&view.items)
+                    .into_iter()
+                    .map(|seg| match seg {
+                        tool_runs::Segment::Item(ix) => self.render_item(view, ix, cx),
+                        tool_runs::Segment::Run(ixs) => self.render_run(view, &ixs, cx),
+                    })
                     .collect();
                 (els, view.scroll.clone(), view.items.is_empty())
             }
@@ -277,6 +297,7 @@ impl AgentChat {
         };
         let theme = cx.theme().clone();
         let agent_close = agent.clone();
+        let narrow = self.width.get() < 520.;
 
         v_flex()
             .flex_1()
@@ -357,16 +378,41 @@ impl AgentChat {
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.show_help = !this.show_help;
                                 this.show_changes = false;
+                                // The help sits above the history: scroll up to it,
+                                // and back to where you were when it closes.
+                                let id = this.active(cx).entity_id();
+                                if let Some(view) = this.views.get(&id) {
+                                    if this.show_help {
+                                        this.help_return = Some(view.scroll.offset());
+                                        view.scroll.set_offset(point(px(0.), px(0.)));
+                                    } else if let Some(o) = this.help_return.take() {
+                                        view.scroll.set_offset(o);
+                                    }
+                                }
                                 cx.notify();
                             })),
                     )
                     .child(div().flex_1())
                     .when_some(stats, |this, st| {
-                        let cost = if st.cost < 0.01 { format!("${:.3}", st.cost) } else { format!("${:.2}", st.cost) };
-                        let label = match st.context_percent {
-                            Some(p) => format!("{cost} · {}% ctx", p.round() as i64),
-                            None => cost,
+                        // No "$0.000" (a free or local model); in a narrow panel the
+                        // numbers give way so the model name (the picker) stays readable.
+                        let cost = if st.cost < 0.0005 {
+                            None
+                        } else if st.cost < 0.01 {
+                            Some(format!("${:.3}", st.cost))
+                        } else {
+                            Some(format!("${:.2}", st.cost))
                         };
+                        let ctx = st.context_percent.map(|p| format!("{}% ctx", p.round() as i64));
+                        let label = match (cost, ctx) {
+                            (Some(c), Some(x)) if !narrow => format!("{c} · {x}"),
+                            (Some(c), _) => c,
+                            (None, Some(x)) => x,
+                            (None, None) => String::new(),
+                        };
+                        if label.is_empty() {
+                            return this;
+                        }
                         let k = |n: u64| if n >= 1000 { format!("{:.1}k", n as f64 / 1000.0) } else { n.to_string() };
                         let tip = format!(
                             "Tokens: {} in, {} out, {} cache read ({} total){}",
@@ -399,6 +445,7 @@ impl AgentChat {
                         Button::new("pick-model")
                             .xsmall()
                             .ghost()
+                            .flex_none()
                             .label(model_label)
                             .when_some(model_tip, |b, t| b.tooltip(t))
                             .on_click(move |_, window, cx| {
@@ -408,19 +455,37 @@ impl AgentChat {
                             }),
                     ),
             )
-            .when_some(self.render_catch_up(cx), |this, c| this.child(c))
             .when_some(self.render_progress(cx), |this, p| this.child(p))
             .when(show_changes, |this| this.child(div().flex_1().min_h_0().child(self.render_changes(&agent, cx))))
-            .when(!show_changes, |this| this.child(
-                div().id(("chat-scroll", id.as_u64())).flex_1().min_h_0().overflow_y_scroll().track_scroll(&scroll).child(
-                    v_flex()
-                        .p_3()
-                        .gap_3()
-                        .text_sm()
-                        .when(empty || self.show_help, |this| this.child(self.render_understand(cx)))
-                        .children(items),
-                ),
-            ))
+            .when(!show_changes, |this| {
+                // The catch-up card lies over the top of the chat: inserting it
+                // above pushed what you were reading down, twice (placeholder,
+                // then the briefing).
+                let catch_up = self.render_catch_up(cx).map(|c| {
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .right_0()
+                        .bg(theme.background)
+                        .shadow_md()
+                        .child(c)
+                });
+                this.child(
+                    div().relative().flex_1().min_h_0().child(
+                        div().id(("chat-scroll", id.as_u64())).size_full().overflow_y_scroll().track_scroll(&scroll).child(
+                            v_flex()
+                                .p_3()
+                                .gap_3()
+                                .text_sm()
+                                .when(empty || self.show_help, |this| this.child(self.render_understand(cx)))
+                                .children(items),
+                        ),
+                    )
+                    .children(catch_up),
+                )
+            })
+            .when(show_changes, |this| this.when_some(self.render_catch_up(cx), |this, c| this.child(c)))
             .when_some(dialog.map(|d| self.render_dialog(&agent, &d, cx)), |this, card| this.child(card))
             .when_some(
                 match &status {
@@ -461,14 +526,23 @@ impl AgentChat {
                     .border_color(theme.border)
                     .children(steering.into_iter().map(|t| queued_row("steer", t, &theme)))
                     .children(follow_ups.into_iter().map(|t| queued_row("after this run", t, &theme)))
-                    .when(busy, |this| {
-                        this.child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .child(format!("{status_text}  Enter steers · ⌥Enter queues a follow-up")),
-                        )
-                    })
+                    // The working line keeps its height when pi is idle, so finishing
+                    // a run doesn't move the chat.
+                    .child(
+                        div()
+                            .h(px(16.))
+                            .text_xs()
+                            .whitespace_nowrap()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .text_color(theme.muted_foreground)
+                            .when(busy, |d| {
+                                d.child(format!(
+                                    "{status_text}  Enter steers · {} queues a follow-up",
+                                    pide_core::keymap::label("alt-enter")
+                                ))
+                            }),
+                    )
                     .when(!slash_rows.is_empty(), |this| {
                         this.child(
                             v_flex()
@@ -485,7 +559,7 @@ impl AgentChat {
                                         .px_2()
                                         .py_0p5()
                                         .cursor_pointer()
-                                        .when(i == 0, |r| r.bg(theme.list_hover))
+                                        .when(i == 0, |r| r.bg(theme.list_active))
                                         .hover(|r| r.bg(theme.list_hover))
                                         .on_click(cx.listener(move |this, _, window, cx| this.complete(&pick, window, cx)))
                                         .child(div().flex_none().font_family(theme.mono_font_family.clone()).child(c.label.clone()))
@@ -562,7 +636,7 @@ impl AgentChat {
                             .tooltip("Send the active file and selection with new prompts")
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_context(cx)))
                     }).when(busy, |this| {
-                        this.child(Button::new("stop").small().danger().label("Stop").on_click(
+                        this.child(Button::new("stop").xsmall().danger().label("Stop").on_click(
                             cx.listener(|this, _, _, cx| this.active(cx).update(cx, |a, cx| a.abort(cx))),
                         ))
                     })),

@@ -1116,7 +1116,32 @@ impl PiSettings {
                     })
                     .collect();
                 let shown = matches.len().min(60);
+                // One header per provider (in pi's order of first appearance),
+                // its models under it, so the name gets the row's whole width.
+                let mut order: Vec<&str> = Vec::new();
                 for m in &matches[..shown] {
+                    if !order.contains(&m.provider.as_str()) {
+                        order.push(m.provider.as_str());
+                    }
+                }
+                let grouped: Vec<&Model> = order
+                    .iter()
+                    .flat_map(|p| matches[..shown].iter().copied().filter(move |m| m.provider == *p))
+                    .collect();
+                let mut last_provider: Option<&str> = None;
+                for m in grouped {
+                    if last_provider != Some(m.provider.as_str()) {
+                        last_provider = Some(m.provider.as_str());
+                        list = list.child(
+                            div()
+                                .pt_2()
+                                .px_2()
+                                .text_xs()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme.muted_foreground)
+                                .child(m.provider.clone()),
+                        );
+                    }
                     let (p, id) = (m.provider.clone(), m.id.clone());
                     let is_current = provider.as_deref() == Some(m.provider.as_str())
                         && model.as_deref() == Some(m.id.as_str());
@@ -1130,20 +1155,15 @@ impl PiSettings {
                             .cursor_pointer()
                             .hover(|s| s.bg(theme.list_hover))
                             .when(is_current, |s| s.bg(theme.list_active))
-                            .child(
-                                div()
-                                    .w(px(120.))
-                                    .flex_none()
-                                    .text_sm()
-                                    .text_color(theme.muted_foreground)
-                                    .child(m.provider.clone()),
-                            )
+                            .pl_4()
                             .child(
                                 div()
                                     .flex_1()
                                     .min_w_0()
                                     .overflow_hidden()
-                                    .text_ellipsis()
+                                    // Model ids differ at both ends
+                                    // (anthropic.claude-…-sonnet-4-5).
+                                    .text_ellipsis_middle()
                                     .whitespace_nowrap()
                                     .text_sm()
                                     .font_family(theme.mono_font_family.clone())

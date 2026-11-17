@@ -160,6 +160,8 @@ pub(crate) fn new_entry(dir: PathBuf, folder: bool, window: &mut Window, cx: &mu
                     }
                 },
                 move |_, window, cx| {
+                    // Show where it went: its folder opens and it's selected.
+                    crate::reveal(path.clone(), window, cx);
                     if !folder {
                         pide_core::opener::open_file(path, window, cx);
                     }
@@ -205,6 +207,7 @@ pub(crate) fn rename(path: PathBuf, window: &mut Window, cx: &mut App) {
                     std::fs::rename(&from, &to)
                 },
                 move |_, window, cx| {
+                    crate::reveal(open_after.clone(), window, cx);
                     // The old tab now points at nothing: close it, open the new name.
                     pide_core::opener::close_file(closed, window, cx);
                     if was_file {

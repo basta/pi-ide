@@ -32,7 +32,16 @@ pub(crate) fn summarize_args(name: &str, args: &Value) -> String {
         "bash" => field("command"),
         "read" | "write" | "edit" | "ls" => field("path"),
         "grep" | "find" => field("pattern"),
-        _ => None,
+        // Other tools: a path or paths if they take one, else their arguments.
+        _ => field("path").or_else(|| {
+            let paths: Vec<&str> = args
+                .get("paths")?
+                .as_array()?
+                .iter()
+                .filter_map(Value::as_str)
+                .collect();
+            Some(if paths.is_empty() { "all files".to_string() } else { paths.join(", ") })
+        }),
     }
     .unwrap_or_else(|| args.to_string());
     let s = s.replace('\n', " ⏎ ");
@@ -43,8 +52,10 @@ pub(crate) fn summarize_args(name: &str, args: &Value) -> String {
     }
 }
 
-/// The text of a tool result (`content` blocks), clipped for display.
-pub(crate) fn result_text(result: &Value) -> String {
+/// The text of a tool result (`content` blocks), clipped for display: its
+/// first lines, or its last ones (`tail`: a failure's error, a running
+/// command's progress).
+pub(crate) fn result_text(result: &Value, tail: bool) -> String {
     let text = result
         .get("content")
         .and_then(Value::as_array)
@@ -57,7 +68,13 @@ pub(crate) fn result_text(result: &Value) -> String {
         })
         .unwrap_or_else(|| result.to_string());
     let lines: Vec<&str> = text.lines().collect();
-    if lines.len() > 8 {
+    if tail && lines.len() > 8 {
+        format!(
+            "… {} lines before\n{}",
+            lines.len() - 8,
+            lines[lines.len() - 8..].join("\n")
+        )
+    } else if lines.len() > 8 {
         format!(
             "{}\n… {} more lines",
             lines[..8].join("\n"),
@@ -204,7 +221,7 @@ pub(crate) fn parse_history(path: &std::path::Path) -> Vec<HistItem> {
                     .and_then(Value::as_str)
                     .unwrap_or_default();
                 let failed = m.get("isError").and_then(Value::as_bool).unwrap_or(false);
-                let text = result_text(m);
+                let text = result_text(m, failed);
                 if let Some(HistItem::Tool {
                     output, failed: f, ..
                 }) = out

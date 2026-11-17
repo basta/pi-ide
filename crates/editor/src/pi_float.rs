@@ -37,6 +37,9 @@ const LENS_GAP: f32 = 24.;
 const RIGHT_PAD: f32 = 18.;
 /// The open card's height before it has been laid out once.
 const GUESS_H: f32 = 220.;
+/// A pill's width ("◆ pi · 2") and its gap after the line's last character.
+const PILL_W: f32 = 64.;
+const PILL_GAP: f32 = 8.;
 
 /// What the overlay drew from, and what the last paint saw.
 #[derive(Default)]
@@ -51,8 +54,17 @@ pub(crate) struct FloatGeom {
     used_bounds: Option<Bounds<Pixels>>,
     used_visible: Vec<StopRef>,
     used_card_h: Option<Pixels>,
+    used_card_for: Option<StopRef>,
     /// The render drew a card (its bounds come last among the overlay's children).
     has_card: bool,
+    /// Which note `card_h` was measured for: another note's height would place
+    /// the card wrong for a frame (it hopped after Next to another file).
+    card_h_for: Option<StopRef>,
+    /// The note the last render drew the card for.
+    card_for: Option<StopRef>,
+    /// Where the open card was, in content coordinates (its y minus the scroll
+    /// offset), so it keeps scrolling with the code after its line leaves the top.
+    card_doc_y: Option<(StopRef, Pixels, Pixels)>,
 }
 
 pub(crate) type Geom = Rc<RefCell<FloatGeom>>;
@@ -63,15 +75,15 @@ impl EditorPanel {
         let reply = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 6)
-                .placeholder("Reply to pi… (⌘↩ sends)")
+                .submit_on_enter(true)
+                .placeholder("Reply to pi… (Enter sends, Shift+Enter new line)")
         });
         self.pi._reply_sub = Some(cx.subscribe_in(
             &reply,
             window,
             |this, _, ev: &InputEvent, window, cx| match ev {
-                InputEvent::PressEnter {
-                    secondary: true, ..
-                } => this.send_reply(window, cx),
+                // Like the pi composer: Enter (or Cmd+Enter) sends, Shift+Enter is a new line.
+                InputEvent::PressEnter { shift: false, .. } => this.send_reply(window, cx),
                 InputEvent::Change => cx.notify(),
                 _ => {}
             },
@@ -134,10 +146,13 @@ impl EditorPanel {
 
         let mut geom = self.pi.geom.borrow_mut();
         let painted = geom.painted;
+        let measured = open.is_some() && geom.card_h_for == open.as_ref().map(|o| o.at.clone());
         let card_h = geom.card_h.unwrap_or(px(GUESS_H));
+        let card_doc_y = geom.card_doc_y.clone();
         geom.used_scroll = scroll_now;
         geom.used_bounds = painted.map(|(_, b)| b);
         geom.used_card_h = geom.card_h;
+        geom.used_card_for = geom.card_h_for.clone();
         drop(geom);
         let mut visible: Vec<StopRef> = Vec::new();
         let mut lenses: Vec<AnyElement> = Vec::new();
@@ -147,7 +162,7 @@ impl EditorPanel {
         if let Some((scroll_painted, ob)) = painted {
             let dy = scroll_now - scroll_painted;
             let a = agent.read(cx);
-            let all = a.stops();
+            let all = a.walk_stops();
             let total = all.len();
             let busy = a.is_busy();
             let answering = a.answering.as_ref().map(|(at, _)| at.clone());
@@ -161,21 +176,25 @@ impl EditorPanel {
                 let is_open = open.as_ref().is_some_and(|o| o.at == s.at);
                 let top = start.top() + dy - ob.top();
                 // The lens after the line's text, or a pill at the right edge.
-                let end = crate::pi_notes::line_range(&rope, s.line).end;
-                let line_end = editor
-                    .range_to_bounds(&(end..end))
-                    .map(|b| b.left())
-                    .unwrap_or(start.left());
+                // A soft-wrapped line ends on its last visual row: the lens
+                // goes there, not on the first row over the wrapped text.
+                let end_b = line_end_bounds(editor, &rope, s.line).unwrap_or(start);
+                let line_end = end_b.left();
+                let lens_top = end_b.top() + dy - ob.top();
                 let x = line_end + px(LENS_GAP) - ob.left();
                 let room = view.right() - px(RIGHT_PAD) - (line_end + px(LENS_GAP));
+                // A pill sits right after a line that ends near the edge (with a
+                // small gap), else at the edge.
+                let pill_left = Some(line_end + px(PILL_GAP) - ob.left())
+                    .filter(|l| *l + px(PILL_W) <= view.right() - px(RIGHT_PAD) - ob.left());
                 let replies = s.thread.len();
                 let stop = s.clone();
                 let agent_c = agent.clone();
                 let el = div()
                     .id(("pi-lens", i))
                     .absolute()
-                    .top(top)
-                    .h(start.size.height)
+                    .top(lens_top)
+                    .h(end_b.size.height)
                     .flex()
                     .items_center()
                     .gap_1p5()
@@ -208,13 +227,17 @@ impl EditorPanel {
                             }))
                         })
                 } else {
-                    el.right(px(RIGHT_PAD))
+                    match pill_left {
+                        Some(l) => el.left(l),
+                        None => el.right(px(RIGHT_PAD)),
+                    }
                         .px_2()
                         .rounded_full()
                         .border_1()
                         .border_color(color.opacity(0.5))
                         .bg(if is_open { color } else { color.opacity(0.18) })
-                        .text_color(if is_open { cx.theme().background } else { color })
+                        // Light text on the filled pill, in both themes.
+                        .text_color(if is_open { gpui_kit::white() } else { color })
                         .child(if replies > 0 {
                             format!("◆ pi · {replies}")
                         } else {
@@ -225,7 +248,10 @@ impl EditorPanel {
 
                 if is_open {
                     // Below the note's last line; above its first if that doesn't fit.
-                    let last = line_bounds(editor, &rope, s.end_line).unwrap_or(start);
+                    // (its last visual row, when it wraps).
+                    let last = line_bounds(editor, &rope, s.end_line)
+                        .and_then(|_| line_end_bounds(editor, &rope, s.end_line))
+                        .unwrap_or(end_b);
                     // On line boundaries, so no line shows half above the card.
                     let below = last.bottom() + dy - ob.top();
                     let above = top - card_h;
@@ -244,8 +270,26 @@ impl EditorPanel {
                     card_at = Some((s.clone(), x, y, kind, index, answering));
                 }
             }
+            // The open note's line scrolled out of view: the card keeps moving
+            // with the code (clipped by the editor) until it has left too,
+            // instead of vanishing in one frame while most of it is on screen.
+            if card_at.is_none()
+                && let Some(o) = open.as_ref()
+                && let Some((at, doc_y, x)) = card_doc_y.as_ref()
+                && *at == o.at
+            {
+                let y = *doc_y + scroll_now;
+                if y + card_h > px(0.) && y < ob.size.height {
+                    let index = all.iter().position(|x| x.at == o.at);
+                    let kind = kind_label(&o.at, &pins);
+                    let answering = answering.as_ref() == Some(&o.at);
+                    card_at = Some((o.clone(), *x, y, kind, index, answering));
+                }
+            }
             if let Some((s, x, y, kind, index, answering)) = card_at {
                 let theme = cx.theme().clone();
+                self.pi.geom.borrow_mut().card_doc_y = Some((s.at.clone(), y - scroll_now, x));
+                self.pi.geom.borrow_mut().card_for = Some(s.at.clone());
                 let el = self.active_card(
                     &s, kind, index, total, busy, answering, &session, &agent, &theme, color, cx,
                 );
@@ -255,6 +299,12 @@ impl EditorPanel {
                         .left(x)
                         .top(y)
                         .w(px(CARD_W))
+                        // Hover and clicks stay on the card (no editor hover for
+                        // the code under it).
+                        .occlude()
+                        // Laid out once unseen when its height isn't known yet, so
+                        // it never shows at a guessed place first.
+                        .when(!measured, |d| d.invisible())
                         .child(el)
                         .into_any_element(),
                 );
@@ -290,7 +340,8 @@ impl EditorPanel {
                 let stale = g.used_scroll != scroll
                     || g.used_bounds != Some(bounds)
                     || g.used_visible != visible_now
-                    || (g.has_card && g.used_card_h != g.card_h);
+                    || (g.has_card && g.used_card_h != g.card_h)
+                    || (g.has_card && g.used_card_for != g.card_h_for);
                 drop(g);
                 if stale {
                     let weak = weak.clone();
@@ -309,6 +360,8 @@ impl EditorPanel {
                 .top_0()
                 .left_0()
                 .size_full()
+                // A card scrolling off the top is cut at the editor's edge.
+                .overflow_hidden()
                 .child(recorder)
                 .children(lenses)
                 .children(card)
@@ -318,6 +371,7 @@ impl EditorPanel {
                         && let Some(b) = bounds.last()
                     {
                         g.card_h = Some(b.size.height);
+                        g.card_h_for = g.card_for.clone();
                     }
                 })
                 .into_any_element(),
@@ -383,6 +437,7 @@ impl EditorPanel {
             .child(
                 div()
                     .flex_1()
+                    .min_w_0()
                     .overflow_hidden()
                     .text_ellipsis()
                     .whitespace_nowrap()
@@ -424,22 +479,31 @@ impl EditorPanel {
                         this.collapse_pi_card(cx);
                     })),
             );
-        let mut md = |text: &str, cx: &mut Context<Self>| -> AnyElement {
+        // One markdown view per slot (the note, each reply), updated in place like
+        // the chat's: a new view for every streamed delta showed code blocks empty.
+        let slot_of = |n: usize| format!("{:?}#{n}", stop.at);
+        let mut md = |slot: String, text: &str, cx: &mut Context<Self>| -> AnyElement {
+            let text = pide_core::math::normalize_delimiters(&plain_numbers(text));
             let view = self
                 .pi
                 .markdown
-                .entry(text.to_string())
-                .or_insert_with(|| cx.new(|cx| TextViewState::markdown(&plain_numbers(text), cx)))
+                .entry(slot)
+                .or_insert_with(|| cx.new(|cx| TextViewState::markdown("", cx)))
                 .clone();
-            TextView::new(&view).selectable(true).into_any_element()
+            view.update(cx, |v, cx| v.set_text(&text, cx));
+            TextView::new(&view)
+                .markdown_extensions(pide_core::math::markdown_extensions())
+                .selectable(true)
+                .into_any_element()
         };
-        let note = md(&note_body(&label), cx);
+        let note = md(slot_of(0), &note_body(&label), cx);
         let replies: Vec<(bool, AnyElement)> = stop
             .thread
             .iter()
-            .map(|r| {
+            .enumerate()
+            .map(|(i, r)| {
                 let body = if r.pi {
-                    md(&r.text, cx)
+                    md(slot_of(i + 1), &r.text, cx)
                 } else {
                     div().w_full().child(r.text.clone()).into_any_element()
                 };
@@ -597,6 +661,17 @@ fn line_bounds(
     let b = editor.range_to_bounds(&(start..start))?;
     let view = editor.input_bounds();
     (b.bottom() > view.top() && b.top() < view.bottom()).then_some(b)
+}
+
+/// Where 1-based `line` ends (an empty range at its end): on its last visual
+/// row when the line is soft-wrapped.
+fn line_end_bounds(
+    editor: &gpui_kit::component::input::EditorState,
+    rope: &gpui_kit::component::input::Rope,
+    line: usize,
+) -> Option<Bounds<Pixels>> {
+    let end = crate::pi_notes::line_range(rope, line).end;
+    editor.range_to_bounds(&(end..end))
 }
 
 fn kind_label(at: &StopRef, pins: &[pide_core::collab::Pin]) -> &'static str {

@@ -43,7 +43,11 @@ const ROWS: &[Row] = &[
     (
         "agent.notify",
         "Notify when pi finishes",
-        "A macOS notification when pi is done or asks something while you're in another app.",
+        if cfg!(target_os = "macos") {
+            "A macOS notification when pi is done or asks something while you're in another app."
+        } else {
+            "A desktop notification (notify-send) when pi is done or asks something while you're in another app."
+        },
         |s| s.notify,
         |s, v| s.notify = v,
     ),
@@ -53,6 +57,27 @@ const ROWS: &[Row] = &[
         "Format through the language server before each save.",
         |s| s.format_on_save,
         |s, v| s.format_on_save = v,
+    ),
+    (
+        "spellcheck.enabled",
+        "Spell check",
+        "Underlines spelling in prose (LaTeX, Typst, Markdown) and in code comments, strings and the names you define, with fixes on Alt+Enter. Needs Codebook: install it from Settings → Language Servers (Spelling).",
+        |s| s.spellcheck,
+        |s, v| s.spellcheck = v,
+    ),
+    (
+        "typst.pdf_on_type",
+        "Typst: PDF as you type (experimental)",
+        "Re-export the PDF after every change, without saving. Off: only on save.",
+        |s| s.typst_pdf_on_type,
+        |s, v| s.typst_pdf_on_type = v,
+    ),
+    (
+        "typst.pdf_follow_edits",
+        "Typst: PDF follows your edits",
+        "After an export, scroll the PDF to the text you changed.",
+        |s| s.typst_pdf_follow,
+        |s, v| s.typst_pdf_follow = v,
     ),
 ];
 
@@ -106,7 +131,7 @@ pub fn open(window: &mut Window, cx: &mut App) {
                                 ))
                                 .child(theme_button(
                                     "theme-system",
-                                    "Follow macOS",
+                                    crate::theme::FOLLOW_SYSTEM,
                                     ThemeSetting::System,
                                     "view.theme_system",
                                 )),

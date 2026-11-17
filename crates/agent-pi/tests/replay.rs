@@ -495,6 +495,10 @@ fn extension_source_is_embedded() {
     for tool in ["ide_pin", "ide_explain_change", "ide_progress"] {
         assert!(src.contains(&format!("name: \"{tool}\"")), "{tool}");
     }
+    // The `<pide>` system prompt section, added through pi's structured sections.
+    assert!(src.contains("pi.on(\"before_agent_start\""));
+    assert!(src.contains("sections.pide = PIDE_SECTION"));
+    assert!(src.contains("<editor-context>"));
 }
 
 #[test]

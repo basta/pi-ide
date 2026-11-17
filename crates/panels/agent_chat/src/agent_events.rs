@@ -1,6 +1,7 @@
 //! Applying a session's agent events to its conversation.
 
 use super::*;
+use pide_core::math::Streamed;
 
 impl AgentChat {
     pub(crate) fn on_agent_event(
@@ -71,8 +72,12 @@ impl AgentChat {
                     }
                     *last_index = Some(*index);
                     chunk.push_str(delta);
+                    let old_len = text.len();
                     text.push_str(&chunk);
-                    markdown.update(cx, |m, cx| m.push_str(&chunk, cx));
+                    match pide_core::math::stream(&text[..old_len], text) {
+                        Streamed::Append(s) => markdown.update(cx, |m, cx| m.push_str(&s, cx)),
+                        Streamed::Replace(s) => markdown.update(cx, |m, cx| m.set_text(&s, cx)),
+                    }
                 }
             }
             AgentEvent::TextEnd { content, .. } => {
@@ -87,7 +92,8 @@ impl AgentChat {
                     && !content.is_empty()
                 {
                     *text = content.clone();
-                    markdown.update(cx, |m, cx| m.set_text(content, cx));
+                    let shown = pide_core::math::normalize_delimiters(content);
+                    markdown.update(cx, |m, cx| m.set_text(&shown, cx));
                 }
             }
             AgentEvent::ThinkingDelta { delta, .. } => {
@@ -143,7 +149,7 @@ impl AgentChat {
             }),
             AgentEvent::ToolUpdate { id, partial } => {
                 if let Some(Item::Tool { output, .. }) = tool_mut(items, id) {
-                    *output = result_text(partial);
+                    *output = result_text(partial, true);
                 }
             }
             AgentEvent::ToolEnd {
@@ -165,7 +171,7 @@ impl AgentChat {
                     } else {
                         ToolState::Done
                     };
-                    *output = result_text(result);
+                    *output = result_text(result, *is_error);
                     *d = *duration_ms;
                 }
             }

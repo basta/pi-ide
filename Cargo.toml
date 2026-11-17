@@ -17,6 +17,7 @@ members = [
     "crates/panels/pdf",
     "crates/panels/run",
     "crates/panels/git",
+    "crates/panels/structure",
     "spike",
 ]
 
@@ -58,6 +59,7 @@ pide-pi-settings = { path = "crates/panels/pi_settings" }
 pide-search = { path = "crates/panels/search" }
 pide-run = { path = "crates/panels/run" }
 pide-git = { path = "crates/panels/git" }
+pide-structure = { path = "crates/panels/structure" }
 pide-preview = { path = "crates/panels/preview" }
 pide-pdf = { path = "crates/panels/pdf" }
 
@@ -69,6 +71,12 @@ log = "0.4.35"
 lsp-types = { version = "=0.97.0", features = ["proposed"] }
 notify-debouncer-full = "0.7.0"
 nucleo-matcher = "0.3.1"
+# Math in markdown (core/src/math.rs): RaTeX, a pure-Rust KaTeX port, rasterised with its
+# embedded KaTeX fonts. Not ratex-gpui: that one depends on gpui-pre directly.
+ratex-parser = "0.1.15"
+ratex-layout = "0.1.15"
+ratex-types = "0.1.15"
+ratex-render = { version = "0.1.15", features = ["embed-fonts"] }
 regex = "1.13.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.154"
@@ -77,6 +85,8 @@ similar = "3.2.1"
 # stay the version GPUI Kit uses (its Language type is shared).
 tree-sitter = "0.26"
 codebook-tree-sitter-latex = "0.6.1"
+# Typst highlighting, same arrangement (editor/src/typst.rs).
+codebook-tree-sitter-typst = "0.12.1"
 base64 = "0.22.1"
 tokio = { version = "1.54.1", features = ["rt", "process", "io-util", "sync", "time", "macros"] }
 

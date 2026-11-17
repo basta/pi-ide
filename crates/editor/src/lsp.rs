@@ -25,6 +25,9 @@ use serde_json::{Value, json};
 pub(crate) struct Providers {
     store: WeakEntity<LspStore>,
     path: PathBuf,
+    /// An add-on server (spell checking) by id, for its code actions only;
+    /// `None`: the file's main server.
+    server: Option<&'static str>,
     /// The last completion list: (as given to GPUI Kit, as the server sent it).
     /// GPUI Kit applies only an item's main edit; we spot the insertion and
     /// add its `additionalTextEdits` (auto-import) ourselves.
@@ -36,13 +39,32 @@ impl Providers {
         Rc::new(Self {
             store: store.downgrade(),
             path,
+            server: None,
             last_completions: Rc::default(),
         })
     }
 
+    /// Code actions from an add-on server (the spell checker's fixes).
+    pub(crate) fn addon(store: &Entity<LspStore>, path: PathBuf, server: &'static str) -> Rc<Self> {
+        Rc::new(Self {
+            store: store.downgrade(),
+            path,
+            server: Some(server),
+            last_completions: Rc::default(),
+        })
+    }
+
+    /// This provider's server, if it's running.
+    fn server<'a>(&self, store: &'a LspStore) -> Option<&'a pide_lsp::store::Server> {
+        match self.server {
+            Some(id) => store.running(id),
+            None => store.server_for(&self.path),
+        }
+    }
+
     fn encoding(&self, cx: &App) -> Option<Encoding> {
         let store = self.store.upgrade()?;
-        store.read(cx).server_for(&self.path).map(|s| s.encoding)
+        self.server(store.read(cx)).map(|s| s.encoding)
     }
 
     fn request(
@@ -68,7 +90,10 @@ impl Providers {
         let Some(store) = self.store.upgrade() else {
             return Task::ready(Err(anyhow::anyhow!("project closed")));
         };
-        store.update(cx, |s, cx| s.request(&self.path, text, method, params, cx))
+        store.update(cx, |s, cx| match self.server {
+            Some(id) => s.request_to(id, &self.path, text, method, params, cx),
+            None => s.request(&self.path, text, method, params, cx),
+        })
     }
 
     fn trigger_characters(&self, cx: &App) -> Vec<String> {
@@ -89,8 +114,7 @@ impl Providers {
         self.store
             .upgrade()
             .and_then(|s| {
-                s.read(cx)
-                    .server_for(&self.path)
+                self.server(s.read(cx))
                     .and_then(|s| s.capabilities.as_ref())
                     .and_then(|c| c.execute_command_provider.as_ref())
                     .map(|e| e.commands.clone())
@@ -404,8 +428,12 @@ pub(crate) fn show_document_handler(
 }
 
 impl CodeActionProvider for Providers {
+    /// GPUI Kit runs a chosen action through the provider with this id.
     fn id(&self) -> SharedString {
-        "pide-lsp".into()
+        match self.server {
+            Some(id) => format!("pide-lsp:{id}").into(),
+            None => "pide-lsp".into(),
+        }
     }
 
     fn code_actions(
@@ -425,14 +453,31 @@ impl CodeActionProvider for Providers {
         let diagnostics: Vec<lsp_types::Diagnostic> = self
             .store
             .upgrade()
-            .and_then(|s| s.read(cx).diagnostics_for(&self.path).cloned())
+            .and_then(|s| {
+                let s = s.read(cx);
+                match self.server {
+                    Some(id) => s
+                        .addon_diagnostics_for(&self.path)
+                        .find(|(sid, _)| *sid == id)
+                        .map(|(_, d)| d.clone()),
+                    None => s.diagnostics_for(&self.path).cloned(),
+                }
+            })
             .map(|d| {
                 d.items
                     .into_iter()
-                    .filter(|d| d.range.start.line <= end.line && d.range.end.line >= start.line)
+                    .filter(|d| match self.server {
+                        // The spell checker offers fixes for every word it's
+                        // given: only the one under the cursor.
+                        Some(_) => d.range.start <= start && d.range.end >= end,
+                        None => d.range.start.line <= end.line && d.range.end.line >= start.line,
+                    })
                     .collect()
             })
             .unwrap_or_default();
+        if self.server.is_some() && diagnostics.is_empty() {
+            return Task::ready(Ok(vec![]));
+        }
         let params = json!({
             "textDocument": self.doc(),
             "range": { "start": start, "end": end },
@@ -491,6 +536,7 @@ impl CodeActionProvider for Providers {
         let server_commands = self.server_commands(cx);
         let store = self.store.clone();
         let path = self.path.clone();
+        let server = self.server;
         window.spawn(cx, async move |cx| {
             let action = match resolve {
                 Some(t) => serde_json::from_value::<CodeAction>(t.await?)?,
@@ -507,8 +553,16 @@ impl CodeActionProvider for Providers {
                 let params = json!({ "command": command.command, "arguments": command.arguments });
                 let task = cx.update(|_, cx| {
                     store.upgrade().map(|s| {
-                        s.update(cx, |s, cx| {
-                            s.request(&path, None, "workspace/executeCommand", params, cx)
+                        s.update(cx, |s, cx| match server {
+                            Some(id) => s.request_to(
+                                id,
+                                &path,
+                                None,
+                                "workspace/executeCommand",
+                                params,
+                                cx,
+                            ),
+                            None => s.request(&path, None, "workspace/executeCommand", params, cx),
                         })
                     })
                 })?;

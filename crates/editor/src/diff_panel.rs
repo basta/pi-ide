@@ -524,6 +524,9 @@ impl Render for DiffPanel {
                         Diff::new(&self.state)
                             .line_number(true)
                             .syntax_highlight(true)
+                            // Wrap to the column: unwrapped, both sides take the
+                            // longest line's width and the tab scrolls sideways.
+                            .soft_wrap(true)
                             .when(!self.hunks.is_empty(), |d| {
                                 // A revert button on each hunk's first line: the
                                 // new side, or the old side for a pure deletion.

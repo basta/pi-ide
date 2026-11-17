@@ -180,6 +180,10 @@ pub struct Shell {
     layout_path: PathBuf,
     last_saved: Option<DockAreaState>,
     _save: Option<Task<()>>,
+    /// The side docks' widths as the user left them, and what `fit_docks` last
+    /// set (a difference means the user dragged a dock since).
+    dock_pref: Option<(Pixels, Pixels)>,
+    dock_applied: Option<(Pixels, Pixels)>,
     _subs: Vec<Subscription>,
 }
 
@@ -264,7 +268,11 @@ impl Shell {
                             CommandRegistry::run("lsp.servers", window, cx);
                             let _ = note.update(cx, |n, cx| n.dismiss(window, cx));
                         })
-                });
+                })
+                // An action keeps a toast up for good; this one sat over the pi
+                // panel's header. It goes away on its own (the Language Servers
+                // tab and the status bar still say it).
+                .autohide(true);
                 window.push_notification(note, cx);
             }
         }));
@@ -294,7 +302,10 @@ impl Shell {
                 }
             }
         });
+        subs.push(cx.observe_window_bounds(window, |this, window, cx| this.fit_docks(window, cx)));
         let this = Self {
+            dock_pref: None,
+            dock_applied: None,
             cursor: None,
             _cursor_poll: cursor_poll,
             images: Vec::new(),
@@ -335,6 +346,52 @@ impl Shell {
             });
         }
         this
+    }
+
+    /// A narrow window takes its width from the side docks too, not only the
+    /// editor: past the point where the center would get under `MIN_CENTER`, the
+    /// left and right docks shrink in proportion (down to `MIN_SIDE`), and grow
+    /// back to the user's widths when the window does. Nothing is collapsed.
+    fn fit_docks(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        const MIN_CENTER: f32 = 560.;
+        const MIN_SIDE: f32 = 180.;
+        let width = window.viewport_size().width;
+        let (cur, open) = {
+            let d = self.dock.read(cx);
+            let size = |p| {
+                if d.is_dock_open(p) { d.dock_size(p).unwrap_or(px(0.)) } else { px(0.) }
+            };
+            (
+                (size(DockPlacement::Left), size(DockPlacement::Right)),
+                (d.is_dock_open(DockPlacement::Left), d.is_dock_open(DockPlacement::Right)),
+            )
+        };
+        if self.dock_applied != Some(cur) {
+            self.dock_pref = Some(cur);
+        }
+        let Some((pl, pr)) = self.dock_pref else {
+            return;
+        };
+        let sides = f32::from(pl + pr);
+        let room = (f32::from(width) - MIN_CENTER).max(0.);
+        let target = if sides <= room || sides <= 0. {
+            (pl, pr)
+        } else {
+            let f = room / sides;
+            let fit = |w: Pixels| if w > px(0.) { px((f32::from(w) * f).max(MIN_SIDE)) } else { w };
+            (fit(pl), fit(pr))
+        };
+        if target != cur {
+            self.dock.update(cx, |d, cx| {
+                if open.0 {
+                    d.set_dock_size(DockPlacement::Left, target.0, window, cx);
+                }
+                if open.1 {
+                    d.set_dock_size(DockPlacement::Right, target.1, window, cx);
+                }
+            });
+        }
+        self.dock_applied = Some(target);
     }
 
     fn default_layout(dock: &Entity<DockArea>, window: &mut Window, cx: &mut Context<Self>) {
@@ -447,7 +504,17 @@ impl Shell {
         } else {
             format!("pi: {}", parts.join(", "))
         };
-        let to_review = pide_core::collab::sessions_to_review(sessions, cx).len();
+        // Same unit as the pi panel's "Changes · n to review", summed over the
+        // sessions; it says when more than one session is counted.
+        let review_sessions = pide_core::collab::sessions_to_review(sessions, cx);
+        let to_review: usize = review_sessions
+            .iter()
+            .map(|a| a.read(cx).to_review().max(1))
+            .sum();
+        let review_label = match review_sessions.len() {
+            0 | 1 => format!("◆ {to_review} to review"),
+            n => format!("◆ {to_review} to review · {n} sessions"),
+        };
         let active = sessions.active();
         let items: Vec<String> = active
             .read(cx)
@@ -492,7 +559,23 @@ impl Shell {
             .child(
                 h_flex()
                     .gap_3()
-                    .children(server_label)
+                    // A fixed-width slot: progress reports ("Indexing 42% · 4/21")
+                    // no longer push the rest of the bar around; the whole text
+                    // is in the tooltip.
+                    .children(server_label.map(|l| {
+                        div()
+                            .id("lsp-status")
+                            .w(px(240.))
+                            .flex_none()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .text_right()
+                            .child(l.clone())
+                            .tooltip(move |window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new(l.clone()).build(window, cx)
+                            })
+                    }))
                     .children(items)
                     .when(to_review > 0, |this| {
                         let color = pide_core::colors::pi_note(cx);
@@ -504,7 +587,7 @@ impl Shell {
                                 .rounded(px(4.))
                                 .bg(color.opacity(0.14))
                                 .text_color(cx.theme().foreground)
-                                .child(format!("◆ {to_review} to review"))
+                                .child(review_label)
                                 .on_click(|_, window, cx| {
                                     pide_core::collab::review_next(window, cx);
                                 }),
@@ -685,6 +768,9 @@ pub fn open_pdf(path: PathBuf, window: &mut Window, cx: &mut App) {
             beside: false,
             reload: false,
             at: None,
+            find: Vec::new(),
+            raise: true,
+            open: true,
         },
         window,
         cx,
@@ -701,7 +787,7 @@ pub fn show_pdf(req: pide_core::opener::PdfRequest, window: &mut Window, cx: &mu
     else {
         return;
     };
-    let keep_focus = (req.beside || req.reload || req.at.is_some())
+    let keep_focus = (req.beside || req.reload || req.at.is_some() || !req.find.is_empty())
         .then(|| window.focused(cx))
         .flatten();
     shell.update(cx, |shell, cx| {
@@ -711,13 +797,18 @@ pub fn show_pdf(req: pide_core::opener::PdfRequest, window: &mut Window, cx: &mu
         });
         let p = if let Some(p) = open {
             let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
-            shell
-                .dock
-                .update(cx, |d, cx| d.select_panel(pid, window, cx));
+            if req.raise {
+                shell
+                    .dock
+                    .update(cx, |d, cx| d.select_panel(pid, window, cx));
+            }
             if req.reload {
                 p.update(cx, |p, cx| p.reload(cx));
             }
             p
+        } else if !req.open {
+            // A quiet refresh, and no tab shows this PDF.
+            return;
         } else {
             let p = cx.new(|cx| pide_pdf::PdfPanel::new(req.path.clone(), window, cx));
             let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
@@ -742,6 +833,9 @@ pub fn show_pdf(req: pide_core::opener::PdfRequest, window: &mut Window, cx: &mu
         };
         if let Some(at) = req.at {
             p.update(cx, |p, cx| p.reveal(at, cx));
+        }
+        if !req.find.is_empty() {
+            p.update(cx, |p, cx| p.reveal_text(req.find, req.raise, cx));
         }
     });
     if let Some(f) = keep_focus {
@@ -890,7 +984,9 @@ impl Render for Shell {
                 // takes the clicks; this layer is drawn on top and ignores them).
                 let empty = self.dock.read(cx).is_empty(DockPlacement::Center, cx);
                 let muted = cx.theme().muted_foreground;
-                let hint = |keys: &'static str, what: &'static str| {
+                // Keys from the live keymap, labelled for this platform.
+                let hint = |id: &'static str, what: &'static str| {
+                    let keys = pide_core::keymap::keys_for(cx, id).unwrap_or_default();
                     h_flex()
                         .gap_3()
                         .child(div().w(px(130.)).text_right().child(keys))
@@ -917,11 +1013,11 @@ impl Render for Shell {
                                     v_flex()
                                         .gap_1p5()
                                         .text_sm()
-                                        .child(hint("⌘⇧O", "Go to file"))
-                                        .child(hint("⌘E", "Recent files"))
-                                        .child(hint("⌘⇧F", "Find in files"))
-                                        .child(hint("⌘⇧A", "Find action"))
-                                        .child(hint("⌘⇧I", "Ask pi")),
+                                        .child(hint("file.goto", "Go to file"))
+                                        .child(hint("file.recent", "Recent files"))
+                                        .child(hint("find.in_files", "Find in files"))
+                                        .child(hint("palette.open", "Find action"))
+                                        .child(hint("agent.ask", "Ask pi")),
                                 ),
                         )
                     });

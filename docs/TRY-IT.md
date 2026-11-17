@@ -83,3 +83,31 @@ Needs a TeX install with latexmk (macOS: `brew install --cask basictex`, then `s
 - LaTeX errors and warnings from the log show in **Problems** (Cmd+6) with Ask pi; a build with errors also shows a notice.
 - **SyncTeX:** Cmd+Alt+Shift+J (Code → LaTeX: Show in PDF) scrolls the PDF to the cursor's line and marks it. **Cmd+click** in the PDF jumps to that source line.
 - The PDF tab also reloads when the file changes from outside (latexmk in a terminal).
+
+## Typst
+
+Needs tinymist, which bundles the Typst compiler (Settings → Language Servers → Install, or `brew install tinymist`). No separate `typst` install.
+
+- `.typ` files are highlighted (headings, `#` code: calls, `let`/`set`/`show`, strings and numbers, math, labels and references, raw, bold/italic, comments) and soft-wrap like Markdown.
+- Completion, hover, go to definition, outline and diagnostics come from tinymist. Compile errors show in **Problems** as you type.
+- **Cmd+S exports the PDF** too (`tinymist.exportPdf`) for the document the file belongs to: the `.typ` that `#include`s it (same folder or above), else the file itself. The PDF opens beside the source the first time, then reloads in place.
+- **PDF as you type (experimental, on by default):** the PDF is re-exported after every change, without saving (the tab stays unsaved). While the document doesn't compile the PDF keeps its last good version. Off in Settings → pide… ("Typst: PDF as you type") to export only on save. Outside changes (pi's edits) export too.
+- **The PDF follows your edits** (Settings → pide… → "Typst: PDF follows your edits"): after an export it scrolls to the paragraph you changed (the change nearest the cursor) and marks it for a moment; if it's already in view it only marks it. Found by searching the changed prose in the PDF, so a change in pure code or math (nothing to search for) leaves the PDF where it is.
+- No forward/inverse search on demand yet (tinymist has no SyncTeX).
+
+## Spell checking
+
+Needs Codebook (`brew install codebook-lsp`, or Settings → Language Servers → Spelling → Install). It downloads its dictionaries once, then works offline. On by default; Settings → pide… → "Spell check" turns it off at once.
+
+- LaTeX, Typst and Markdown prose, and in code only comments, strings and the names you define, get a quiet hint-colored underline. It runs next to the file's own server (texlab, tinymist, rust-analyzer…).
+- Spelling isn't in **Problems** or the status-bar counts, and F2 skips it.
+- **Alt+Enter** on a word: Replace with …, Add to dictionary (the project's `codebook.toml`), Add to global dictionary, ignore the file. Click the item: Enter in that menu also inserts a newline (GAPS.md).
+
+## Structure
+
+**Cmd+7** (View → Tool Windows → Structure) shows the outline of the file in the active tab, in the left dock.
+
+- Typst, LaTeX and Markdown: the headings as a tree (Typst and LaTeX from tinymist/texlab; Markdown, or a document whose server isn't up yet, from the text). **Headings** in the header switches to everything the server reports (labels, `#let`s, figures).
+- Code: the language server's symbols (structs, impls, functions…) with their kind.
+- The entry the cursor is in is highlighted and kept in view; new headings show up as you type.
+- Click an entry to jump there. With the panel focused: ↑/↓ move, ← collapses (or goes to the parent), → expands, Enter jumps. The chevron folds one entry; the ⇕ button collapses or expands everything.

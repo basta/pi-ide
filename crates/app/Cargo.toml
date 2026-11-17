@@ -26,6 +26,7 @@ pide-file-tree.workspace = true
 pide-agent-chat.workspace = true
 pide-language-servers.workspace = true
 pide-problems.workspace = true
+pide-structure.workspace = true
 pide-pi-settings.workspace = true
 pide-search.workspace = true
 pide-run.workspace = true

@@ -47,7 +47,12 @@ Findings:
 
 - `promptGuidelines` on a tool lands as a bullet in the system prompt's `<rules>` while the tool is
   active (checked in the recorded system message). That is the "after changing code, call
-  ide_explain_change for each changed file" note; no `before_agent_start` hook needed.
+  ide_explain_change for each changed file" note.
+- What pide is (the `<editor-context>` block, the user reviewing changes in pide) is a `<pide>`
+  section of the system prompt: a `before_agent_start` handler sets
+  `event.systemPromptOptions.sections.pide`. pi sends structured sections once and only patches a
+  change, so the prompt cache survives (returning `systemPrompt` would replace the whole prompt).
+  Checked with a second extension dumping `ctx.getSystemPrompt()`: the section comes after `<cwd>`.
 - Plain JSON Schema works for `parameters`, so the extension has no imports beyond `node:fs` and
   `node:path` and loads from any folder.
 - pi's `ctx.cwd` can differ in spelling from pide's root (`/private/tmp/x` vs `/tmp/x`), so the

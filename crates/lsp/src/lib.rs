@@ -9,4 +9,4 @@ pub mod registry;
 pub mod rpc;
 pub mod store;
 
-pub use store::{LspEvent, LspStore, Server, ServerState};
+pub use store::{FileDiagnostics, LspEvent, LspStore, Server, ServerState};
