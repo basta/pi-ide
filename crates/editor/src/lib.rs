@@ -29,6 +29,7 @@ use gpui_kit::component::dock::{
 };
 use gpui_kit::component::input::{Editor, EditorState, InputEditsEvent, InputEvent, TabSize};
 use gpui_kit::component::notification::Notification;
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
 use gpui_kit::component::{ActiveTheme, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -1308,8 +1309,54 @@ impl gpui_kit::component::dock::BasePanel for EditorPanel {
 impl gpui_kit::component::dock::Panel for EditorPanel {
     fn title(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let dirty = self.buffer.as_ref().is_some_and(|b| b.read(cx).is_dirty());
+        let path = self.path.clone();
+        let rel = self
+            .path
+            .strip_prefix(self.workspace.read(cx).root())
+            .unwrap_or(&self.path)
+            .to_string_lossy()
+            .to_string();
         h_flex()
+            .id("editor-tab-title")
             .gap_1()
+            // Middle-click closes the tab (like a browser); right-click has the
+            // tab commands. The dock draws the × itself.
+            .on_mouse_down(MouseButton::Middle, {
+                let path = path.clone();
+                move |_, window, cx| {
+                    cx.stop_propagation();
+                    let path = path.clone();
+                    window.defer(cx, move |window, cx| pide_core::opener::close_file(path, window, cx));
+                }
+            })
+            .context_menu(move |menu, _, _| {
+                // The commands work on the active tab: make this one active first.
+                let on = |cmd: &'static str| {
+                    let path = path.clone();
+                    move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+                        open_panel(path.clone(), window, cx);
+                        window.defer(cx, move |window, cx| {
+                            CommandRegistry::run(cmd, window, cx);
+                        });
+                    }
+                };
+                let close = {
+                    let path = path.clone();
+                    move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+                        pide_core::opener::close_file(path.clone(), window, cx)
+                    }
+                };
+                let rel = rel.clone();
+                menu.item(PopupMenuItem::new("Close").on_click(close))
+                    .item(PopupMenuItem::new("Close Other Tabs").on_click(on("editor.close_others")))
+                    .item(PopupMenuItem::new("Close All Tabs").on_click(on("editor.close_all")))
+                    .separator()
+                    .item(PopupMenuItem::new("Move to Right Split").on_click(on("editor.split_right")))
+                    .item(PopupMenuItem::new("Select in Project Tree").on_click(on("project.select_opened")))
+                    .item(PopupMenuItem::new("Copy Path").on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(rel.clone()))
+                    }))
+            })
             .child(self.title_text(cx))
             .when(dirty, |this| {
                 this.child(div().text_color(cx.theme().muted_foreground).child("●"))
