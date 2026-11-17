@@ -67,7 +67,7 @@ Findings:
 
 | Tool | Arguments | pide shows |
 | --- | --- | --- |
-| `ide_pin` | `path, start_line, end_line?, note` | pin card in the chat, gutter mark + note bar in the editor |
+| `ide_pin` | `path, start_line, code, end_line?, quote?, note` | pin card in the chat, gutter mark + note bar in the editor |
 | `ide_explain_change` | `path, summary, hunks?: [{line, note}]` | summary under the file in Changes, hunk notes in the editor and the pi diff tab |
 | `ide_progress` | `steps: [{text, done}]` | a checklist at the top of the session, updated in place |
 | `ide_tour` | `title, stops: [{path, line, end_line?, note}]` | a tour card in the chat; the stops walk in the note bar |
@@ -158,6 +158,21 @@ pin whose code isn't in the file is refused, a tour stop or hunk note is left ou
 then anchored by 1-based line plus that line's text. The editor re-finds the text near the line in the current buffer. On load (resume),
 the saved anchors are re-found in the file on disk; one whose text is gone is marked outdated
 (the note still shows, at the old line, labelled "outdated").
+
+## Notes on part of a line
+
+`ide_pin`, hunk notes and tour stops take an optional `quote`: the exact words on the line the note is
+about (within that one line). In prose a paragraph is one line, so without it a note marks the whole
+paragraph. The extension finds the words on the placed line (when they place it better than `code`, it
+uses their line), and sends `span: {quote, col}` with `col` a UTF-8 byte offset; words that aren't on
+the line, or appear on it more than once, are dropped and the note covers the whole line (pi is told
+why). pi quotes words rather than giving columns: models count characters badly.
+
+In the editor only the words are tinted (framed when the note is current), the card opens under the
+row where they end, and a note whose words end before the line's last visual row gets a pill on their
+row. Going to the note puts the cursor on the words. The anchor keeps `span`; the words are found again
+nearest to where they were, and when the line itself changed (any edit in a paragraph does) the note
+is re-placed by its words alone (`Anchor::locate`), taking the changed line as its new anchor text.
 
 ## Decisions
 

@@ -90,6 +90,37 @@ export default function (pi: any) {
     const len = a > 0 && b > a ? b - a : 0;
     return Math.min(start + len, lineCount(file));
   };
+  const QUOTE_DOC = "Optional: the exact words on that line the note is about (a few words up to a sentence, " +
+    "copied exactly, within the one line). pide then marks just those words instead of the whole line. " +
+    "Use it when the line is long, e.g. a paragraph of prose, which is one line in the file.";
+  /** The quoted words on 1-based `line`: `{ span: {quote, col} }` (col = UTF-8 byte offset
+   *  in the line), or `{ miss }` saying why they can't be marked (the note then covers the
+   *  whole line). No quote: `{}`. */
+  const spanOn = (file: string[], line: number, quote: unknown): { span?: { quote: string; col: number }; miss?: string } => {
+    if (typeof quote !== "string" || !quote.trim()) return {};
+    const q = quote.trim();
+    if (q.includes("\n")) return { miss: `the quote ${JSON.stringify(q)} spans lines` };
+    const text = file[line - 1] ?? "";
+    const at = text.indexOf(q);
+    if (at < 0) return { miss: `line ${line} doesn't contain ${JSON.stringify(q)}` };
+    if (text.indexOf(q, at + 1) >= 0) return { miss: `${JSON.stringify(q)} appears more than once on line ${line}; quote more words` };
+    return { span: { quote: q, col: Buffer.byteLength(text.slice(0, at), "utf8") } };
+  };
+  /** The line to anchor at: by the quoted words when they place it (more specific than
+   *  `code`), else by `code`. */
+  const place = (file: string[], line: number, code: unknown, quote: unknown): number | null => {
+    if (typeof quote === "string" && quote.trim().length >= 3 && !quote.includes("\n")) {
+      const q = quote.trim();
+      const byQuote = snap(file, line, q);
+      if (byQuote !== null && (file[byQuote - 1] ?? "").includes(q)) {
+        const byCode = snap(file, line, code);
+        // Both place it: the code's line if the words are on it too.
+        if (byCode !== null && (file[byCode - 1] ?? "").includes(q)) return byCode;
+        return byQuote;
+      }
+    }
+    return snap(file, line, code);
+  };
   const CODE_DOC = "The text of that line (or a distinctive part of it), copied exactly from the file; " +
     "it places the note even if the line number is off.";
 
@@ -111,6 +142,7 @@ export default function (pi: any) {
         start_line: { type: "integer", minimum: 1, description: "First line (1-based)" },
         code: { type: "string", description: CODE_DOC },
         end_line: { type: "integer", minimum: 1, description: "Last line (1-based), optional" },
+        quote: { type: "string", description: QUOTE_DOC },
         note: { type: "string", description: "One or two sentences for the user" },
       },
       required: ["path", "start_line", "code", "note"],
@@ -129,7 +161,7 @@ export default function (pi: any) {
         return { content: text(`Not pinned: can't read ${params.path}.`), details: { pide: 1, kind: "refused" }, isError: true };
       }
       const count = lineCount(file);
-      const start = snap(file, params.start_line, params.code);
+      const start = place(file, params.start_line, params.code, params.quote);
       if (start === null) {
         return {
           content: text(`Not pinned: no line in ${params.path} contains ${JSON.stringify(params.code)}. Read the file and try again with code copied exactly.`),
@@ -137,10 +169,11 @@ export default function (pi: any) {
           isError: true,
         };
       }
-      const end = rangeEnd(file, start, params.start_line, params.end_line);
+      const { span, miss } = spanOn(file, start, params.quote);
+      const end = span ? start : rangeEnd(file, start, params.start_line, params.end_line);
       pins += 1;
       return {
-        content: text(`Pinned ${params.path}:${start} for the user.`),
+        content: text(`Pinned ${params.path}:${start} for the user.${miss ? ` Marked the whole line: ${miss}.` : ""}`),
         details: {
           pide: 1,
           kind: "pin",
@@ -148,6 +181,7 @@ export default function (pi: any) {
           line: start,
           end_line: end,
           text: file[start - 1] ?? "",
+          ...(span ? { span } : {}),
           // The pinned lines (at most 8), shown with the note in pide's chat.
           snippet: file.slice(start - 1, Math.min(end, start + 7)),
           note: String(params.note ?? ""),
@@ -181,6 +215,7 @@ export default function (pi: any) {
             properties: {
               line: { type: "integer", minimum: 1, description: "Line in the current file (1-based)" },
               code: { type: "string", description: CODE_DOC },
+              quote: { type: "string", description: QUOTE_DOC },
               note: { type: "string" },
             },
             required: ["line", "code", "note"],
@@ -193,17 +228,20 @@ export default function (pi: any) {
       const path = abs(ctx.cwd, params.path);
       const file = lines(path) ?? [];
       const missed: string[] = [];
+      const wholeLine: string[] = [];
       const hunks = (Array.isArray(params.hunks) ? params.hunks : []).slice(0, 12).flatMap((h: any) => {
-        const line = file.length ? snap(file, h.line, h.code) : Math.max(1, Number(h.line) || 1);
+        const line = file.length ? place(file, h.line, h.code, h.quote) : Math.max(1, Number(h.line) || 1);
         if (line === null) {
           missed.push(JSON.stringify(h.code));
           return [];
         }
-        return [{ line, text: file[line - 1] ?? "", note: String(h.note ?? "") }];
+        const { span, miss } = spanOn(file, line, h.quote);
+        if (miss) wholeLine.push(miss);
+        return [{ line, text: file[line - 1] ?? "", note: String(h.note ?? ""), ...(span ? { span } : {}) }];
       });
-      const miss = missed.length
+      const miss = (missed.length
         ? ` Left out notes whose code isn't in the file: ${missed.join(", ")}. Call again with code copied exactly to add them.`
-        : "";
+        : "") + (wholeLine.length ? ` Marked whole lines instead of the quoted words: ${wholeLine.join("; ")}.` : "");
       return {
         content: text(`Noted for ${params.path}.${miss}`),
         details: { pide: 1, kind: "explain", path: rel(ctx.cwd, path), summary: String(params.summary ?? ""), hunks },
@@ -308,6 +346,7 @@ export default function (pi: any) {
               path: { type: "string" },
               line: { type: "integer", minimum: 1 },
               code: { type: "string", description: CODE_DOC },
+              quote: { type: "string", description: QUOTE_DOC },
               end_line: { type: "integer", minimum: 1 },
               note: {
                 type: "string",
@@ -325,6 +364,7 @@ export default function (pi: any) {
     async execute(_id: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
       const stops: any[] = [];
       const skipped: string[] = [];
+      const wholeLine: string[] = [];
       for (const st of (Array.isArray(params.stops) ? params.stops : []).slice(0, 15)) {
         const path = abs(ctx.cwd, st.path);
         const file = lines(path);
@@ -333,17 +373,20 @@ export default function (pi: any) {
           continue;
         }
         const count = lineCount(file);
-        const start = snap(file, st.line, st.code);
+        const start = place(file, st.line, st.code, st.quote);
         if (start === null) {
           skipped.push(`${st.path} (no line contains ${JSON.stringify(st.code)})`);
           continue;
         }
-        const end = rangeEnd(file, start, st.line, st.end_line);
+        const { span, miss } = spanOn(file, start, st.quote);
+        if (miss) wholeLine.push(miss);
+        const end = span ? start : rangeEnd(file, start, st.line, st.end_line);
         stops.push({
           path: rel(ctx.cwd, path),
           line: start,
           end_line: end,
           text: file[start - 1] ?? "",
+          ...(span ? { span } : {}),
           snippet: file.slice(start - 1, Math.min(end, start + 7)),
           note: String(st.note ?? ""),
         });
@@ -355,7 +398,8 @@ export default function (pi: any) {
           isError: true,
         };
       }
-      const note = skipped.length ? ` Left out: ${skipped.join("; ")}.` : "";
+      const note = (skipped.length ? ` Left out: ${skipped.join("; ")}.` : "") +
+        (wholeLine.length ? ` Marked whole lines instead of the quoted words: ${wholeLine.join("; ")}.` : "");
       return {
         content: text(`Tour ready with ${stops.length} stops: the user starts it from the tour card in pide's chat (it isn't open yet).${note}`),
         details: { pide: 1, kind: "tour", title: String(params.title ?? "Tour"), stops },

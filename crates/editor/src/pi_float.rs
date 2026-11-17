@@ -169,23 +169,31 @@ impl EditorPanel {
             let pins = a.pins.clone();
             let session = a.name.clone();
             for (i, s) in self.pi.stops.iter().enumerate() {
-                let Some(start) = line_bounds(editor, &rope, s.line) else {
+                let Some(place) = stop_place(editor, &rope, s) else {
                     continue;
                 };
+                let start = place.start;
                 visible.push(s.at.clone());
                 let is_open = open.as_ref().is_some_and(|o| o.at == s.at);
                 let top = start.top() + dy - ob.top();
                 // The lens after the line's text, or a pill at the right edge.
                 // A soft-wrapped line ends on its last visual row: the lens
-                // goes there, not on the first row over the wrapped text.
-                let end_b = line_end_bounds(editor, &rope, s.line).unwrap_or(start);
+                // goes there, not on the first row over the wrapped text. A note
+                // on quoted words in the middle of a wrapped line gets a pill on
+                // the row where the words end instead.
+                let end_b = place.end;
                 let line_end = end_b.left();
                 let lens_top = end_b.top() + dy - ob.top();
                 let x = line_end + px(LENS_GAP) - ob.left();
-                let room = view.right() - px(RIGHT_PAD) - (line_end + px(LENS_GAP));
+                let room = if place.mid_line {
+                    px(0.)
+                } else {
+                    view.right() - px(RIGHT_PAD) - (line_end + px(LENS_GAP))
+                };
                 // A pill sits right after a line that ends near the edge (with a
                 // small gap), else at the edge.
-                let pill_left = Some(line_end + px(PILL_GAP) - ob.left())
+                let pill_left = (!place.mid_line)
+                    .then_some(line_end + px(PILL_GAP) - ob.left())
                     .filter(|l| *l + px(PILL_W) <= view.right() - px(RIGHT_PAD) - ob.left());
                 let replies = s.thread.len();
                 let stop = s.clone();
@@ -249,9 +257,14 @@ impl EditorPanel {
                 if is_open {
                     // Below the note's last line; above its first if that doesn't fit.
                     // (its last visual row, when it wraps).
-                    let last = line_bounds(editor, &rope, s.end_line)
-                        .and_then(|_| line_end_bounds(editor, &rope, s.end_line))
-                        .unwrap_or(end_b);
+                    // Under the row where quoted words end, not the whole line.
+                    let last = if place.span {
+                        end_b
+                    } else {
+                        line_bounds(editor, &rope, s.end_line)
+                            .and_then(|_| line_end_bounds(editor, &rope, s.end_line))
+                            .unwrap_or(end_b)
+                    };
                     // On line boundaries, so no line shows half above the card.
                     let below = last.bottom() + dy - ob.top();
                     let above = top - card_h;
@@ -260,7 +273,11 @@ impl EditorPanel {
                     } else {
                         above
                     };
-                    let code_x = first_text_x(editor, &rope, s.line).unwrap_or(start.left());
+                    let code_x = if place.span {
+                        start.left()
+                    } else {
+                        first_text_x(editor, &rope, s.line).unwrap_or(start.left())
+                    };
                     let x = (code_x - ob.left())
                         .min(ob.size.width - px(CARD_W + RIGHT_PAD))
                         .max(px(8.));
@@ -321,8 +338,7 @@ impl EditorPanel {
         let editor_entity = self.editor.clone();
         let geom = self.pi.geom.clone();
         let geom_children = self.pi.geom.clone();
-        let stops_now: Vec<(StopRef, usize)> =
-            self.pi.stops.iter().map(|s| (s.at.clone(), s.line)).collect();
+        let stops_now: Vec<pide_core::collab::Stop> = self.pi.stops.clone();
         let weak = cx.weak_entity();
         let recorder = canvas(
             |_, _, _| {},
@@ -332,8 +348,8 @@ impl EditorPanel {
                 let rope = editor.text();
                 let visible_now: Vec<StopRef> = stops_now
                     .iter()
-                    .filter(|(_, line)| line_bounds(editor, rope, *line).is_some())
-                    .map(|(at, _)| at.clone())
+                    .filter(|s| stop_place(editor, rope, s).is_some())
+                    .map(|s| s.at.clone())
                     .collect();
                 let mut g = geom.borrow_mut();
                 g.painted = Some((scroll, bounds));
@@ -661,6 +677,54 @@ fn line_bounds(
     let b = editor.range_to_bounds(&(start..start))?;
     let view = editor.input_bounds();
     (b.bottom() > view.top() && b.top() < view.bottom()).then_some(b)
+}
+
+/// Where a stop's lens and card hang from, as drawn at the editor's last paint.
+struct Place {
+    /// Its line's start, or its quoted words' start.
+    start: Bounds<Pixels>,
+    /// Its line's end (on the last visual row), or its quoted words' last character.
+    end: Bounds<Pixels>,
+    /// It's on quoted words.
+    span: bool,
+    /// Those words end before the line's last visual row (a pill on their row).
+    mid_line: bool,
+}
+
+/// Where `stop` is on screen, if it is: its line's start must be visible (as for
+/// [`line_bounds`]), or for a note on quoted words, the row where they end.
+fn stop_place(
+    editor: &gpui_kit::component::input::EditorState,
+    rope: &gpui_kit::component::input::Rope,
+    stop: &pide_core::collab::Stop,
+) -> Option<Place> {
+    let Some(r) = crate::pi_notes::span_range(rope, stop) else {
+        let start = line_bounds(editor, rope, stop.line)?;
+        let end = line_end_bounds(editor, rope, stop.line).unwrap_or(start);
+        return Some(Place { start, end, span: false, mid_line: false });
+    };
+    let rows = editor.visible_row_range()?;
+    if !rows.contains(&stop.line.saturating_sub(1)) {
+        return None;
+    }
+    let last_len = rope
+        .slice(r.clone())
+        .to_string()
+        .chars()
+        .last()
+        .map_or(0, char::len_utf8);
+    let last = r.end - last_len;
+    let start = editor.range_to_bounds(&(r.start..r.start))?;
+    let end = editor.range_to_bounds(&(last..r.end))?;
+    let view = editor.input_bounds();
+    if end.bottom() <= view.top() || end.top() >= view.bottom() {
+        return None;
+    }
+    let line_end = line_end_bounds(editor, rope, stop.line).unwrap_or(end);
+    let mid_line = line_end.top() > end.top() + px(1.);
+    // On the line's last row the lens goes after the line's text, as without words.
+    let end = if mid_line { end } else { Bounds { origin: point(line_end.left(), end.top()), size: end.size } };
+    Some(Place { start, end, span: true, mid_line })
 }
 
 /// Where 1-based `line` ends (an empty range at its end): on its last visual

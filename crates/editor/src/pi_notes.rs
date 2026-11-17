@@ -80,9 +80,7 @@ impl EditorPanel {
             let content = self.editor.read(cx).text().to_string();
             let a = agent.read(cx);
             for s in &mut self.pi.stops {
-                if let Some(text) = a.anchor_text(&s.at)
-                    && let Some(n) = Anchor::new(s.line, text).locate(&content)
-                {
+                if let Some(n) = relocate(a.anchor(&s.at), s.line, &content) {
                     let moved = n as isize - s.line as isize;
                     s.end_line = (s.end_line as isize + moved).max(n as isize) as usize;
                     s.line = n;
@@ -148,18 +146,12 @@ impl EditorPanel {
                 o.stops()
                     .into_iter()
                     .filter(|s| s.path == self.path)
-                    .map(|s| {
-                        o.anchor_text(&s.at)
-                            .and_then(|t| Anchor::new(s.line, t).locate(&content))
-                            .unwrap_or(s.line)
-                    })
+                    .map(|s| relocate(o.anchor(&s.at), s.line, &content).unwrap_or(s.line))
                     .collect::<Vec<_>>()
             })
             .collect();
         for s in &mut stops {
-            if let Some(text) = a.anchor_text(&s.at)
-                && let Some(n) = Anchor::new(s.line, text).locate(&content)
-            {
+            if let Some(n) = relocate(a.anchor(&s.at), s.line, &content) {
                 s.line = n;
             }
             // A hunk note's card opens below the whole change it explains, not
@@ -196,15 +188,32 @@ impl EditorPanel {
             })
             .collect();
         // Every note's lines faintly (a pin's whole range), the shown one stronger.
+        // A note on quoted words tints just them (a bit stronger, they're short) and
+        // frames them when it's the current one.
         let tint: Vec<RangeDecoration> = stops
             .iter()
-            .map(|s| {
+            .flat_map(|s| {
                 let strong = shown.as_ref().is_some_and(|x| x.at == s.at);
-                let start = line_range(&rope, s.line).start;
-                let end = line_range(&rope, s.end_line.max(s.line)).end;
-                RangeDecoration::new(start..end)
-                    .with_style(RangeDecorationStyle::Fill)
-                    .with_color(color.opacity(if strong { 0.20 } else { 0.08 }))
+                match span_range(&rope, s) {
+                    Some(r) => {
+                        let fill = RangeDecoration::new(r.clone())
+                            .with_style(RangeDecorationStyle::Fill)
+                            .with_color(color.opacity(if strong { 0.30 } else { 0.16 }));
+                        let frame = strong.then(|| {
+                            RangeDecoration::new(r)
+                                .with_style(RangeDecorationStyle::Frame)
+                                .with_color(color.opacity(0.8))
+                        });
+                        std::iter::once(fill).chain(frame).collect::<Vec<_>>()
+                    }
+                    None => {
+                        let start = line_range(&rope, s.line).start;
+                        let end = line_range(&rope, s.end_line.max(s.line)).end;
+                        vec![RangeDecoration::new(start..end)
+                            .with_style(RangeDecorationStyle::Fill)
+                            .with_color(color.opacity(if strong { 0.20 } else { 0.08 }))]
+                    }
+                }
             })
             .collect();
 
@@ -238,6 +247,24 @@ impl EditorPanel {
         self.pi.stops = stops;
         cx.notify();
     }
+}
+
+/// Where a stop's anchor is in `content` now (1-based), starting from `line`:
+/// by its line text, or by its quoted words when the line changed.
+fn relocate(anchor: Option<Anchor>, line: usize, content: &str) -> Option<usize> {
+    let mut anchor = anchor?;
+    anchor.line = line;
+    anchor.locate(content)
+}
+
+/// The byte range of a stop's quoted words in the buffer, if it has some and
+/// they're still on its line (else the note covers its whole line).
+pub(crate) fn span_range(rope: &Rope, stop: &Stop) -> Option<std::ops::Range<usize>> {
+    let span = stop.span.as_ref()?;
+    let line = line_range(rope, stop.line);
+    let text = rope.slice(line.clone()).to_string();
+    let r = span.find_in(&text)?;
+    Some(line.start + r.start..line.start + r.end)
 }
 
 /// 1-based `line` as a byte range (the whole line; clamped to the text).

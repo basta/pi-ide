@@ -722,6 +722,11 @@ impl Agent {
         crate::walk::anchor_text(&self.changes, &self.pins, at)
     }
 
+    /// The anchor behind a stop (its line text and quoted words).
+    pub fn anchor(&self, at: &StopRef) -> Option<crate::collab::Anchor> {
+        crate::walk::anchor(&self.changes, &self.pins, at)
+    }
+
     /// The stop of the pin made by tool call `id`.
     pub fn pin_stop_by_id(&self, id: &str) -> Option<Stop> {
         let i = self.pins.iter().position(|p| p.id == id)?;

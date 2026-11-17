@@ -261,10 +261,23 @@ pub fn collab_events(tool_call_id: &str, d: &Value) -> Vec<AgentEvent> {
     collab_event(tool_call_id, d).into_iter().collect()
 }
 
+/// A pide tool's anchor: `line`, that line's `text`, and the quoted words
+/// (`span: {quote, col}`) when pi named some.
+fn anchor_at(v: &Value, line: usize) -> pide_core::collab::Anchor {
+    let anchor = pide_core::collab::Anchor::new(line, s(v, "text"));
+    match v.get("span") {
+        Some(sp) => anchor.with_span(
+            s(sp, "quote"),
+            sp.get("col").and_then(Value::as_u64).unwrap_or(0) as usize,
+        ),
+        None => anchor,
+    }
+}
+
 /// An `ide_tour`'s stops as pins, in order: ids `tour:<call id>:<n>`, the first
 /// one's note starting with the tour's title.
 pub fn tour_pins(tool_call_id: &str, d: &Value) -> Vec<pide_core::collab::Pin> {
-    use pide_core::collab::{Anchor, Pin};
+    use pide_core::collab::Pin;
     let title = s(d, "title");
     let stops = d.get("stops").and_then(Value::as_array).cloned().unwrap_or_default();
     let n = stops.len();
@@ -276,7 +289,7 @@ pub fn tour_pins(tool_call_id: &str, d: &Value) -> Vec<pide_core::collab::Pin> {
             Pin {
                 id: format!("{}{tool_call_id}:{i}", pide_core::collab::TOUR_PREFIX),
                 path: s(st, "path").into(),
-                anchor: Anchor::new(line, s(st, "text")),
+                anchor: anchor_at(st, line),
                 end_line: st
                     .get("end_line")
                     .and_then(Value::as_u64)
@@ -297,7 +310,7 @@ pub fn tour_pins(tool_call_id: &str, d: &Value) -> Vec<pide_core::collab::Pin> {
 
 /// One pide tool result as an event (see [`collab_events`]).
 pub fn collab_event(tool_call_id: &str, d: &Value) -> Option<AgentEvent> {
-    use pide_core::collab::{Anchor, HunkNote, Pin, ProgressStep};
+    use pide_core::collab::{HunkNote, Pin, ProgressStep};
     if d.get("pide").and_then(Value::as_u64) != Some(1) {
         return None;
     }
@@ -308,7 +321,7 @@ pub fn collab_event(tool_call_id: &str, d: &Value) -> Option<AgentEvent> {
             Some(AgentEvent::Pin(Pin {
                 id: tool_call_id.to_string(),
                 path: s(d, "path").into(),
-                anchor: Anchor::new(start, s(d, "text")),
+                anchor: anchor_at(d, start),
                 end_line: line(d, "end_line").max(start),
                 note: s(d, "note"),
                 snippet: d
@@ -330,7 +343,7 @@ pub fn collab_event(tool_call_id: &str, d: &Value) -> Option<AgentEvent> {
                 .map(|a| {
                     a.iter()
                         .map(|h| HunkNote {
-                            anchor: Anchor::new(line(h, "line"), s(h, "text")),
+                            anchor: anchor_at(h, line(h, "line")),
                             note: s(h, "note"),
                             seen: false,
                             dismissed: false,
@@ -360,6 +373,27 @@ pub fn collab_event(tool_call_id: &str, d: &Value) -> Option<AgentEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quoted_words_reach_the_anchor() {
+        let d: Value = serde_json::from_str(
+            r#"{"pide":1,"kind":"pin","path":"r.typ","line":3,"end_line":3,"text":"a b two parts","span":{"quote":"two parts","col":4},"note":"n"}"#,
+        )
+        .unwrap();
+        let Some(AgentEvent::Pin(p)) = collab_event("c1", &d) else {
+            panic!("not a pin");
+        };
+        let span = p.anchor.span.expect("span");
+        assert_eq!((span.quote.as_str(), span.col), ("two parts", 4));
+        let d: Value = serde_json::from_str(
+            r#"{"pide":1,"kind":"explain","path":"r.typ","summary":"s","hunks":[{"line":2,"text":"x","note":"y"}]}"#,
+        )
+        .unwrap();
+        let Some(AgentEvent::ExplainChange { hunks, .. }) = collab_event("c2", &d) else {
+            panic!("not an explanation");
+        };
+        assert!(hunks[0].anchor.span.is_none());
+    }
 
     #[test]
     fn garbage_is_unknown_not_a_panic() {

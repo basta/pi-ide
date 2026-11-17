@@ -17,6 +17,32 @@ pub struct Anchor {
     /// The text wasn't found any more; `line` is where it used to be.
     #[serde(default)]
     pub outdated: bool,
+    /// The words on the line the note is about (pi's `quote`), when it named
+    /// some: only they are marked, not the whole line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span: Option<Span>,
+}
+
+/// Part of an anchor's line: the quoted words and where they started (a UTF-8
+/// byte offset in the line) when the note was made.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Span {
+    pub quote: String,
+    pub col: usize,
+}
+
+impl Span {
+    /// Where the quote is in `line` now, as a byte range: the occurrence nearest
+    /// to where it was. `None` if the words aren't in the line any more.
+    pub fn find_in(&self, line: &str) -> Option<std::ops::Range<usize>> {
+        if self.quote.is_empty() {
+            return None;
+        }
+        line.match_indices(self.quote.as_str())
+            .map(|(i, _)| i)
+            .min_by_key(|i| i.abs_diff(self.col))
+            .map(|i| i..i + self.quote.len())
+    }
 }
 
 impl Anchor {
@@ -25,7 +51,14 @@ impl Anchor {
             line: line.max(1),
             text,
             outdated: false,
+            span: None,
         }
+    }
+
+    /// With the words the note is about (`None` when `quote` is empty).
+    pub fn with_span(mut self, quote: String, col: usize) -> Self {
+        self.span = (!quote.is_empty()).then_some(Span { quote, col });
+        self
     }
 
     /// Where the anchor is in `content` now (1-based), without changing it.
@@ -39,29 +72,57 @@ impl Anchor {
         if want.trim().is_empty() || at(self.line) == Some(want) {
             return Some(self.line.min(lines.len().max(1)));
         }
-        let mut best: Option<usize> = None;
-        for (i, l) in lines.iter().enumerate() {
-            if l.trim_end() == want {
-                let n = i + 1;
-                if best.is_none_or(|b| n.abs_diff(self.line) < b.abs_diff(self.line)) {
-                    best = Some(n);
+        let nearest = |hit: &dyn Fn(&str) -> bool| {
+            let mut best: Option<usize> = None;
+            for (i, l) in lines.iter().enumerate() {
+                if hit(l) {
+                    let n = i + 1;
+                    if best.is_none_or(|b| n.abs_diff(self.line) < b.abs_diff(self.line)) {
+                        best = Some(n);
+                    }
                 }
             }
-        }
-        best
+            best
+        };
+        nearest(&|l: &str| l.trim_end() == want).or_else(|| {
+            // The line changed (a prose paragraph is one line: any edit in it
+            // changes it), but the quoted words may still be there.
+            let quote = self.span.as_ref().map(|s| s.quote.as_str()).unwrap_or("");
+            if quote.trim().chars().count() < 3 {
+                return None;
+            }
+            nearest(&|l: &str| l.contains(quote))
+        })
     }
 
     /// Move to where the text is now, or mark outdated. Returns whether anything changed.
     pub fn reanchor(&mut self, content: &str) -> bool {
-        let before = (self.line, self.outdated);
+        let before = (self.line, self.outdated, self.text.clone(), self.span.clone());
         match self.locate(content) {
             Some(n) => {
                 self.line = n;
                 self.outdated = false;
+                let now = content.split('\n').nth(n - 1).unwrap_or("");
+                if let Some(span) = &mut self.span
+                    && let Some(r) = span.find_in(now)
+                {
+                    span.col = r.start;
+                    // Found by its words in a changed line: that line is the anchor now.
+                    if now.trim_end() != self.text.trim_end() && !self.text.trim().is_empty() {
+                        self.text = now.to_string();
+                    }
+                }
             }
             None => self.outdated = true,
         }
-        before != (self.line, self.outdated)
+        before != (self.line, self.outdated, self.text.clone(), self.span.clone())
+    }
+
+    /// The marked words' byte range within 1-based line `line` of `content`
+    /// (`None`: no span, or its words aren't on that line any more).
+    pub fn span_in(&self, content: &str, line: usize) -> Option<std::ops::Range<usize>> {
+        let span = self.span.as_ref()?;
+        span.find_in(content.split('\n').nth(line.checked_sub(1)?)?)
     }
 }
 
@@ -211,6 +272,8 @@ pub struct Stop {
     pub seen: bool,
     /// Replies on it (see [`Pin::thread`]).
     pub thread: Vec<Reply>,
+    /// The words it's about, when pi quoted some (see [`Anchor::span`]).
+    pub span: Option<Span>,
 }
 
 impl Stop {
@@ -254,28 +317,40 @@ impl Stop {
     }
 }
 
-/// Where `stop` is now: its anchor re-found in the open buffer, if the file is open.
-pub fn live_line(stop: &Stop, anchor_text: Option<&str>, window: &Window, cx: &App) -> usize {
-    let Some(text) = anchor_text else {
-        return stop.line;
+/// Where `stop` is now: its anchor re-found in the open buffer (else the file
+/// on disk), as a 1-based line and the character column of its quoted words (0
+/// without any), so the cursor lands on them in a long soft-wrapped line.
+pub fn live_place(stop: &Stop, anchor: Option<Anchor>, window: &Window, cx: &App) -> (usize, u32) {
+    let Some(mut anchor) = anchor else {
+        return (stop.line, 0);
     };
+    anchor.line = stop.line;
     let services = crate::Services::of(window, cx);
-    let Some(buffer) = services.workspace.read(cx).buffer_for(&stop.path, cx) else {
-        return stop.line;
+    let content = match services.workspace.read(cx).buffer_for(&stop.path, cx) {
+        Some(buffer) => buffer.read(cx).text().to_string(),
+        None => match std::fs::read_to_string(&stop.path) {
+            Ok(t) => t,
+            Err(_) => return (stop.line, 0),
+        },
     };
-    let content = buffer.read(cx).text().to_string();
-    Anchor::new(stop.line, text.to_string())
-        .locate(&content)
-        .unwrap_or(stop.line)
+    let line = anchor.locate(&content).unwrap_or(stop.line);
+    let col = anchor
+        .span_in(&content, line)
+        .and_then(|r| {
+            let text = content.split('\n').nth(line - 1)?;
+            Some(text.get(..r.start)?.chars().count() as u32)
+        })
+        .unwrap_or(0);
+    (line, col)
 }
 
-/// Open `stop` in the editor (cursor on its line), make it the walkthrough's
-/// current stop and mark it seen.
+/// Open `stop` in the editor (cursor on its line, or on its quoted words), make
+/// it the walkthrough's current stop and mark it seen.
 pub fn go_to(agent: &Entity<crate::Agent>, stop: Stop, window: &mut Window, cx: &mut App) {
-    let text = agent.read(cx).anchor_text(&stop.at);
-    let line = live_line(&stop, text.as_deref(), window, cx);
+    let anchor = agent.read(cx).anchor(&stop.at);
+    let (line, col) = live_place(&stop, anchor, window, cx);
     agent.update(cx, |a, cx| a.visit_stop(&stop.at, cx));
-    crate::opener::open_file_at(stop.path, line.saturating_sub(1) as u32, 0, window, cx);
+    crate::opener::open_file_at(stop.path, line.saturating_sub(1) as u32, col, window, cx);
 }
 
 /// Step the walkthrough of `agent` by `delta` (1 next, −1 back; from no current
@@ -400,5 +475,29 @@ mod tests {
         // Trailing whitespace doesn't matter; blank anchors keep their line.
         assert_eq!(Anchor::new(1, "x  ".into()).locate("y\nx\n"), Some(2));
         assert_eq!(Anchor::new(3, "".into()).locate("a\nb\nc\n"), Some(3));
+    }
+
+    #[::core::prelude::v1::test]
+    fn spans_follow_their_words() {
+        let para = "The solution has two parts. Then two more.";
+        let a = Anchor::new(2, para.into()).with_span("two".into(), 17);
+        // The nearest occurrence to where it was.
+        assert_eq!(a.span_in(&format!("x\n{para}"), 2), Some(17..20));
+        // Words added before it in the same paragraph: the line changed, the
+        // quote still places it, and reanchor takes the new line as the anchor.
+        let a = Anchor::new(2, para.into()).with_span("has two parts".into(), 13);
+        let now = "x\ny\nSo the solution has two parts. Then two more.";
+        assert_eq!(a.locate(now), Some(3));
+        let mut b = a.clone();
+        assert!(b.reanchor(now));
+        assert_eq!((b.line, b.span.as_ref().unwrap().col, b.outdated), (3, 16, false));
+        assert_eq!(b.text, "So the solution has two parts. Then two more.");
+        // The words are gone too: outdated.
+        let mut c = a.clone();
+        c.reanchor("x\nThe solution has three steps.");
+        assert!(c.outdated);
+        // An empty quote is no span; a too short one doesn't place a changed line.
+        assert!(Anchor::new(1, "a".into()).with_span(String::new(), 0).span.is_none());
+        assert_eq!(Anchor::new(1, "a b".into()).with_span("b".into(), 2).locate("q\nx b"), None);
     }
 }

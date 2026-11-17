@@ -36,6 +36,7 @@ pub fn stops(changes: &[FileChange], pins: &[Pin]) -> Vec<Stop> {
                 outdated: false,
                 seen: c.seen,
                 thread: c.thread.clone(),
+                span: None,
             });
         }
         for (ni, n) in c.notes.iter().enumerate().filter(|(_, n)| !n.dismissed) {
@@ -49,6 +50,7 @@ pub fn stops(changes: &[FileChange], pins: &[Pin]) -> Vec<Stop> {
                 outdated: n.anchor.outdated,
                 seen: n.seen,
                 thread: n.thread.clone(),
+                span: n.anchor.span.clone(),
             });
         }
         for (pi, p) in pins.iter().enumerate() {
@@ -144,17 +146,23 @@ pub fn pin_stop(pins: &[Pin], i: usize) -> Stop {
         outdated: p.anchor.outdated,
         seen: p.seen && !pin_open(p),
         thread: p.thread.clone(),
+        span: p.anchor.span.clone(),
     }
 }
 
 /// The anchor text behind a stop (to re-find it in an edited buffer).
 pub fn anchor_text(changes: &[FileChange], pins: &[Pin], at: &StopRef) -> Option<String> {
+    anchor(changes, pins, at).map(|a| a.text)
+}
+
+/// The anchor behind a stop (its line text and quoted words).
+pub fn anchor(changes: &[FileChange], pins: &[Pin], at: &StopRef) -> Option<crate::collab::Anchor> {
     match *at {
-        StopRef::Pin(i) => pins.get(i).map(|p| p.anchor.text.clone()),
+        StopRef::Pin(i) => pins.get(i).map(|p| p.anchor.clone()),
         StopRef::Hunk { file, note } => changes
             .get(file)
             .and_then(|c| c.notes.get(note))
-            .map(|n| n.anchor.text.clone()),
+            .map(|n| n.anchor.clone()),
         StopRef::File(_) => None,
     }
 }
