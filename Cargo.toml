@@ -94,6 +94,9 @@ tokio = { version = "1.54.1", features = ["rt", "process", "io-util", "sync", "t
 # our own crates stay fast to compile.
 [profile.dev.package."*"]
 opt-level = 2
+# No debug info for dependencies: it was most of target/debug (tens of GB on the Mac).
+# pide's own crates keep full debug info.
+debug = false
 
 [profile.release]
 debug = "line-tables-only"
