@@ -287,6 +287,23 @@ impl CompletionProvider for Providers {
         })
     }
 
+    // SPIKE (spike-ghost-rows): the suggestion as an inline completion.
+    fn inline_completion(
+        &self,
+        _rope: &Rope,
+        offset: usize,
+        _trigger: lsp_types::InlineCompletionContext,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Task<Result<lsp_types::InlineCompletionResponse>> {
+        let items: Vec<_> = crate::spike_ghost::item_for(&self.path, offset).into_iter().collect();
+        Task::ready(Ok(lsp_types::InlineCompletionResponse::Array(items)))
+    }
+
+    fn inline_completion_debounce(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(if crate::spike_ghost::active() { 20 } else { 300 })
+    }
+
     fn is_completion_trigger(&self, _offset: usize, new_text: &str, cx: &mut App) -> bool {
         let Some(c) = new_text.chars().last() else {
             return false;

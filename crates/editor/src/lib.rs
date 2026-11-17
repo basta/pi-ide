@@ -14,6 +14,7 @@ mod pi_float;
 mod pi_notes;
 mod rename;
 mod signature;
+mod spike_ghost;
 mod symbols;
 mod tex;
 pub mod typst;
@@ -72,6 +73,7 @@ pub fn init(cx: &mut App) {
     typst::init();
     tex::init(cx);
     diff_panel::init(cx);
+    spike_ghost::init(cx);
     cx.set_global(pide_core::context::EditorContextSource(std::rc::Rc::new(
         editor_context,
     )));
@@ -1341,8 +1343,8 @@ impl Render for EditorPanel {
         let notice = buffer.and_then(|b| b.notice.clone());
         let conflict = buffer.is_some_and(|b| b.has_conflict());
         let deleted = self.deleted;
-        let _ = window;
         let notes = self.render_pi_float(cx);
+        let ghost = spike_ghost::render(self, window, cx);
         // Watches the editor's width: when it grows, a sideways scroll that's no
         // longer needed goes back to column 0 (short lines looked empty).
         let width_watch = {
@@ -1367,6 +1369,18 @@ impl Render for EditorPanel {
         v_flex()
             .size_full()
             // Escape closes signature help (seen before the editor handles it; not consumed).
+            // SPIKE: Tab/Esc while a ghost suggestion is up (key bindings run
+            // before key-down listeners, so catch GPUI Kit's actions instead).
+            .capture_action(cx.listener(|this, _: &gpui_kit::component::input::IndentInline, window, cx| {
+                if spike_ghost::on_key(this, "tab", window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &gpui_kit::component::input::Escape, window, cx| {
+                if spike_ghost::on_key(this, "escape", window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
                 if ev.keystroke.key == "escape" {
                     this.hide_signature(cx);
@@ -1441,6 +1455,7 @@ impl Render for EditorPanel {
                     )
                     // pi's notes float over the code (`pi_float`).
                     .children(notes)
+                    .children(ghost)
                     .child(width_watch),
             )
     }
