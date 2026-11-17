@@ -138,6 +138,8 @@ impl EditorPanel {
             return None;
         }
         let color = pide_core::colors::pi_note(cx);
+        // A closed pill is opaque: at the edge it can sit over a full row's text.
+        let pill_bg = cx.theme().background.blend(color.opacity(0.18));
         let open = self.open_stop(cx);
         let editor = self.editor.read(cx);
         let rope = editor.text().clone();
@@ -243,7 +245,7 @@ impl EditorPanel {
                         .rounded_full()
                         .border_1()
                         .border_color(color.opacity(0.5))
-                        .bg(if is_open { color } else { color.opacity(0.18) })
+                        .bg(if is_open { color } else { pill_bg })
                         // Light text on the filled pill, in both themes.
                         .text_color(if is_open { gpui_kit::white() } else { color })
                         .child(if replies > 0 {
