@@ -74,10 +74,11 @@ and weight first, hue second.
 | File status | modified blue · added green · deleted gray · untracked red · conflict red (JetBrains) | `colors::change(Change::…, cx)`, `Change::from_letter` |
 | Problem states | error `danger`, warning `warning`, ok `success`, as text or a small dot | — |
 | Inline notice bar | tint of danger/warning, body text | `colors::notice_bg(error, cx)` |
-| pi's notes in the code (collaborator mode): gutter/scrollbar marks, the editor's note bar (tint), "to review" chip | magenta | `colors::pi_note(cx)` |
+| pi's notes in the code (collaborator mode): gutter/scrollbar marks, the editor's note bar (tint), "to review" chip | ochre (the theme's yellow) | `colors::pi_note(cx)` |
+| What pi says (lenses, note cards, chat replies) | — (typeface, not color: Newsreader) | `colors::VOICE` |
 | Destructive action | plain button in lists; red only for the final confirm (or Stop) | — |
 | Line counts (`+3 −1`) | green / red, 12 px | — |
-| Git refs in the Log | HEAD yellow, local green, remote magenta, tag cyan (tinted chips) | — |
+| Git refs in the Log | HEAD blue, local green, remote magenta, tag cyan (tinted chips) | — |
 
 Never use `theme.primary` or `theme.link` as a color, or `theme.accent` for
 selection: in the dark theme they are white, white and border-gray.
@@ -104,3 +105,10 @@ selection: in the dark theme they are white, white and border-gray.
 - Search match highlight (`warning` at 35 %): a highlight should pop.
 - Stop buttons stay red (`danger`): the action is "kill what's running now".
 - pi's "waiting for you" dialog card keeps its yellow border: it does need you.
+
+## 2026-11-17: pide's own themes ("Two voices", docs/DESIGN.md)
+
+pide no longer uses GPUI Kit's stock themes: `crates/app/themes/pide.json`
+defines pide Dark and pide Light. In them `primary` is still the ink color
+(white fill in dark) and `accent` still the hover gray, so the rules above
+hold. Warnings are orange; yellow is ochre and belongs to pi.

@@ -924,7 +924,7 @@ impl Render for GitLogPanel {
                                     .overflow_hidden()
                                     .children(c.refs.iter().map(|r| {
                                         let (fg, bgc) = match r.kind {
-                                            RefKind::Head => (theme.yellow, theme.yellow.opacity(0.15)),
+                                            RefKind::Head => (theme.blue, theme.blue.opacity(0.15)),
                                             RefKind::Local => (theme.green, theme.green.opacity(0.15)),
                                             RefKind::Remote => {
                                                 (theme.magenta, theme.magenta.opacity(0.15))

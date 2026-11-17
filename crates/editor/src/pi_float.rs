@@ -220,7 +220,11 @@ impl EditorPanel {
                         .overflow_hidden()
                         .text_color(color.opacity(if is_open { 0.95 } else { 0.7 }))
                         .hover(|st| st.text_color(color))
-                        .child(div().flex_none().font_weight(FontWeight::SEMIBOLD).child("◆ pi"))
+                        // pi's voice: a serif italic aside after the line.
+                        .font_family(pide_core::colors::VOICE)
+                        .italic()
+                        .text_sm()
+                        .child(div().flex_none().child("pi:"))
                         .child(
                             div()
                                 .flex_1()
@@ -280,8 +284,9 @@ impl EditorPanel {
                     } else {
                         first_text_x(editor, &rope, s.line).unwrap_or(start.left())
                     };
+                    let card_w = card_width(ob.size.width);
                     let x = (code_x - ob.left())
-                        .min(ob.size.width - px(CARD_W + RIGHT_PAD))
+                        .min(ob.size.width - card_w - px(RIGHT_PAD))
                         .max(px(8.));
                     let index = all.iter().position(|x| x.at == s.at);
                     let kind = kind_label(&s.at, &pins);
@@ -317,7 +322,7 @@ impl EditorPanel {
                         .absolute()
                         .left(x)
                         .top(y)
-                        .w(px(CARD_W))
+                        .w(card_width(ob.size.width))
                         // Hover and clicks stay on the card (no editor hover for
                         // the code under it).
                         .occlude()
@@ -448,7 +453,9 @@ impl EditorPanel {
             .text_xs()
             .child(
                 div()
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .font_family(pide_core::colors::VOICE)
+                    .italic()
+                    .text_sm()
                     .text_color(color)
                     .child("pi"),
             )
@@ -509,9 +516,16 @@ impl EditorPanel {
                 .or_insert_with(|| cx.new(|cx| TextViewState::markdown("", cx)))
                 .clone();
             view.update(cx, |v, cx| v.set_text(&text, cx));
-            TextView::new(&view)
-                .markdown_extensions(pide_core::math::markdown_extensions())
-                .selectable(true)
+            // pi's words, in pi's typeface.
+            div()
+                .w_full()
+                .font_family(pide_core::colors::VOICE)
+                .text_size(px(15.))
+                .child(
+                    TextView::new(&view)
+                        .markdown_extensions(pide_core::math::markdown_extensions())
+                        .selectable(true),
+                )
                 .into_any_element()
         };
         let note = md(slot_of(0), &note_body(&label), cx);
@@ -620,6 +634,13 @@ impl EditorPanel {
 }
 
 /// A note without the "<title> · i/n: " a tour stop's note starts with.
+/// The open card's width: [`CARD_W`], or the editor's width less its margins
+/// when the column is narrower (an editor beside a PDF), so the card's
+/// buttons are never cut off at the edge.
+fn card_width(editor_w: Pixels) -> Pixels {
+    px(CARD_W).min(editor_w - px(8. + RIGHT_PAD)).max(px(200.))
+}
+
 fn note_body(label: &str) -> String {
     match pide_core::collab::parse_tour_note(label) {
         Some((_, _, _, note)) => note.to_string(),

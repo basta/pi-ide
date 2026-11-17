@@ -54,10 +54,16 @@ pub fn accent(cx: &App) -> Hsla {
 }
 
 /// pi's notes in the code (collaborator mode): pins and hunk notes in the
-/// gutter, the note bar. Magenta, so it never reads as a git status.
+/// gutter, the note bar. Ochre (the theme's yellow; warnings are orange in
+/// pide's themes), so it never reads as a git status or a selection.
 pub fn pi_note(cx: &App) -> Hsla {
-    cx.theme().magenta
+    cx.theme().yellow
 }
+
+/// The typeface pi speaks in: its notes in the code, their cards, its chat
+/// replies. Your words stay in the UI and code faces, so the two voices are
+/// told apart at a glance (bundled by the app, docs/DESIGN.md).
+pub const VOICE: &str = "Newsreader";
 
 /// Background of an inline notice (read-only file, conflict, pending
 /// restart): a tint, with body-colored text, instead of a solid fill.
