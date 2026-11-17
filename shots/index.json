@@ -1,5 +1,53 @@
 [
  {
+  "file": "shots/spike-ghost-0-window.png",
+  "time": "2026-11-17T06:09:52Z",
+  "milestone": "spike-ghost-rows",
+  "caption": "Raw mode, whole window: a pi suggestion for line 4 (soft-wrapped over 5 rows) opened as GPUI Kit inline-completion ghost rows under the line's LAST visual row; line numbers (5…) move down with it; Accept/Reject overlay in the last ghost row."
+ },
+ {
+  "file": "shots/spike-ghost-1-cover-wrapped.png",
+  "time": "2026-11-17T06:09:52Z",
+  "milestone": "spike-ghost-rows",
+  "caption": "Cover mode: pide paints the replacement (pre-wrapped by us into 6 rows, green) over GPUI Kit's ghost rows and tints the old line red; buttons in the extra blank ghost row."
+ },
+ {
+  "file": "shots/spike-ghost-2-raw-kit-ghost-text.png",
+  "time": "2026-11-17T06:09:52Z",
+  "milestone": "spike-ghost-rows",
+  "caption": "Same suggestion without our cover: GPUI Kit's own ghost text (muted_foreground at 0.5, unwrapped rows) under the line."
+ },
+ {
+  "file": "shots/spike-ghost-3-clear-and-reshow.png",
+  "time": "2026-11-17T06:09:52Z",
+  "milestone": "spike-ghost-rows",
+  "caption": "What clears it (left to right): shown; Down arrow (GPUI Kit drops it, our overlay follows); Up+End back to the line end (auto re-ask lost a race: overlay without gap); focus to the pi composer (hidden); Esc back to the editor (re-asked, gap back); file changed on disk (re-anchored and re-shown)."
+ },
+ {
+  "file": "shots/spike-ghost-4-tab-undo-esc.png",
+  "time": "2026-11-17T06:09:52Z",
+  "milestone": "spike-ghost-rows",
+  "caption": "Tab = Accept through capture_action(IndentInline): our real edit, nothing inserted from the ghost; Cmd+Z undoes it in one step; Esc (capture_action(Escape)) rejects."
+ },
+ {
+  "file": "shots/spike-ghost-5-partial-scroll.png",
+  "time": "2026-11-17T06:09:52Z",
+  "milestone": "spike-ghost-rows",
+  "caption": "Scrolled so the suggested line's first rows are above the view: ghost rows and overlay stay aligned."
+ },
+ {
+  "file": "shots/spike-ghost-6-near-bottom.png",
+  "time": "2026-11-17T06:09:52Z",
+  "milestone": "spike-ghost-rows",
+  "caption": "Suggestion on a line at the bottom of the view: the ghost rows open below the fold; the editor does not scroll to show them."
+ },
+ {
+  "file": "shots/spike-ghost-7-overlay-stale-before-tracking.png",
+  "time": "2026-11-17T06:09:52Z",
+  "milestone": "spike-ghost-rows",
+  "caption": "Before tracking GPUI Kit's clear rules: Down / typing / a click drop the ghost rows silently while the overlay stays (no event or public getter tells pide)."
+ },
+ {
   "file": "shots/20261115T040013Z-inline3-g-reply-answered.png",
   "time": "2026-11-15T04:00:13Z",
   "milestone": "inline-comments",
