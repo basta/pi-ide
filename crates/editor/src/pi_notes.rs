@@ -198,7 +198,7 @@ impl EditorPanel {
                     Some(r) => {
                         let fill = RangeDecoration::new(r.clone())
                             .with_style(RangeDecorationStyle::Fill)
-                            .with_color(color.opacity(if strong { 0.24 } else { 0.12 }));
+                            .with_color(color.opacity(if strong { 0.18 } else { 0.09 }));
                         let frame = strong.then(|| {
                             RangeDecoration::new(r)
                                 .with_style(RangeDecorationStyle::Frame)
@@ -211,7 +211,7 @@ impl EditorPanel {
                         let end = line_range(&rope, s.end_line.max(s.line)).end;
                         vec![RangeDecoration::new(start..end)
                             .with_style(RangeDecorationStyle::Fill)
-                            .with_color(color.opacity(if strong { 0.12 } else { 0.05 }))]
+                            .with_color(color.opacity(if strong { 0.09 } else { 0.04 }))]
                     }
                 }
             })

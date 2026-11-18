@@ -42,8 +42,13 @@ Text is never pure white on black. Syntax colors are softened, and Typst and
 Markdown headings are bold ink, not orange: a section title shouldn't be the
 loudest thing in a prose file.
 
+pide Dark is the one in daily use and gets the polish; pide Light is kept
+working but not tuned.
+
 ## Not done yet (ideas from the canvas)
 
 - One header strip per pane: the pi panel still stacks pi / session tab /
   Chat-Changes.
 - The PDF backdrop as its own darker/lighter "well".
+- The "◆ pi" pill sits at the editor's edge on top of a long wrapped line's
+  last word.

@@ -76,7 +76,7 @@ impl EditorPanel {
             TextareaState::new(window, cx)
                 .auto_grow(1, 6)
                 .submit_on_enter(true)
-                .placeholder("Reply to pi… (Enter sends, Shift+Enter new line)")
+                .placeholder("Reply to pi")
         });
         self.pi._reply_sub = Some(cx.subscribe_in(
             &reply,
@@ -455,7 +455,7 @@ impl EditorPanel {
                 div()
                     .font_family(pide_core::colors::VOICE)
                     .italic()
-                    .text_sm()
+                    .text_base()
                     .text_color(color)
                     .child("pi"),
             )
@@ -552,8 +552,10 @@ impl EditorPanel {
                 .border_color(theme.border)
                 .child(
                     div()
-                        .text_xs()
-                        .font_weight(FontWeight::SEMIBOLD)
+                        .when(pi, |d| {
+                            d.font_family(pide_core::colors::VOICE).italic().text_base()
+                        })
+                        .when(!pi, |d| d.text_xs().font_weight(FontWeight::SEMIBOLD))
                         .text_color(if pi { color } else { theme.foreground })
                         .child(if pi { "pi" } else { "You" }),
                 )
@@ -607,14 +609,17 @@ impl EditorPanel {
                         a_resolve.update(cx, |a, cx| a.dismiss_stop(&at, cx));
                     }),
             )
-            .child(
-                Button::new("pi-card-send")
-                    .xsmall()
-                    .primary()
-                    .label("Send")
-                    .disabled(send_disabled)
-                    .on_click(cx.listener(|this, _, window, cx| this.send_reply(window, cx))),
-            );
+            // Send shows once there is something to send (Enter sends too).
+            .when(!reply_empty, |d| {
+                d.child(
+                    Button::new("pi-card-send")
+                        .xsmall()
+                        .primary()
+                        .label("Send")
+                        .disabled(send_disabled)
+                        .on_click(cx.listener(|this, _, window, cx| this.send_reply(window, cx))),
+                )
+            });
         v_flex()
             .w_full()
             .p_2()
@@ -622,7 +627,7 @@ impl EditorPanel {
             .text_sm()
             .rounded_md()
             .border_1()
-            .border_color(color)
+            .border_color(color.opacity(0.45))
             .bg(theme.popover)
             .shadow_lg()
             .child(head)
@@ -633,7 +638,6 @@ impl EditorPanel {
     }
 }
 
-/// A note without the "<title> · i/n: " a tour stop's note starts with.
 /// The open card's width: [`CARD_W`], or the editor's width less its margins
 /// when the column is narrower (an editor beside a PDF), so the card's
 /// buttons are never cut off at the edge.
@@ -641,6 +645,7 @@ fn card_width(editor_w: Pixels) -> Pixels {
     px(CARD_W).min(editor_w - px(8. + RIGHT_PAD)).max(px(200.))
 }
 
+/// A note without the "<title> · i/n: " a tour stop's note starts with.
 fn note_body(label: &str) -> String {
     match pide_core::collab::parse_tour_note(label) {
         Some((_, _, _, note)) => note.to_string(),
