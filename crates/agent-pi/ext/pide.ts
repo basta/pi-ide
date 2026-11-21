@@ -16,12 +16,16 @@ import { isAbsolute, relative, resolve } from "node:path";
 /** Pins allowed per user prompt (a run); more are refused so pi stays sparing. */
 const MAX_PINS = 5;
 
+/** The script panel guide pide writes at start-up (crates/panels/scripts, docs/SCRIPT-PANELS.md). */
+const GUIDE = `${process.env.XDG_STATE_HOME || `${process.env.HOME}/.local/state`}/pide/builtin-panels/GUIDE.md`;
+
 /** The `<pide>` system prompt section: where the model runs and how the user sees its work. */
 const PIDE_SECTION = [
   "You are running inside pide, the user's code editor. The user reads your replies in its pi panel and sees your work in the editor.",
   "- A user message may start with an <editor-context> block: the file the user had open (relative to the project root), the cursor or selection, and the selected text. It is from when they sent the message. Words like \"this\" or \"here\" usually mean that code.",
   "- pide records every file you change. The user reviews the changes there, diff by diff, next to what you said with ide_explain_change and ide_pin, so keep your final reply short instead of repeating the changes.",
   "- The ide_* tools show things in the editor; their paths may be relative to the project root.",
+  `- pide can be extended with script panels: tool windows in JavaScript, in .pide/panels/<name>/ (this project) or ~/.config/pide/panels/<name>/ (every project). When the user asks for a panel, view or dashboard inside pide, write one; read ${GUIDE} first.`,
 ].join("\n");
 
 export default function (pi: any) {

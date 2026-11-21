@@ -114,6 +114,12 @@ pub fn builtin_panels() -> Vec<Found> {
             }
         }
     }
+    // The guide pi reads before writing a panel (the system prompt points here).
+    let guide = dir.join("GUIDE.md");
+    let text = include_str!("../../../../docs/SCRIPT-PANELS.md");
+    if std::fs::read_to_string(&guide).ok().as_deref() != Some(text) {
+        let _ = std::fs::write(&guide, text);
+    }
     manifest::scan(&dir, None)
         .into_iter()
         .map(|mut f| {
