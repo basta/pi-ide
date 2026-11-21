@@ -91,44 +91,6 @@ pub(crate) fn result_text(result: &Value, tail: bool) -> String {
 
 /// Conversation history from a pi session file (`docs/session-format.md`).
 /// Branches are flattened in file order — good enough to read back.
-/// The entries of the session's current branch, root first: pi sessions are
-/// trees (`id` / `parentId`), and the branch in use ends at the last entry.
-/// Entries without ids (older files) are kept in file order.
-pub(crate) fn current_branch(entries: Vec<Value>) -> Vec<Value> {
-    let ids: std::collections::HashMap<String, usize> = entries
-        .iter()
-        .enumerate()
-        .filter_map(|(i, v)| {
-            v.get("id")
-                .and_then(Value::as_str)
-                .map(|id| (id.to_string(), i))
-        })
-        .collect();
-    let Some(last) = entries.iter().rposition(|v| v.get("id").is_some()) else {
-        return entries;
-    };
-    let mut chain = vec![last];
-    let mut at = last;
-    while let Some(parent) = entries[at].get("parentId").and_then(Value::as_str) {
-        match ids.get(parent) {
-            Some(&p) if !chain.contains(&p) => {
-                chain.push(p);
-                at = p;
-            }
-            _ => break,
-        }
-    }
-    chain.reverse();
-    // Entries outside the tree (no id: the session header) stay where they were.
-    let keep: std::collections::HashSet<usize> = chain.iter().copied().collect();
-    entries
-        .into_iter()
-        .enumerate()
-        .filter(|(i, v)| keep.contains(i) || v.get("id").is_none())
-        .map(|(_, v)| v)
-        .collect()
-}
-
 pub(crate) fn parse_history(path: &std::path::Path) -> Vec<HistItem> {
     use std::io::BufRead;
     let Ok(file) = std::fs::File::open(path) else {
@@ -140,7 +102,7 @@ pub(crate) fn parse_history(path: &std::path::Path) -> Vec<HistItem> {
         .filter_map(|l| serde_json::from_str::<Value>(&l).ok())
         .collect();
     let mut out: Vec<HistItem> = Vec::new();
-    for v in current_branch(entries) {
+    for v in pide_core::sessions::current_branch(entries) {
         match v.get("type").and_then(Value::as_str) {
             Some("message") => {}
             Some("model_change") => {
@@ -259,7 +221,7 @@ mod tests {
             e("d", Some("b")),
             e("e", Some("d")),
         ];
-        let ids: Vec<String> = current_branch(entries)
+        let ids: Vec<String> = pide_core::sessions::current_branch(entries)
             .iter()
             .map(|v| {
                 v.get("id")
@@ -271,6 +233,6 @@ mod tests {
         assert_eq!(ids, ["-", "a", "b", "d", "e"]);
         // No ids at all: unchanged.
         let plain = vec![serde_json::json!({ "x": 1 }), serde_json::json!({ "x": 2 })];
-        assert_eq!(current_branch(plain.clone()), plain);
+        assert_eq!(pide_core::sessions::current_branch(plain.clone()), plain);
     }
 }

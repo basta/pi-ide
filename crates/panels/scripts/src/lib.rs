@@ -10,6 +10,7 @@
 
 pub mod host;
 pub mod image;
+pub mod pi;
 pub mod manifest;
 
 use std::collections::HashMap;
@@ -373,6 +374,7 @@ impl ScriptPanel {
         gpui_shell::set_bundle_id(&bundle_id(&self.found))?;
         gpui_shell::set_capabilities(capabilities(&self.found, &self.project));
         image::remember(&self.found.dir, &self.project);
+        pi::remember(&self.found.dir, self.found.manifest.permissions.pi);
         let root = rt.try_load(&self.found.dir, window, cx)?;
         let watch = match rt.watch(&root, window, cx) {
             Ok(w) => Some(w),

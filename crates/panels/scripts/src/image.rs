@@ -28,7 +28,7 @@ pub fn remember(dir: &Path, project: &Path) {
 }
 
 /// The panel whose script is running: the folder in its read grant.
-fn running_panel() -> Option<(PathBuf, PathBuf)> {
+pub(crate) fn running_panel() -> Option<(PathBuf, PathBuf)> {
     let caps = format!("{:?}", gpui_shell::current_capabilities());
     let roots = ROOTS.lock().unwrap();
     roots

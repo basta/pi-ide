@@ -55,14 +55,21 @@ export interface Colors {
  */
 export function nextEvent(): Promise<PideEvent>;
 export interface PideEvent {
-  kind: "diagnostics" | "saved" | "changed" | "active" | "files" | "git" | "cursor",
+  kind: "diagnostics" | "saved" | "changed" | "active" | "files" | "git" | "cursor" | "pi",
   path: string | null,
+  /** kind "pi": what happened, and in which session (null for "sessions"). */
+  what?: "status" | "message" | "tool" | "change" | "note" | "progress" | "settled" | "sessions",
+  session?: string | null,
 }
 "#;
 
 pub fn module() -> HostModule {
+    crate::pi::register(base())
+}
+
+fn base() -> HostModule {
     HostModule::new(MODULE)
-        .declarations(DECLARATIONS)
+        .declarations(format!("{DECLARATIONS}{}", crate::pi::DECLARATIONS))
         .function("root", |_| {
             with_project(|s, _, cx| Ok(s.workspace.read(cx).root().display().to_string().into()))
         })
@@ -188,7 +195,7 @@ pub fn module() -> HostModule {
         })
 }
 
-fn num(n: impl Into<f64>) -> HostValue {
+pub(crate) fn num(n: impl Into<f64>) -> HostValue {
     HostValue::Number(n.into())
 }
 
@@ -198,7 +205,7 @@ fn num(n: impl Into<f64>) -> HostValue {
 /// so the project is found through the calling panel's grant: every script
 /// panel may read its project root, and that root names the window. (Stopgap
 /// until gpui-shell exposes the caller's window; see docs/GAPS.md.)
-fn with_project<R>(
+pub(crate) fn with_project<R>(
     f: impl FnOnce(&Services, WindowId, &mut App) -> Result<R, HostError>,
 ) -> Result<R, HostError> {
     let grant = format!("{:?}", gpui_shell::current_capabilities());
@@ -216,7 +223,7 @@ fn with_project<R>(
 }
 
 /// Run `f` in the project's window once the current script call is done.
-fn later(id: WindowId, cx: &mut App, f: impl FnOnce(&mut Window, &mut App) + 'static) {
+pub(crate) fn later(id: WindowId, cx: &mut App, f: impl FnOnce(&mut Window, &mut App) + 'static) {
     cx.defer(move |cx| {
         if let Some(handle) = cx.windows().into_iter().find(|w| w.window_id() == id) {
             let _ = handle.update(cx, |_, window, cx| f(window, cx));
@@ -225,7 +232,7 @@ fn later(id: WindowId, cx: &mut App, f: impl FnOnce(&mut Window, &mut App) + 'st
 }
 
 /// A project-relative path, refusing anything that leaves the project.
-fn resolve(root: &Path, path: &str) -> Result<PathBuf, HostError> {
+pub(crate) fn resolve(root: &Path, path: &str) -> Result<PathBuf, HostError> {
     let p = Path::new(path);
     if p.is_absolute() {
         return if p.starts_with(root) {
@@ -242,7 +249,7 @@ fn resolve(root: &Path, path: &str) -> Result<PathBuf, HostError> {
     Ok(root.join(p))
 }
 
-fn rel(root: &Path, path: &Path) -> String {
+pub(crate) fn rel(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
         .display()
@@ -346,7 +353,7 @@ pub fn watch_window(window: &Window, cx: &mut App) {
     let store = LspStore::for_workspace(&services.workspace, cx);
     let r = root.clone();
     let r2 = root.clone();
-    let subs = vec![
+    let mut subs = vec![
         cx.subscribe(&services.workspace, move |_, ev: &WorkspaceEvent, cx| {
             let path = |b: &Entity<pide_core::Buffer>| Some(rel(&r, &b.read(cx).path));
             let (kind, path) = match ev {
@@ -366,6 +373,7 @@ pub fn watch_window(window: &Window, cx: &mut App) {
             }
         }),
     ];
+    subs.extend(crate::pi::watch(id, &services, cx));
     // GPUI has no cursor event outside the editor: look a few times a second
     // and wake scripts with `cursor` when the line or selection moves.
     let handle = window.window_handle();
@@ -406,16 +414,22 @@ pub fn forget_window(id: WindowId, cx: &mut App) {
 }
 
 fn wake(id: WindowId, kind: &str, path: Option<String>) {
+    wake_with(
+        id,
+        HostObject::new()
+            .field("kind", kind)
+            .field("path", path)
+            .into(),
+    );
+}
+
+/// Hand `event` to every script waiting in `nextEvent` in window `id`.
+pub(crate) fn wake_with(id: WindowId, event: HostValue) {
     let waiting = WAITERS
         .with(|w| w.borrow_mut().remove(&id))
         .unwrap_or_default();
     for tx in waiting {
-        let _ = tx.send(
-            HostObject::new()
-                .field("kind", kind)
-                .field("path", path.clone())
-                .into(),
-        );
+        let _ = tx.send(event.clone());
     }
 }
 

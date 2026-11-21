@@ -314,3 +314,41 @@ mod tests {
         );
     }
 }
+
+/// The entries of the session's current branch, root first: pi sessions are
+/// trees (`id` / `parentId`), and the branch in use ends at the last entry.
+/// Entries without ids (older files) are kept in file order.
+pub fn current_branch(entries: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+    let ids: std::collections::HashMap<String, usize> = entries
+        .iter()
+        .enumerate()
+        .filter_map(|(i, v)| {
+            v.get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(|id| (id.to_string(), i))
+        })
+        .collect();
+    let Some(last) = entries.iter().rposition(|v| v.get("id").is_some()) else {
+        return entries;
+    };
+    let mut chain = vec![last];
+    let mut at = last;
+    while let Some(parent) = entries[at].get("parentId").and_then(serde_json::Value::as_str) {
+        match ids.get(parent) {
+            Some(&p) if !chain.contains(&p) => {
+                chain.push(p);
+                at = p;
+            }
+            _ => break,
+        }
+    }
+    chain.reverse();
+    // Entries outside the tree (no id: the session header) stay where they were.
+    let keep: std::collections::HashSet<usize> = chain.iter().copied().collect();
+    entries
+        .into_iter()
+        .enumerate()
+        .filter(|(i, v)| keep.contains(i) || v.get("id").is_none())
+        .map(|(_, v)| v)
+        .collect()
+}
