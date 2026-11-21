@@ -68,6 +68,8 @@ pub struct Found {
     pub dir: PathBuf,
     /// Project panels come from `.pide/panels` in that project, yours from the config dir.
     pub project: Option<PathBuf>,
+    /// Shipped with pide (crates/panels/scripts/builtin): trusted, no consent card.
+    pub builtin: bool,
     pub manifest: Manifest,
     /// Why `panel.json` couldn't be read, if it couldn't.
     pub error: Option<String>,
@@ -75,14 +77,23 @@ pub struct Found {
 
 impl Found {
     pub fn title(&self) -> String {
-        self.manifest.title.clone().unwrap_or_else(|| self.name.clone())
+        self.manifest
+            .title
+            .clone()
+            .unwrap_or_else(|| self.name.clone())
     }
 
     /// Stable id: the tool window's `panel_name`, so saved layouts find it again.
     pub fn id(&self) -> String {
-        match &self.project {
-            Some(_) => format!("script:project/{}", self.name),
-            None => format!("script:user/{}", self.name),
+        format!("script:{}/{}", self.scope(), self.name)
+    }
+
+    /// `builtin`, `project` or `user`.
+    pub fn scope(&self) -> &'static str {
+        match (&self.project, self.builtin) {
+            (_, true) => "builtin",
+            (Some(_), _) => "project",
+            (None, _) => "user",
         }
     }
 }
@@ -113,6 +124,7 @@ pub fn scan(dir: &Path, project: Option<&Path>) -> Vec<Found> {
                 name,
                 dir,
                 project: project.map(Path::to_path_buf),
+                builtin: false,
                 manifest,
                 error,
             })
@@ -138,7 +150,10 @@ mod tests {
         let root = std::env::temp_dir().join(format!("pide-scan-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for (name, manifest) in [
-            ("problems", Some(r#"{"title":"Problems","dock":"bottom","permissions":{"run":["cargo"]}}"#)),
+            (
+                "problems",
+                Some(r#"{"title":"Problems","dock":"bottom","permissions":{"run":["cargo"]}}"#),
+            ),
             ("bare", None),
             ("broken", Some("{nope")),
         ] {

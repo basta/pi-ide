@@ -4,7 +4,10 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use gpui_kit::{AppContext as _, Context, Entity, IntoElement, Render, TestAppContext, VisualTestContext, Window};
+use gpui_kit::{
+    AppContext as _, Context, Entity, IntoElement, Render, TestAppContext, VisualTestContext,
+    Window,
+};
 use pide_core::{Agent, AgentBackend, DialogAnswer, Services, Sessions, Workspace};
 
 struct NoPi;
@@ -13,7 +16,8 @@ impl AgentBackend for NoPi {
     fn abort(&mut self, _: &mut Agent, _: &mut Context<Agent>) {}
     fn new_session(&mut self, _: &mut Agent, _: &mut Context<Agent>) {}
     fn queue(&mut self, _: String, _: bool, _: &mut Agent, _: &mut Context<Agent>) {}
-    fn answer_dialog(&mut self, _: String, _: DialogAnswer, _: &mut Agent, _: &mut Context<Agent>) {}
+    fn answer_dialog(&mut self, _: String, _: DialogAnswer, _: &mut Agent, _: &mut Context<Agent>) {
+    }
     fn restart(&mut self, _: &mut Agent, _: &mut Context<Agent>) {}
 }
 
@@ -73,7 +77,14 @@ export default class Probe extends View {
     let window = cx.add_window(move |window, cx| {
         let workspace = cx.new(|cx| Workspace::new(p.clone(), cx));
         let sessions = cx.new(|cx| Sessions::new(Rc::new(|_| Box::new(NoPi)), cx));
-        Services::register(window.window_handle().window_id(), Services { workspace, sessions }, cx);
+        Services::register(
+            window.window_handle().window_id(),
+            Services {
+                workspace,
+                sessions,
+            },
+            cx,
+        );
         let view = runtime.mount_application(&loaded, window, cx).unwrap();
         *slot2.borrow_mut() = Some(view.clone());
         Host(view)
@@ -87,8 +98,62 @@ export default class Probe extends View {
         assert_eq!(v.build_error(), None);
         v.snapshot().unwrap().debug_tree()
     });
-    assert!(tree.contains(&format!("root={}", project.display())), "{tree}");
+    assert!(
+        tree.contains(&format!("root={}", project.display())),
+        "{tree}"
+    );
     assert!(tree.contains("diags=0"), "{tree}");
     assert!(tree.contains("bg=7"), "{tree}");
     assert!(tree.contains("file=hello from disk"), "{tree}");
+}
+
+struct PanelHost(Entity<pide_scripts::ScriptPanel>);
+impl Render for PanelHost {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        self.0.clone()
+    }
+}
+
+#[gpui_kit::test]
+fn the_shipped_problems_panel_runs(cx: &mut TestAppContext) {
+    let state = temp("state");
+    // SAFETY: tests in this binary that read the state dir run after this sets it.
+    unsafe { std::env::set_var("XDG_STATE_HOME", &state) };
+    let project = temp("problems-project");
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        pide_scripts::init(cx);
+    });
+    let found = pide_scripts::builtin_panels()
+        .into_iter()
+        .find(|f| f.name == "problems")
+        .expect("shipped problems panel");
+    let slot = Rc::new(std::cell::RefCell::new(None));
+    let slot2 = slot.clone();
+    let window = cx.add_window(move |window, cx| {
+        let workspace = cx.new(|cx| Workspace::new(project.clone(), cx));
+        let sessions = cx.new(|cx| Sessions::new(Rc::new(|_| Box::new(NoPi)), cx));
+        Services::register(
+            window.window_handle().window_id(),
+            Services {
+                workspace,
+                sessions,
+            },
+            cx,
+        );
+        let panel = cx
+            .new(|cx| pide_scripts::ScriptPanel::new(found, "script:builtin/problems", window, cx));
+        *slot2.borrow_mut() = Some(panel.clone());
+        PanelHost(panel)
+    });
+    let mut vcx = VisualTestContext::from_window(*window, cx);
+    let panel = slot.borrow().clone().unwrap();
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    let tree = vcx.update(|_, cx| panel.read(cx).describe(cx));
+    assert!(tree.contains("No problems"), "{tree}");
+    assert!(
+        tree.contains("Button") && tree.contains("problems-list"),
+        "{tree}"
+    );
 }

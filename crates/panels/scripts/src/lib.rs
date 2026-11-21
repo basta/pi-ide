@@ -11,7 +11,6 @@
 pub mod host;
 pub mod manifest;
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -25,18 +24,19 @@ use pide_core::{CommandRegistry, CommandSpec, DockPosition, Panel, Services};
 
 use manifest::Found;
 
-thread_local! {
-    /// One JavaScript VM for every script panel; each panel has its own policy.
-    static RUNTIME: RefCell<Option<Rc<ShellRuntime>>> = const { RefCell::new(None) };
-}
+/// One JavaScript VM for every script panel; each panel has its own policy.
+/// A GPUI global, not a thread-local: it must go before gpui-shell's own
+/// thread-locals do, or quitting aborts.
+struct Runtime(Rc<ShellRuntime>);
+impl Global for Runtime {}
 
 fn runtime(cx: &mut App) -> anyhow::Result<Rc<ShellRuntime>> {
-    if let Some(rt) = RUNTIME.with(|r| r.borrow().clone()) {
-        return Ok(rt);
+    if let Some(rt) = cx.try_global::<Runtime>() {
+        return Ok(rt.0.clone());
     }
     let components = gpui_shell::components::components()?;
     let rt = ShellRuntime::new_with_components(cx, components)?;
-    RUNTIME.with(|r| *r.borrow_mut() = Some(rt.clone()));
+    cx.set_global(Runtime(rt.clone()));
     Ok(rt)
 }
 
@@ -50,14 +50,21 @@ pub fn init(cx: &mut App) {
     if let Err(e) = gpui_shell::export_module(host::module()) {
         log::error!("script panels: the pide module didn't register: {e}");
     }
-    for found in manifest::scan(&user_dir(), None) {
+    for found in builtin_panels()
+        .into_iter()
+        .chain(manifest::scan(&user_dir(), None))
+    {
         register(found, cx);
     }
     CommandRegistry::register(
         cx,
         CommandSpec::new("panels.rescan", "Script Panels: Look for New Panels"),
         |window, cx| {
-            let root = Services::of(window, cx).workspace.read(cx).root().to_path_buf();
+            let root = Services::of(window, cx)
+                .workspace
+                .read(cx)
+                .root()
+                .to_path_buf();
             open_project(&root, cx);
             for found in manifest::scan(&user_dir(), None) {
                 register(found, cx);
@@ -66,14 +73,54 @@ pub fn init(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
-        CommandSpec::new("panels.open_folder", "Script Panels: Open This Project's Panels Folder"),
+        CommandSpec::new(
+            "panels.open_folder",
+            "Script Panels: Open This Project's Panels Folder",
+        ),
         |window, cx| {
-            let root = Services::of(window, cx).workspace.read(cx).root().to_path_buf();
+            let root = Services::of(window, cx)
+                .workspace
+                .read(cx)
+                .root()
+                .to_path_buf();
             let dir = project_dir(&root);
             let _ = std::fs::create_dir_all(&dir);
             cx.reveal_path(&dir);
         },
     );
+}
+
+/// Panels shipped with pide, by folder name: (file, contents).
+const BUILTIN: &[(&str, &[(&str, &str)])] = &[(
+    "problems",
+    &[
+        ("panel.json", include_str!("../builtin/problems/panel.json")),
+        ("main.js", include_str!("../builtin/problems/main.js")),
+    ],
+)];
+
+/// Write the shipped panels to the state dir (only what changed) and list them.
+pub fn builtin_panels() -> Vec<Found> {
+    let dir = pide_core::paths::state_dir().join("builtin-panels");
+    for (name, files) in BUILTIN {
+        let panel = dir.join(name);
+        let _ = std::fs::create_dir_all(&panel);
+        for (file, text) in *files {
+            let path = panel.join(file);
+            if std::fs::read_to_string(&path).ok().as_deref() != Some(*text) {
+                if let Err(e) = std::fs::write(&path, text) {
+                    log::warn!("couldn't write {}: {e}", path.display());
+                }
+            }
+        }
+    }
+    manifest::scan(&dir, None)
+        .into_iter()
+        .map(|mut f| {
+            f.builtin = true;
+            f
+        })
+        .collect()
 }
 
 /// `~/.config/pide/panels`: panels for every project.
@@ -89,7 +136,16 @@ pub fn project_dir(root: &Path) -> PathBuf {
 /// Register a project's panels. The app calls this before the project's window
 /// restores its layout, so saved script panels come back.
 pub fn open_project(root: &Path, cx: &mut App) {
-    for found in manifest::scan(&project_dir(root), Some(root)) {
+    let dir = project_dir(root);
+    // gpui-shell writes editor type files beside each script; keep them out of git.
+    let ignore = dir.join(".gitignore");
+    if dir.is_dir() && !ignore.exists() {
+        let _ = std::fs::write(
+            &ignore,
+            "gpui-kit.d.ts\njsconfig.json\n*/gpui-kit.d.ts\n*/jsconfig.json\n",
+        );
+    }
+    for found in manifest::scan(&dir, Some(root)) {
         register(found, cx);
     }
 }
@@ -134,8 +190,11 @@ fn register(found: Found, cx: &mut App) {
     if unchanged {
         return;
     }
-    let scope = if found.project.is_some() { "project" } else { "user" };
-    let command = leak(format!("view.script.{scope}.{}", found.name.replace('-', "_")));
+    let scope = found.scope();
+    let command = leak(format!(
+        "view.script.{scope}.{}",
+        found.name.replace('-', "_")
+    ));
     let title = leak(found.title());
     let key = found.manifest.key.clone().map(leak);
     let id_static: &'static str = leak(id.clone());
@@ -179,6 +238,9 @@ fn load_grants() -> HashMap<String, serde_json::Value> {
 }
 
 fn granted(found: &Found) -> bool {
+    if found.builtin {
+        return true;
+    }
     let want = serde_json::to_value(&found.manifest.permissions).unwrap_or_default();
     load_grants().get(&found.dir.display().to_string()) == Some(&want)
 }
@@ -193,7 +255,10 @@ fn grant(found: &Found) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    if let Err(e) = std::fs::write(&path, serde_json::to_string_pretty(&all).unwrap_or_default()) {
+    if let Err(e) = std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&all).unwrap_or_default(),
+    ) {
         log::warn!("couldn't save panel grants to {}: {e}", path.display());
     }
 }
@@ -258,9 +323,18 @@ pub struct ScriptPanel {
 impl EventEmitter<PanelEvent> for ScriptPanel {}
 
 impl ScriptPanel {
-    pub fn new(found: Found, name: &'static str, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        found: Found,
+        name: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         host::watch_window(window, cx);
-        let project = Services::of(window, cx).workspace.read(cx).root().to_path_buf();
+        let project = Services::of(window, cx)
+            .workspace
+            .read(cx)
+            .root()
+            .to_path_buf();
         let mut this = Self {
             name,
             found,
@@ -297,7 +371,10 @@ impl ScriptPanel {
                 None
             }
         };
-        Ok(State::Running { root, _watch: watch })
+        Ok(State::Running {
+            root,
+            _watch: watch,
+        })
     }
 
     fn allow(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -307,7 +384,9 @@ impl ScriptPanel {
 
     fn show_code(&self, window: &mut Window, cx: &mut App) {
         let path = self.found.dir.join(manifest::ENTRY);
-        window.defer(cx, move |window, cx| pide_core::opener::open_file(path, window, cx));
+        window.defer(cx, move |window, cx| {
+            pide_core::opener::open_file(path, window, cx)
+        });
     }
 
     fn ask_pi_to_fix(&self, error: &str, window: &mut Window, cx: &mut App) {
@@ -315,7 +394,9 @@ impl ScriptPanel {
             "The script panel in {} fails to load:\n\n```\n{error}\n```\n\nFix it.",
             self.found.dir.display()
         );
-        window.defer(cx, move |window, cx| pide_core::opener::ask_agent(text, window, cx));
+        window.defer(cx, move |window, cx| {
+            pide_core::opener::ask_agent(text, window, cx)
+        });
     }
 
     fn consent(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -341,18 +422,20 @@ impl ScriptPanel {
                     .text_color(theme.muted_foreground)
                     .child(format!("A script panel. {source}")),
             )
-            .child(v_flex().gap_1().children(lines.into_iter().map(|(asks, line)| {
-                h_flex()
-                    .gap_2()
-                    .child(
-                        div()
-                            .w(px(8.))
-                            .h(px(8.))
-                            .rounded_full()
-                            .bg(if asks { theme.warning } else { theme.success }),
-                    )
-                    .child(line)
-            })))
+            .child(
+                v_flex()
+                    .gap_1()
+                    .children(lines.into_iter().map(|(asks, line)| {
+                        h_flex()
+                            .gap_2()
+                            .child(div().w(px(8.)).h(px(8.)).rounded_full().bg(if asks {
+                                theme.warning
+                            } else {
+                                theme.success
+                            }))
+                            .child(line)
+                    })),
+            )
             .child(
                 div()
                     .text_xs()
@@ -366,7 +449,9 @@ impl ScriptPanel {
                         Button::new("show-code")
                             .small()
                             .label("Show Code")
-                            .on_click(cx.listener(|this, _, window, cx| this.show_code(window, cx))),
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.show_code(window, cx)),
+                            ),
                     )
                     .child(
                         Button::new("allow")
@@ -400,38 +485,68 @@ impl ScriptPanel {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(Button::new("fix").small().label("Ask pi to Fix").on_click(cx.listener(
-                        move |this, _, window, cx| this.ask_pi_to_fix(&err, window, cx),
-                    )))
-                    .child(
-                        Button::new("code")
-                            .small()
-                            .label("Open main.js")
-                            .on_click(cx.listener(|this, _, window, cx| this.show_code(window, cx))),
-                    )
-                    .child(Button::new("retry").small().ghost().label("Retry").on_click(
-                        cx.listener(|this, _, window, cx| {
-                            // Re-read panel.json too: the fix may have been there.
-                            let fresh = manifest::scan(
-                                this.found.dir.parent().unwrap_or(&this.found.dir),
-                                this.found.project.as_deref(),
-                            )
-                            .into_iter()
-                            .find(|f| f.name == this.found.name);
-                            if let Some(f) = fresh {
-                                this.found = f;
-                            }
-                            if let Some(e) = this.found.error.clone() {
-                                this.state = State::Failed(e);
-                            } else if granted(&this.found) {
-                                this.start(window, cx);
-                            } else {
-                                this.state = State::Consent;
-                            }
-                            cx.notify();
+                    .child(Button::new("fix").small().label("Ask pi to Fix").on_click(
+                        cx.listener(move |this, _, window, cx| {
+                            this.ask_pi_to_fix(&err, window, cx)
                         }),
-                    )),
+                    ))
+                    .child(
+                        Button::new("code").small().label("Open main.js").on_click(
+                            cx.listener(|this, _, window, cx| this.show_code(window, cx)),
+                        ),
+                    )
+                    .child(
+                        Button::new("retry")
+                            .small()
+                            .ghost()
+                            .label("Retry")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                // Re-read panel.json too: the fix may have been there.
+                                let fresh = manifest::scan(
+                                    this.found.dir.parent().unwrap_or(&this.found.dir),
+                                    this.found.project.as_deref(),
+                                )
+                                .into_iter()
+                                .find(|f| f.name == this.found.name);
+                                if let Some(f) = fresh {
+                                    this.found = f;
+                                }
+                                if let Some(e) = this.found.error.clone() {
+                                    this.state = State::Failed(e);
+                                } else if granted(&this.found) {
+                                    this.start(window, cx);
+                                } else {
+                                    this.state = State::Consent;
+                                }
+                                cx.notify();
+                            })),
+                    ),
             )
+    }
+}
+
+impl ScriptPanel {
+    /// What the panel shows, as text: the script's element tree, or why it
+    /// isn't running. For tests and devctl.
+    pub fn describe(&self, cx: &App) -> String {
+        match &self.state {
+            State::Consent => "consent".into(),
+            State::Failed(e) => format!("failed: {e}"),
+            State::Running { root, .. } => {
+                let content = root.read(cx).content().clone();
+                match content.downcast::<gpui_shell::ScriptView>() {
+                    Ok(view) => {
+                        let view = view.read(cx);
+                        match (view.build_error(), view.snapshot()) {
+                            (Some(e), _) => format!("error: {e}"),
+                            (None, Some(s)) => s.debug_tree(),
+                            (None, None) => "not rendered yet".into(),
+                        }
+                    }
+                    Err(_) => "running".into(),
+                }
+            }
+        }
     }
 }
 

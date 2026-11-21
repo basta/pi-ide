@@ -69,7 +69,11 @@ pub fn module() -> HostModule {
         .function("activeFile", |_| {
             with_project(|s, id, cx| {
                 let root = s.workspace.read(cx).root().to_path_buf();
-                let Some(path) = s.workspace.read(cx).active().map(|b| b.read(cx).path.clone())
+                let Some(path) = s
+                    .workspace
+                    .read(cx)
+                    .active()
+                    .map(|b| b.read(cx).path.clone())
                 else {
                     return Ok(HostValue::Null);
                 };
@@ -77,7 +81,10 @@ pub fn module() -> HostModule {
                 // inside one of its events: then only the path is known.
                 let handle = cx.windows().into_iter().find(|w| w.window_id() == id);
                 let ctx = handle
-                    .and_then(|h| h.update(cx, |_, window, cx| pide_core::context::current(window, cx)).ok())
+                    .and_then(|h| {
+                        h.update(cx, |_, window, cx| pide_core::context::current(window, cx))
+                            .ok()
+                    })
                     .flatten();
                 let mut o = HostObject::new().field("path", rel(&root, &path));
                 o = match ctx {
@@ -126,7 +133,9 @@ pub fn module() -> HostModule {
             let (abs, open) = with_project(move |s, _, cx| {
                 let ws = s.workspace.read(cx);
                 let abs = resolve(ws.root(), &path)?;
-                let open = ws.buffer_for(&abs, cx).map(|b| b.read(cx).text().to_string());
+                let open = ws
+                    .buffer_for(&abs, cx)
+                    .map(|b| b.read(cx).text().to_string());
                 Ok((abs, open))
             })?;
             Ok(async move {
@@ -157,7 +166,9 @@ pub fn module() -> HostModule {
         .function("askPi", |args| {
             let text = args.string(0)?.to_string();
             with_project(move |_, id, cx| {
-                later(id, cx, move |window, cx| pide_core::opener::ask_agent(text, window, cx));
+                later(id, cx, move |window, cx| {
+                    pide_core::opener::ask_agent(text, window, cx)
+                });
                 Ok(HostValue::Null)
             })
         })
@@ -221,14 +232,19 @@ fn resolve(root: &Path, path: &str) -> Result<PathBuf, HostError> {
             Err(HostError::new(format!("{path} is outside the project")))
         };
     }
-    if p.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+    if p.components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
         return Err(HostError::new(format!("{path} leaves the project")));
     }
     Ok(root.join(p))
 }
 
 fn rel(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root).unwrap_or(path).display().to_string()
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
 }
 
 pub fn diagnostics_value(
@@ -327,9 +343,8 @@ pub fn watch_window(window: &Window, cx: &mut App) {
             let path = |b: &Entity<pide_core::Buffer>| Some(rel(&r, &b.read(cx).path));
             let (kind, path) = match ev {
                 WorkspaceEvent::BufferSaved(b) => ("saved", path(b)),
-                WorkspaceEvent::BufferChanged(b) | WorkspaceEvent::FileChangedOnDisk { buffer: b, .. } => {
-                    ("changed", path(b))
-                }
+                WorkspaceEvent::BufferChanged(b)
+                | WorkspaceEvent::FileChangedOnDisk { buffer: b, .. } => ("changed", path(b)),
                 WorkspaceEvent::ActiveBufferChanged => ("active", None),
                 WorkspaceEvent::TreeChanged => ("files", None),
                 WorkspaceEvent::GitChanged => ("git", None),
@@ -355,7 +370,9 @@ pub fn forget_window(id: WindowId, cx: &mut App) {
 }
 
 fn wake(id: WindowId, kind: &str, path: Option<String>) {
-    let waiting = WAITERS.with(|w| w.borrow_mut().remove(&id)).unwrap_or_default();
+    let waiting = WAITERS
+        .with(|w| w.borrow_mut().remove(&id))
+        .unwrap_or_default();
     for tx in waiting {
         let _ = tx.send(
             HostObject::new()
@@ -383,6 +400,25 @@ mod tests {
     fn declarations_match_the_functions() {
         // export_module checks the declared names against the registered ones.
         gpui_shell::export_module(module()).unwrap();
+        gpui_shell::clear_exported_modules();
+    }
+}
+
+#[cfg(test)]
+mod dump {
+    /// `PIDE_DUMP_TYPES=<dir> cargo test -p pide-scripts dump_types -- --ignored`
+    /// writes the declarations scripts see (gpui-kit, gpui-component, pide).
+    #[::core::prelude::v1::test]
+    #[ignore]
+    fn dump_types() {
+        let dir = std::env::var("PIDE_DUMP_TYPES").expect("PIDE_DUMP_TYPES");
+        gpui_shell::export_module(super::module()).unwrap();
+        let components = gpui_shell::components::components().unwrap();
+        gpui_shell::write_type_declarations_with_components(
+            std::path::Path::new(&dir),
+            &components,
+        )
+        .unwrap();
         gpui_shell::clear_exported_modules();
     }
 }
