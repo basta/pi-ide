@@ -1,0 +1,22 @@
+[package]
+name = "pide-scripts"
+description = "Script panels: tool windows written in JavaScript (gpui-shell), found in .pide/panels and ~/.config/pide/panels, with a `pide` module for the project's files, diagnostics, commands and events."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+gpui-shell.workspace = true
+pide-core.workspace = true
+pide-lsp.workspace = true
+lsp-types.workspace = true
+anyhow.workspace = true
+log.workspace = true
+ignore.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+futures.workspace = true
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }

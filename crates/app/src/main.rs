@@ -91,6 +91,7 @@ fn main() {
         pide_search::init(cx);
         pide_preview::init(cx);
         pide_pdf::init(cx);
+        pide_scripts::init(cx);
         tool_windows::init(cx);
         cx.set_global(pide_core::opener::Openers {
             // PDFs open in the PDF panel; everything else in an editor tab.
