@@ -119,6 +119,11 @@ Paths are relative to the project root; lines and columns are 1-based.
 | `colors()` | theme colors as `#rrggbb`: `background foreground muted border accent selection list_hover danger warning info success pi` |
 | `await nextEvent()` | the next project event: `{ kind, path }`, kind `diagnostics`, `saved`, `changed`, `active`, `files`, `git` or `cursor` (the caret or selection moved; checked 4 times a second) |
 
+Images: `FileImage.new("plot.png")` from `gpui-component` shows a PNG, JPEG,
+GIF, WebP or SVG from the panel's folder, or else the project (never outside
+either). gpui-shell's own `image()`/`Image` read pide's bundled assets, so
+use `FileImage` in pide.
+
 gpui-shell's own modules work too, within the panel's permissions: `fs/promises`
 (read the project; write with `write`), `process` / `spawn` (with `run`),
 `fetch` (with `network`), `window.localStorage` (always, per panel).

@@ -6,7 +6,7 @@ import { h_flex, v_flex, Slider, SliderTrack, SliderIndicator, SliderThumb, Slid
 import {
   Button, Switch, Checkbox, Progress,
   Tag, Badge, Kbd, Rating, Alert, Avatar, Spinner, Skeleton, ShimmerText,
-  TabBar, Tab, BarChart, LineChart, PieChart, Separator,
+  TabBar, Tab, BarChart, LineChart, PieChart, Separator, FileImage,
 } from "gpui-component";
 import * as fs from "fs/promises";
 import { run } from "process";
@@ -217,6 +217,14 @@ export default class Showcase extends View {
           .child(Button.new("click").label(`Clicked ${this.clicks}×`).size("small").outline()
             .on_click((_, cx) => { this.clicks++; window.localStorage.setItem("clicks", String(this.clicks)); cx.notify(); }))
           .child(div().text_xs().text_color(c.muted).child("close pide and it remembers"))))
+      .child(this.section("Images", "FileImage: the panel's folder, then the project",
+        h_flex().gap_3()
+          .child(v_flex().flex_1().gap_1()
+            .child(FileImage.new("pic.png").w_full().h(130).rounded_md())
+            .child(div().text_xs().text_color(c.muted).child("pic.png (panel folder)")))
+          .child(v_flex().flex_1().gap_1()
+            .child(FileImage.new("docs/damping.png").w_full().h(130).rounded_md())
+            .child(div().text_xs().text_color(c.muted).child("docs/damping.png (project)")))))
       .child(this.section("Timers", "cx.spawn + cx.sleep",
         div().text_base().font_weight(600).child(this.now.toTimeString().slice(0, 8))));
   }

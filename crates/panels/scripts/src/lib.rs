@@ -9,6 +9,7 @@
 //! Saving its files reloads it; a broken save keeps the last working version.
 
 pub mod host;
+pub mod image;
 pub mod manifest;
 
 use std::collections::HashMap;
@@ -34,7 +35,9 @@ fn runtime(cx: &mut App) -> anyhow::Result<Rc<ShellRuntime>> {
     if let Some(rt) = cx.try_global::<Runtime>() {
         return Ok(rt.0.clone());
     }
-    let components = gpui_shell::components::components()?;
+    let mut registry = gpui_shell::components::registry()?;
+    image::register(&mut registry)?;
+    let components = registry.freeze()?;
     let rt = ShellRuntime::new_with_components(cx, components)?;
     cx.set_global(Runtime(rt.clone()));
     Ok(rt)
@@ -369,6 +372,7 @@ impl ScriptPanel {
         // try_load copies the default policy, so each panel keeps its own grant.
         gpui_shell::set_bundle_id(&bundle_id(&self.found))?;
         gpui_shell::set_capabilities(capabilities(&self.found, &self.project));
+        image::remember(&self.found.dir, &self.project);
         let root = rt.try_load(&self.found.dir, window, cx)?;
         let watch = match rt.watch(&root, window, cx) {
             Ok(w) => Some(w),
