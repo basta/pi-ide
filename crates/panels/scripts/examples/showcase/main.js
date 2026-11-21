@@ -41,6 +41,7 @@ export default class Showcase extends View {
 
     cx.spawn(async (cx) => {
       this.files = await listFiles();
+      this.projectImage = this.files.find((p) => /\.(png|jpe?g|gif|webp)$/i.test(p) && !p.startsWith(".pide/")) || null;
       // readFile: the open editor's text, or the file on disk.
       this.lines = [];
       for (const path of this.files.filter((p) => /\.(py|js|md)$/.test(p) && !p.startsWith(".pide"))) {
@@ -223,8 +224,10 @@ export default class Showcase extends View {
             .child(FileImage.new("pic.png").w_full().h(130).rounded_md())
             .child(div().text_xs().text_color(c.muted).child("pic.png (panel folder)")))
           .child(v_flex().flex_1().gap_1()
-            .child(FileImage.new("docs/damping.png").w_full().h(130).rounded_md())
-            .child(div().text_xs().text_color(c.muted).child("docs/damping.png (project)")))))
+            // The project's first image, if it has one.
+            .child(this.projectImage ? FileImage.new(this.projectImage).w_full().h(130).rounded_md()
+              : div().h(130).text_xs().text_color(c.muted).child("no image in this project"))
+            .child(div().text_xs().text_color(c.muted).child(`${this.projectImage || "—"} (project)`)))))
       .child(this.section("Timers", "cx.spawn + cx.sleep",
         div().text_base().font_weight(600).child(this.now.toTimeString().slice(0, 8))));
   }
