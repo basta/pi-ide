@@ -67,7 +67,10 @@ fn notes_in_file(window: &mut Window, cx: &mut App) {
     });
     let title: SharedString = format!(
         "pi's notes in {}",
-        ctx.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+        ctx.path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default()
     )
     .into();
     window
@@ -243,7 +246,12 @@ pub fn init(cx: &mut App) {
                     ctx.path.display()
                 )
             } else {
-                format!("lines {}–{} of {}", ctx.start.0, ctx.end.0, ctx.path.display())
+                format!(
+                    "lines {}–{} of {}",
+                    ctx.start.0,
+                    ctx.end.0,
+                    ctx.path.display()
+                )
             };
             let prompt = format!(
                 "Explain {what} to me. I don't write this code by hand, but I want to understand it. \
@@ -662,7 +670,10 @@ impl AgentChat {
                         }
                         HistItem::Text(t) => Item::Assistant {
                             markdown: cx.new(|cx| {
-                                TextViewState::markdown(&pide_core::math::normalize_delimiters(&t), cx)
+                                TextViewState::markdown(
+                                    &pide_core::math::normalize_delimiters(&t),
+                                    cx,
+                                )
                             }),
                             text: t,
                             last_index: None,
@@ -719,7 +730,10 @@ impl AgentChat {
         let root = self.workspace.read(cx).root().to_path_buf();
         let open = self.sessions.read(cx).open_files(cx);
         let list = cx.background_executor().spawn(async move {
-            (list_saved(&root), pide_core::notes::saved_tours(&root, &open))
+            (
+                list_saved(&root),
+                pide_core::notes::saved_tours(&root, &open),
+            )
         });
         self._load_saved = Some(cx.spawn(async move |this, cx| {
             let (saved, tours) = list.await;
@@ -753,7 +767,8 @@ impl AgentChat {
             }
         }
         let draft = self.drafts.remove(&id).unwrap_or_default();
-        self.input.update(cx, |i, cx| i.set_value(draft, window, cx));
+        self.input
+            .update(cx, |i, cx| i.set_value(draft, window, cx));
         if agent.read(cx).changes.is_empty() {
             self.show_changes = false;
         }
@@ -833,7 +848,11 @@ impl AgentChat {
         let column = text.rsplit('\n').next().unwrap_or("").chars().count() as u32;
         self.input.update(cx, |i, cx| {
             i.set_value(text, window, cx);
-            i.set_cursor_position(gpui_kit::component::input::Position::new(line, column), window, cx);
+            i.set_cursor_position(
+                gpui_kit::component::input::Position::new(line, column),
+                window,
+                cx,
+            );
         });
         cx.notify();
     }

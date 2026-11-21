@@ -139,9 +139,8 @@ impl ReviewPanel {
             window_id: window.window_handle().window_id(),
             root,
             sessions,
-            state: cx.new(|cx| {
-                DiffState::new(Vec::<DiffFile>::new(), cx).with_mode(DiffMode::Unified)
-            }),
+            state: cx
+                .new(|cx| DiffState::new(Vec::<DiffFile>::new(), cx).with_mode(DiffMode::Unified)),
             mode: DiffMode::Unified,
             view: None,
             loading: true,
@@ -182,7 +181,13 @@ impl ReviewPanel {
                 if r.is_busy() {
                     (a.entity_id(), 0, 0, 0, true)
                 } else {
-                    (a.entity_id(), r.notes_rev, r.changes.len(), r.pins.len(), false)
+                    (
+                        a.entity_id(),
+                        r.notes_rev,
+                        r.changes.len(),
+                        r.pins.len(),
+                        false,
+                    )
                 }
             })
             .collect()
@@ -209,7 +214,13 @@ impl ReviewPanel {
             .enumerate()
             .map(|(i, a)| {
                 let r = a.read(cx);
-                (i, r.name.to_string(), r.is_busy(), r.changes.clone(), r.pins.clone())
+                (
+                    i,
+                    r.name.to_string(),
+                    r.is_busy(),
+                    r.changes.clone(),
+                    r.pins.clone(),
+                )
             })
             .filter(|(_, _, _, c, p)| !c.is_empty() || !p.is_empty())
             .collect();
@@ -231,10 +242,13 @@ impl ReviewPanel {
                 if f.patch.is_empty() {
                     continue;
                 }
-                if let Ok(parsed) = DiffFile::parse(&f.patch) {
-                    for d in parsed {
-                        files.push((f.key.clone(), d.with_language(language_for(&f.path))));
+                match DiffFile::parse(&f.patch) {
+                    Ok(parsed) => {
+                        for d in parsed {
+                            files.push((f.key.clone(), d.with_language(language_for(&f.path))));
+                        }
                     }
+                    Err(e) => log::warn!("review: can't show {}: {e:?}", f.rel),
                 }
             }
             (review, files)
@@ -290,6 +304,11 @@ impl ReviewPanel {
                 }
             }
         }
+        log::info!(
+            "review: {} files in the diff, {} sessions",
+            files.len(),
+            review.sessions.len()
+        );
         self.state.update(cx, |s, cx| {
             s.set_files(files.into_iter().map(|(_, f)| f), cx)
         });
@@ -319,7 +338,12 @@ impl ReviewPanel {
     }
 
     /// The reply box for a note (made on first render; kept across rebuilds).
-    fn reply_box(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) -> Entity<TextareaState> {
+    fn reply_box(
+        &mut self,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<TextareaState> {
         if let Some(r) = self.replies.get(id) {
             return r.clone();
         }
@@ -330,11 +354,17 @@ impl ReviewPanel {
                 .placeholder("Reply to pi")
         });
         let id_owned = id.to_string();
-        cx.subscribe_in(&r, window, move |this, _, ev: &InputEvent, window, cx| match ev {
-            InputEvent::PressEnter { shift: false, .. } => this.send_reply(&id_owned, window, cx),
-            InputEvent::Change => cx.notify(),
-            _ => {}
-        })
+        cx.subscribe_in(
+            &r,
+            window,
+            move |this, _, ev: &InputEvent, window, cx| match ev {
+                InputEvent::PressEnter { shift: false, .. } => {
+                    this.send_reply(&id_owned, window, cx)
+                }
+                InputEvent::Change => cx.notify(),
+                _ => {}
+            },
+        )
         .detach();
         self.replies.insert(id.to_string(), r.clone());
         r
@@ -346,12 +376,17 @@ impl ReviewPanel {
             return find_any_note(view, id);
         };
         let (s, f) = view.review.file(key)?;
-        let si = view.review.sessions.iter().position(|x| x.index == s.index)?;
+        let si = view
+            .review
+            .sessions
+            .iter()
+            .position(|x| x.index == s.index)?;
         Some((view.agents.get(si)?.clone(), f.notes.get(*note)?.clone()))
     }
 
     fn send_reply(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some((agent, note)), Some(reply)) = (self.find_note(id), self.replies.get(id).cloned())
+        let (Some((agent, note)), Some(reply)) =
+            (self.find_note(id), self.replies.get(id).cloned())
         else {
             return;
         };
@@ -371,7 +406,9 @@ impl ReviewPanel {
     }
 
     fn scroll_to(&mut self, key: &str, line: Option<usize>, cx: &mut Context<Self>) {
-        let Some(view) = self.view.clone() else { return };
+        let Some(view) = self.view.clone() else {
+            return;
+        };
         let Some(path) = view.review_to_diff.get(key).cloned() else {
             return;
         };
@@ -384,9 +421,15 @@ impl ReviewPanel {
     /// Put one hunk back the way it was before pi (only if the file is still
     /// what the review shows).
     fn revert_hunk(&mut self, key: &str, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(view) = self.view.clone() else { return };
-        let Some((_, f)) = view.review.file(key) else { return };
-        let Some(hunk) = f.hunks.get(ix).cloned() else { return };
+        let Some(view) = self.view.clone() else {
+            return;
+        };
+        let Some((_, f)) = view.review.file(key) else {
+            return;
+        };
+        let Some(hunk) = f.hunks.get(ix).cloned() else {
+            return;
+        };
         let (path, before, now) = (f.path.clone(), f.before.clone(), f.now.clone());
         let write = cx.background_executor().spawn(async move {
             let disk = pide_core::changes::snapshot(&path).unwrap_or_default();
@@ -418,8 +461,15 @@ fn find_any_note(view: &View, id: &str) -> Option<(Entity<Agent>, NoteAt)> {
     let rest = id.strip_prefix("note:")?;
     let (key, i) = rest.rsplit_once(':')?;
     let (s, f) = view.review.file(key)?;
-    let si = view.review.sessions.iter().position(|x| x.index == s.index)?;
-    Some((view.agents.get(si)?.clone(), f.notes.get(i.parse::<usize>().ok()?)?.clone()))
+    let si = view
+        .review
+        .sessions
+        .iter()
+        .position(|x| x.index == s.index)?;
+    Some((
+        view.agents.get(si)?.clone(),
+        f.notes.get(i.parse::<usize>().ok()?)?.clone(),
+    ))
 }
 
 impl Focusable for ReviewPanel {
@@ -510,7 +560,11 @@ impl ReviewPanel {
         };
         let review = &view.review;
         let files_n = review.files().filter(|(_, f)| !f.reverted).count();
-        let sessions_n = review.sessions.iter().filter(|s| !s.files.is_empty()).count();
+        let sessions_n = review
+            .sessions
+            .iter()
+            .filter(|s| !s.files.is_empty())
+            .count();
         let (seen, notes) = review.seen_counts();
         let (reviewed, all_files) = review.reviewed_counts();
         let subtitle = match (files_n, sessions_n) {
@@ -564,15 +618,17 @@ impl ReviewPanel {
                                 .child(place),
                         ),
                 )
-                .on_click(cx.listener(move |this, _, window, cx| match (&n.key, &n.stop) {
-                    (Some(key), _) => this.scroll_to(key, Some(n.line), cx),
-                    (None, Some(stop)) => {
-                        if let Some(a) = &agent {
-                            pide_core::collab::go_to(a, stop.clone(), window, cx);
+                .on_click(
+                    cx.listener(move |this, _, window, cx| match (&n.key, &n.stop) {
+                        (Some(key), _) => this.scroll_to(key, Some(n.line), cx),
+                        (None, Some(stop)) => {
+                            if let Some(a) = &agent {
+                                pide_core::collab::go_to(a, stop.clone(), window, cx);
+                            }
                         }
-                    }
-                    _ => {}
-                }))
+                        _ => {}
+                    }),
+                )
         });
         let sessions = review.sessions.iter().enumerate().map(|(si, s)| {
             let agent = view.agents.get(si).cloned();
@@ -601,7 +657,10 @@ impl ReviewPanel {
                     .child(
                         div()
                             .w(px(12.))
-                            .text_color(pide_core::colors::change(pide_core::colors::Change::Added, cx))
+                            .text_color(pide_core::colors::change(
+                                pide_core::colors::Change::Added,
+                                cx,
+                            ))
                             .child(if f.reviewed { "✓" } else { "" }),
                     )
                     .child(
@@ -618,7 +677,12 @@ impl ReviewPanel {
                             })
                             .child(f.rel.clone()),
                     )
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(meta))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(meta),
+                    )
                     .on_click(cx.listener(move |this, _, _, cx| this.scroll_to(&key, None, cx)))
             });
             let loose = s.loose.iter().enumerate().map(|(li, st)| {
@@ -692,7 +756,11 @@ impl ReviewPanel {
                     .children(loose)
                 })
         });
-        let pct = if notes == 0 { 1.0 } else { seen as f32 / notes as f32 };
+        let pct = if notes == 0 {
+            1.0
+        } else {
+            seen as f32 / notes as f32
+        };
         v_flex()
             .w(px(272.))
             .flex_none()
@@ -705,8 +773,18 @@ impl ReviewPanel {
                     .px_4()
                     .pt_4()
                     .pb_3()
-                    .child(div().text_base().font_weight(FontWeight::SEMIBOLD).child("Review"))
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(subtitle)),
+                    .child(
+                        div()
+                            .text_base()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Review"),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(subtitle),
+                    ),
             )
             .child(
                 v_flex()
@@ -775,7 +853,11 @@ impl ReviewPanel {
         let ids: Vec<String> = view
             .review
             .files()
-            .flat_map(|(_, f)| (0..f.notes.len()).map(|i| note_id(&f.key, i)).collect::<Vec<_>>())
+            .flat_map(|(_, f)| {
+                (0..f.notes.len())
+                    .map(|i| note_id(&f.key, i))
+                    .collect::<Vec<_>>()
+            })
             .collect();
         let mut replies = HashMap::new();
         for id in ids {
@@ -821,15 +903,20 @@ impl ReviewPanel {
                     .enumerate()
                     .map(|(i, h)| {
                         let pos = if h.after.is_empty() {
-                            DiffLinePosition::new(path.clone(), DiffSide::Original, h.before.start + 1)
+                            DiffLinePosition::new(
+                                path.clone(),
+                                DiffSide::Original,
+                                h.before.start + 1,
+                            )
                         } else {
-                            DiffLinePosition::new(path.clone(), DiffSide::Modified, h.after.start + 1)
+                            DiffLinePosition::new(
+                                path.clone(),
+                                DiffSide::Modified,
+                                h.after.start + 1,
+                            )
                         };
-                        DiffGutterMarker::new(
-                            SharedString::from(format!("rv:{}:{i}", f.key)),
-                            pos,
-                        )
-                        .with_label("Revert this change")
+                        DiffGutterMarker::new(SharedString::from(format!("rv:{}:{i}", f.key)), pos)
+                            .with_label("Revert this change")
                     })
                     .collect::<Vec<_>>()
             })
@@ -868,14 +955,19 @@ impl ReviewPanel {
                     .and_then(|r| r.rsplit_once(':'))
                     .map(|(k, i)| (k.to_string(), i.parse::<usize>().unwrap_or(0)));
                 let panel = panel.clone();
-                let label = parsed.as_ref().map(|(_, i)| format!("{} ↶", i + 1)).unwrap_or_default();
+                let label = parsed
+                    .as_ref()
+                    .map(|(_, i)| format!("{} ↶", i + 1))
+                    .unwrap_or_default();
                 Button::new(marker.id().clone())
                     .ghost()
                     .xsmall()
                     .label(label)
                     .tooltip(marker.label().clone())
                     .on_click(move |_, window, cx| {
-                        let Some((key, ix)) = parsed.clone() else { return };
+                        let Some((key, ix)) = parsed.clone() else {
+                            return;
+                        };
                         let panel = panel.clone();
                         window.defer(cx, move |window, cx| {
                             let _ = panel.update(cx, |p, cx| p.revert_hunk(&key, ix, window, cx));
@@ -943,7 +1035,11 @@ fn render_header(view: &Rc<View>, file: &DiffFile, cx: &mut App) -> AnyElement {
         .child(
             Button::new(SharedString::from(format!("reviewed:{key}")))
                 .xsmall()
-                .label(if reviewed { "Reviewed ✓" } else { "Mark reviewed" })
+                .label(if reviewed {
+                    "Reviewed ✓"
+                } else {
+                    "Mark reviewed"
+                })
                 .map(|b| pide_core::colors::toggle(b, reviewed, cx))
                 .on_click(move |_, _, cx| {
                     a_rev.update(cx, |a, cx| a.set_reviewed(&p_rev, !reviewed, cx))
@@ -970,7 +1066,10 @@ fn render_file_ann(view: &Rc<View>, key: &str, cx: &mut App) -> AnyElement {
     };
     let si = view.review.sessions.iter().position(|x| x.index == s.index);
     let agent = si.and_then(|si| view.agents.get(si).cloned());
-    let has_reason = f.summary.is_some() || f.notes.iter().any(|n| !matches!(n.stop.at, StopRef::File(_)));
+    let has_reason = f.summary.is_some()
+        || f.notes
+            .iter()
+            .any(|n| !matches!(n.stop.at, StopRef::File(_)));
     let off: Vec<usize> = f
         .notes
         .iter()
@@ -998,8 +1097,17 @@ fn render_file_ann(view: &Rc<View>, key: &str, cx: &mut App) -> AnyElement {
                 h_flex()
                     .items_start()
                     .gap_2()
-                    .child(div().mt(px(8.)).child(diamond(pide_core::colors::pi_note(cx), 7.)))
-                    .child(div().max_w(px(760.)).child(voice(view, &format!("sum:{key}"), 17., &s))),
+                    .child(
+                        div()
+                            .mt(px(8.))
+                            .child(diamond(pide_core::colors::pi_note(cx), 7.)),
+                    )
+                    .child(div().flex_1().min_w_0().max_w(px(760.)).child(voice(
+                        view,
+                        &format!("sum:{key}"),
+                        17.,
+                        &s,
+                    ))),
             )
         })
         .when(!has_reason && !f.reverted, |d| {
@@ -1018,7 +1126,9 @@ fn render_file_ann(view: &Rc<View>, key: &str, cx: &mut App) -> AnyElement {
                             .label("Ask pi why")
                             .on_click(move |_, _, cx| {
                                 if let Some(a) = &agent {
-                                    let prompt = pide_core::review::ask_why_prompt(&[rel.clone()]);
+                                    let prompt = pide_core::review::ask_why_prompt(
+                                        std::slice::from_ref(&rel),
+                                    );
                                     a.update(cx, |a, cx| {
                                         if a.is_busy() {
                                             a.queue(prompt, true, cx);
@@ -1089,8 +1199,10 @@ fn render_note(view: &Rc<View>, key: &str, i: usize, cx: &mut App) -> AnyElement
             )
             .child(div().flex_1().min_w_0().max_w(px(700.)).child(body))
     });
-    let (a_send, a_resolve, a_open, a_seen) = (agent.clone(), agent.clone(), agent.clone(), agent.clone());
-    let (s_send, s_resolve, s_open, s_seen) = (stop.clone(), stop.clone(), stop.clone(), stop.clone());
+    let (a_send, a_resolve, a_open, a_seen) =
+        (agent.clone(), agent.clone(), agent.clone(), agent.clone());
+    let (s_send, s_resolve, s_open, s_seen) =
+        (stop.clone(), stop.clone(), stop.clone(), stop.clone());
     let root = view.root.clone();
     let reply_for_send = reply.clone();
     v_flex()
@@ -1126,7 +1238,12 @@ fn render_note(view: &Rc<View>, key: &str, i: usize, cx: &mut App) -> AnyElement
                     )
                 })
                 .when(!where_.is_empty(), |d| {
-                    d.child(div().text_xs().text_color(theme.muted_foreground).child(where_))
+                    d.child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(where_),
+                    )
                 })
                 .when(!n.stop.seen, |d| {
                     d.child(
@@ -1199,7 +1316,12 @@ fn render_note(view: &Rc<View>, key: &str, i: usize, cx: &mut App) -> AnyElement
                 })
                 .child(div().flex_1())
                 .when(busy, |d| {
-                    d.child(div().text_xs().text_color(theme.muted_foreground).child("pi is busy"))
+                    d.child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child("pi is busy"),
+                    )
                 })
                 .when(!empty, |d| {
                     d.child(
@@ -1209,11 +1331,12 @@ fn render_note(view: &Rc<View>, key: &str, i: usize, cx: &mut App) -> AnyElement
                             .label("Send")
                             .disabled(busy)
                             .on_click(move |_, window, cx| {
-                                let Some(r) = reply_for_send.clone() else { return };
+                                let Some(r) = reply_for_send.clone() else {
+                                    return;
+                                };
                                 let text = r.read(cx).value().to_string();
-                                let sent = a_send.update(cx, |a, cx| {
-                                    a.reply_to_stop(&s_send, &root, text, cx)
-                                });
+                                let sent = a_send
+                                    .update(cx, |a, cx| a.reply_to_stop(&s_send, &root, text, cx));
                                 if sent {
                                     r.update(cx, |r, cx| r.set_value("", window, cx));
                                     a_send.update(cx, |a, cx| a.visit_stop(&s_send.at, cx));
@@ -1233,9 +1356,21 @@ impl Render for ReviewPanel {
         let busy_names: Vec<String> = self
             .view
             .as_ref()
-            .map(|v| v.review.sessions.iter().filter(|s| s.busy).map(|s| s.name.clone()).collect())
+            .map(|v| {
+                v.review
+                    .sessions
+                    .iter()
+                    .filter(|s| s.busy)
+                    .map(|s| s.name.clone())
+                    .collect()
+            })
             .unwrap_or_default();
-        let any_busy = self.sessions.read(cx).all().iter().any(|a| a.read(cx).is_busy());
+        let any_busy = self
+            .sessions
+            .read(cx)
+            .all()
+            .iter()
+            .any(|a| a.read(cx).is_busy());
         let diff = if empty || self.view.is_none() {
             None
         } else {
@@ -1260,6 +1395,8 @@ impl Render for ReviewPanel {
                             .child(
                                 div()
                                     .flex_1()
+                                    .min_w_0()
+                                    .truncate()
                                     .text_xs()
                                     .text_color(theme.muted_foreground)
                                     .child(if any_busy {

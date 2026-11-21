@@ -97,7 +97,12 @@ impl Anchor {
 
     /// Move to where the text is now, or mark outdated. Returns whether anything changed.
     pub fn reanchor(&mut self, content: &str) -> bool {
-        let before = (self.line, self.outdated, self.text.clone(), self.span.clone());
+        let before = (
+            self.line,
+            self.outdated,
+            self.text.clone(),
+            self.span.clone(),
+        );
         match self.locate(content) {
             Some(n) => {
                 self.line = n;
@@ -115,7 +120,13 @@ impl Anchor {
             }
             None => self.outdated = true,
         }
-        before != (self.line, self.outdated, self.text.clone(), self.span.clone())
+        before
+            != (
+                self.line,
+                self.outdated,
+                self.text.clone(),
+                self.span.clone(),
+            )
     }
 
     /// The marked words' byte range within 1-based line `line` of `content`
@@ -296,7 +307,11 @@ impl Stop {
         } else {
             note
         };
-        format!("{} (about your note \"{}\"): ", self.location(root), note.replace('\n', " "))
+        format!(
+            "{} (about your note \"{}\"): ",
+            self.location(root),
+            note.replace('\n', " ")
+        )
     }
 
     /// The prompt for a reply typed in the note's card: where, which note,
@@ -377,7 +392,12 @@ pub fn start_walk(agent: &Entity<crate::Agent>, window: &mut Window, cx: &mut Ap
 
 /// Walk the tour made by tool call `call_id`: go to its first unseen stop (or
 /// its first). False if the agent has no such tour (yet).
-pub fn start_tour(agent: &Entity<crate::Agent>, call_id: &str, window: &mut Window, cx: &mut App) -> bool {
+pub fn start_tour(
+    agent: &Entity<crate::Agent>,
+    call_id: &str,
+    window: &mut Window,
+    cx: &mut App,
+) -> bool {
     let prefix = format!("{TOUR_PREFIX}{call_id}:");
     let stops: Vec<Stop> = {
         let a = agent.read(cx);
@@ -418,7 +438,6 @@ pub fn review_next(window: &mut Window, cx: &mut App) -> bool {
     start_walk(&agent, window, cx)
 }
 
-
 /// A reply to a note as sent to pi ([`Stop::reply_prefix`] + your words, maybe
 /// [`Stop::reply_prompt`]'s instruction) → the note's location and your words,
 /// so the chat shows what you typed rather than the wrapper.
@@ -444,15 +463,26 @@ mod tests {
 
     #[::core::prelude::v1::test]
     fn replies_read_back_as_your_words() {
-        let p = format!("src/report.rs:5 (about your note \"An empty store: prints a line.\"): Keep it{REPLY_INSTRUCTION}");
+        let p = format!(
+            "src/report.rs:5 (about your note \"An empty store: prints a line.\"): Keep it{REPLY_INSTRUCTION}"
+        );
         assert_eq!(split_reply(&p), Some(("src/report.rs:5", "Keep it")));
-        assert_eq!(split_reply("src/a.rs:3 (about your note \"x\"): yes"), Some(("src/a.rs:3", "yes")));
-        assert_eq!(split_reply("just a question (about your note \"x\"): y"), None);
+        assert_eq!(
+            split_reply("src/a.rs:3 (about your note \"x\"): yes"),
+            Some(("src/a.rs:3", "yes"))
+        );
+        assert_eq!(
+            split_reply("just a question (about your note \"x\"): y"),
+            None
+        );
     }
 
     #[::core::prelude::v1::test]
     fn tour_notes_split_at_the_counter() {
-        assert_eq!(split_tour_note("Resume: flow · 2/8: reads a · b: c"), ("Resume: flow", "reads a · b: c"));
+        assert_eq!(
+            split_tour_note("Resume: flow · 2/8: reads a · b: c"),
+            ("Resume: flow", "reads a · b: c")
+        );
         assert_eq!(split_tour_note("plain note"), ("", "plain note"));
     }
 
@@ -490,14 +520,27 @@ mod tests {
         assert_eq!(a.locate(now), Some(3));
         let mut b = a.clone();
         assert!(b.reanchor(now));
-        assert_eq!((b.line, b.span.as_ref().unwrap().col, b.outdated), (3, 16, false));
+        assert_eq!(
+            (b.line, b.span.as_ref().unwrap().col, b.outdated),
+            (3, 16, false)
+        );
         assert_eq!(b.text, "So the solution has two parts. Then two more.");
         // The words are gone too: outdated.
         let mut c = a.clone();
         c.reanchor("x\nThe solution has three steps.");
         assert!(c.outdated);
         // An empty quote is no span; a too short one doesn't place a changed line.
-        assert!(Anchor::new(1, "a".into()).with_span(String::new(), 0).span.is_none());
-        assert_eq!(Anchor::new(1, "a b".into()).with_span("b".into(), 2).locate("q\nx b"), None);
+        assert!(
+            Anchor::new(1, "a".into())
+                .with_span(String::new(), 0)
+                .span
+                .is_none()
+        );
+        assert_eq!(
+            Anchor::new(1, "a b".into())
+                .with_span("b".into(), 2)
+                .locate("q\nx b"),
+            None
+        );
     }
 }

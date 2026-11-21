@@ -35,7 +35,9 @@ pub struct Review {
 
 impl Review {
     pub fn is_empty(&self) -> bool {
-        self.sessions.iter().all(|s| s.files.is_empty() && s.loose.is_empty())
+        self.sessions
+            .iter()
+            .all(|s| s.files.is_empty() && s.loose.is_empty())
     }
 
     pub fn files(&self) -> impl Iterator<Item = (&SessionReview, &FileReview)> {
@@ -70,7 +72,10 @@ impl Review {
     /// (reviewed, all) changed files.
     pub fn reviewed_counts(&self) -> (usize, usize) {
         let files: Vec<_> = self.files().filter(|(_, f)| !f.reverted).collect();
-        (files.iter().filter(|(_, f)| f.reviewed).count(), files.len())
+        (
+            files.iter().filter(|(_, f)| f.reviewed).count(),
+            files.len(),
+        )
     }
 }
 
@@ -307,8 +312,16 @@ fn locate(changes: &[FileChange], pins: &[Pin], st: &Stop, now: &str) -> usize {
 }
 
 fn unified(before: &str, now: &str, key: &str, created: bool, deleted: bool) -> String {
-    let a = if created { "/dev/null".to_string() } else { format!("a/{key}") };
-    let b = if deleted { "/dev/null".to_string() } else { format!("b/{key}") };
+    let a = if created {
+        "/dev/null".to_string()
+    } else {
+        format!("a/{key}")
+    };
+    let b = if deleted {
+        "/dev/null".to_string()
+    } else {
+        format!("b/{key}")
+    };
     similar::TextDiff::from_lines(before, now)
         .unified_diff()
         .context_radius(CONTEXT)
@@ -369,8 +382,7 @@ mod tests {
     }
 
     const BEFORE: &str = "fn main() {\n    let a = 1;\n    run(a);\n}\n\nfn run(a: i32) {}\n";
-    const NOW: &str =
-        "fn main() {\n    let a = 1;\n    let verbose = true;\n    run(a);\n}\n\nfn run(a: i32) {}\n";
+    const NOW: &str = "fn main() {\n    let a = 1;\n    let verbose = true;\n    run(a);\n}\n\nfn run(a: i32) {}\n";
 
     fn read(p: &Path) -> Option<String> {
         match p.to_str()? {
@@ -394,7 +406,13 @@ mod tests {
         });
         let lib = change("/p/src/lib.rs", "old\n", None);
         let pins = vec![
-            pin("p1", "/p/src/main.rs", 4, "    run(a);", "Should run take a flag?"),
+            pin(
+                "p1",
+                "/p/src/main.rs",
+                4,
+                "    run(a);",
+                "Should run take a flag?",
+            ),
             pin("p2", "/p/src/other.rs", 1, "x", "Look here"),
         ];
         let changes = vec![c, lib];
@@ -421,8 +439,11 @@ mod tests {
         // Loose pin on a file the session didn't change.
         assert_eq!(s.loose.len(), 1);
         // Needs you: both pins (open), then lib.rs without a reason.
-        let kinds: Vec<(NeedKind, &str)> =
-            r.needs.iter().map(|n| (n.kind.clone(), n.rel.as_str())).collect();
+        let kinds: Vec<(NeedKind, &str)> = r
+            .needs
+            .iter()
+            .map(|n| (n.kind.clone(), n.rel.as_str()))
+            .collect();
         assert_eq!(
             kinds,
             vec![

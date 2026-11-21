@@ -22,8 +22,8 @@ use gpui_kit::component::text::{TextView, TextViewState};
 use gpui_kit::component::{ActiveTheme, Disableable as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use pide_core::collab::{Stop, StopRef};
 use pide_core::Agent;
+use pide_core::collab::{Stop, StopRef};
 
 use crate::EditorPanel;
 
@@ -99,9 +99,11 @@ impl EditorPanel {
     }
 
     fn send_reply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(agent), Some(reply), Some(stop)) =
-            (self.pi.agent.clone(), self.pi.reply.clone(), self.active_stop(cx))
-        else {
+        let (Some(agent), Some(reply), Some(stop)) = (
+            self.pi.agent.clone(),
+            self.pi.reply.clone(),
+            self.active_stop(cx),
+        ) else {
             return;
         };
         let text = reply.read(cx).value().to_string();
@@ -245,18 +247,18 @@ impl EditorPanel {
                         Some(l) => el.left(l),
                         None => el.right(px(RIGHT_PAD)),
                     }
-                        .px_2()
-                        .rounded_full()
-                        .border_1()
-                        .border_color(color.opacity(0.5))
-                        .bg(if is_open { color } else { pill_bg })
-                        // Light text on the filled pill, in both themes.
-                        .text_color(if is_open { gpui_kit::white() } else { color })
-                        .child(if replies > 0 {
-                            format!("◆ pi · {replies}")
-                        } else {
-                            "◆ pi".to_string()
-                        })
+                    .px_2()
+                    .rounded_full()
+                    .border_1()
+                    .border_color(color.opacity(0.5))
+                    .bg(if is_open { color } else { pill_bg })
+                    // Light text on the filled pill, in both themes.
+                    .text_color(if is_open { gpui_kit::white() } else { color })
+                    .child(if replies > 0 {
+                        format!("◆ pi · {replies}")
+                    } else {
+                        "◆ pi".to_string()
+                    })
                 };
                 lenses.push(el.into_any_element());
 
@@ -729,7 +731,12 @@ fn stop_place(
     let Some(r) = crate::pi_notes::span_range(rope, stop) else {
         let start = line_bounds(editor, rope, stop.line)?;
         let end = line_end_bounds(editor, rope, stop.line).unwrap_or(start);
-        return Some(Place { start, end, span: false, mid_line: false });
+        return Some(Place {
+            start,
+            end,
+            span: false,
+            mid_line: false,
+        });
     };
     let rows = editor.visible_row_range()?;
     if !rows.contains(&stop.line.saturating_sub(1)) {
@@ -751,8 +758,20 @@ fn stop_place(
     let line_end = line_end_bounds(editor, rope, stop.line).unwrap_or(end);
     let mid_line = line_end.top() > end.top() + px(1.);
     // On the line's last row the lens goes after the line's text, as without words.
-    let end = if mid_line { end } else { Bounds { origin: point(line_end.left(), end.top()), size: end.size } };
-    Some(Place { start, end, span: true, mid_line })
+    let end = if mid_line {
+        end
+    } else {
+        Bounds {
+            origin: point(line_end.left(), end.top()),
+            size: end.size,
+        }
+    };
+    Some(Place {
+        start,
+        end,
+        span: true,
+        mid_line,
+    })
 }
 
 /// Where 1-based `line` ends (an empty range at its end): on its last visual
@@ -781,13 +800,22 @@ mod tests {
 
     #[::core::prelude::v1::test]
     fn numbered_parens_stay_plain() {
-        assert_eq!(plain_numbers("1) a\n  12) b\nx 3) c"), "1\\) a\n  12\\) b\nx 3) c");
+        assert_eq!(
+            plain_numbers("1) a\n  12) b\nx 3) c"),
+            "1\\) a\n  12\\) b\nx 3) c"
+        );
     }
 
     #[::core::prelude::v1::test]
     fn a_tour_note_loses_its_heading() {
-        assert_eq!(note_body("Story · 2/5: The cache is filled here."), "The cache is filled here.");
-        assert_eq!(note_body("Plain note: with a colon"), "Plain note: with a colon");
+        assert_eq!(
+            note_body("Story · 2/5: The cache is filled here."),
+            "The cache is filled here."
+        );
+        assert_eq!(
+            note_body("Plain note: with a colon"),
+            "Plain note: with a colon"
+        );
     }
 
     #[::core::prelude::v1::test]

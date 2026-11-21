@@ -40,7 +40,8 @@ pub(crate) struct PiNotes {
     /// The current note you collapsed (✕ / Esc): its card stays closed.
     pub(crate) collapsed: Option<pide_core::collab::StopRef>,
     /// Rendered markdown of notes and pi's answers in the active card, by text.
-    pub(crate) markdown: std::collections::HashMap<String, Entity<gpui_kit::component::text::TextViewState>>,
+    pub(crate) markdown:
+        std::collections::HashMap<String, Entity<gpui_kit::component::text::TextViewState>>,
 }
 
 impl EditorPanel {
@@ -52,7 +53,8 @@ impl EditorPanel {
             let active = sessions.read(cx).active();
             this.follow_agent(active, cx);
         }));
-        self.pi._sessions_obs = Some(cx.observe(&sessions, |this, _, cx| this.refresh_pi_marks(cx)));
+        self.pi._sessions_obs =
+            Some(cx.observe(&sessions, |this, _, cx| this.refresh_pi_marks(cx)));
         self.pi.sessions = Some(sessions.clone());
         self.make_reply_box(window, cx);
         let active = sessions.read(cx).active();
@@ -209,9 +211,11 @@ impl EditorPanel {
                     None => {
                         let start = line_range(&rope, s.line).start;
                         let end = line_range(&rope, s.end_line.max(s.line)).end;
-                        vec![RangeDecoration::new(start..end)
-                            .with_style(RangeDecorationStyle::Fill)
-                            .with_color(color.opacity(if strong { 0.09 } else { 0.04 }))]
+                        vec![
+                            RangeDecoration::new(start..end)
+                                .with_style(RangeDecorationStyle::Fill)
+                                .with_color(color.opacity(if strong { 0.09 } else { 0.04 })),
+                        ]
                     }
                 }
             })

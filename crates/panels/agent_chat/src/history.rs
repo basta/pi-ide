@@ -40,7 +40,11 @@ pub(crate) fn summarize_args(name: &str, args: &Value) -> String {
                 .iter()
                 .filter_map(Value::as_str)
                 .collect();
-            Some(if paths.is_empty() { "all files".to_string() } else { paths.join(", ") })
+            Some(if paths.is_empty() {
+                "all files".to_string()
+            } else {
+                paths.join(", ")
+            })
         }),
     }
     .unwrap_or_else(|| args.to_string());
