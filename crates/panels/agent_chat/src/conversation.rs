@@ -81,10 +81,16 @@ impl AgentChat {
                     )
                 })
                 .child(
-                    TextView::new(markdown)
-                        .style(chat_text_style())
-                        .markdown_extensions(pide_core::math::markdown_extensions())
-                        .selectable(true),
+                    // pi's words, in pi's typeface (yours stay in the UI face).
+                    div()
+                        .font_family(pide_core::colors::VOICE)
+                        .text_size(px(15.5))
+                        .child(
+                            TextView::new(markdown)
+                                .style(chat_text_style())
+                                .markdown_extensions(pide_core::math::markdown_extensions())
+                                .selectable(true),
+                        ),
                 )
                 .when_some(error.clone(), |this, e| {
                     this.child(

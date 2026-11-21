@@ -73,6 +73,7 @@ fn main() {
     gpui_kit::application().with_assets(Assets).run(move |cx| {
         gpui_kit::init(cx);
         let settings = pide_core::settings::load();
+        theme::install(cx);
         theme::apply(settings.theme, None, cx);
         theme::calm_caret(cx);
         cx.set_global(settings);
