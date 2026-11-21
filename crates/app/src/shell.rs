@@ -591,7 +591,7 @@ impl Shell {
                                 .text_color(cx.theme().foreground)
                                 .child(review_label)
                                 .on_click(|_, window, cx| {
-                                    pide_core::collab::review_next(window, cx);
+                                    pide_core::CommandRegistry::run("agent.review", window, cx);
                                 }),
                         )
                     })

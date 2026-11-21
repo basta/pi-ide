@@ -420,6 +420,15 @@ impl AgentChat {
                 };
                 this.child(button)
             })
+            .child(
+                Button::new("open-review")
+                    .xsmall()
+                    .label("Review")
+                    .tooltip("Every change and note from the open sessions in one tab (Cmd+Shift+R)")
+                    .on_click(|_, window, cx| {
+                        pide_core::CommandRegistry::run("agent.review", window, cx);
+                    }),
+            )
             .when(stops > 0, |this| {
                 this.child(
                     Button::new("walk-through")
@@ -478,15 +487,7 @@ impl AgentChat {
     }
 }
 
-/// What "ask why" asks pi about files it changed without a reason.
-pub(crate) fn ask_why_prompt(files: &[String]) -> String {
-    format!(
-        "Don't change any code. For each of these files you changed, call \
-         ide_explain_change with a one-line summary of why, and hunk notes \
-         where the reason isn't obvious: {}",
-        files.join(", ")
-    )
-}
+pub(crate) use pide_core::review::ask_why_prompt;
 
 /// What "Tell it as a story" asks pi.
 pub(crate) fn story_prompt() -> String {

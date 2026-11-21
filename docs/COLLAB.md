@@ -98,6 +98,25 @@ is shown above the chat, saved with the session (`Saved::catch_up`), and refresh
   the chat. The pins join the walkthrough (the note bar steps through them). This covers code pi
   didn't just change, which is most of what there is to understand.
 
+## Review
+
+**pi → Review Changes** (Cmd+Shift+R, the "◆ n to review" status chip, Review in Changes) opens one
+center tab with everything pi changed and said in the open sessions (`editor/src/review_panel.rs`;
+the data is `pide_core::review`, built off the UI thread from each session's change list and pins,
+nothing new stored). One GPUI Kit `Diff` holds every changed file, session by session, each from the
+text before that session's pi first touched it (a file two sessions changed shows under each, with
+only its own part). Under each file's header: pi's reason, or "changed without saying why" with
+**Ask pi why**. Each note sits under the line it's about (a `DiffAnnotation`, re-found by its text),
+with its thread, a reply box (Enter sends, as on the editor's cards; off while pi is busy), Open in
+editor, Mark seen, Resolve; notes on lines the diff doesn't show go under the header. File headers
+have Open, Revert file and Reviewed; each hunk has a numbered revert in the gutter.
+
+The index on the left starts with **Needs you**: pins you haven't answered or resolved, then files
+without a reason. Then each session's files (click to scroll there) and its notes on files it didn't
+change. A busy session's new changes wait until it settles, so the page doesn't move while you read.
+Closed sessions aren't included (like the chip and the Overview). Design and plan:
+https://claude.ai/artifact/LKtZdRns37q3hc8RTn9ByR
+
 ## Tours
 
 **pi → Take a Tour…** asks how something works ("how does a session resume after a restart?"). It

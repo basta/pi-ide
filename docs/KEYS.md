@@ -57,6 +57,7 @@ Every command is also in **Find Action** (Cmd+Shift+A), with its shortcut beside
 | Key | Command |
 | --- | --- |
 | Cmd+Shift+I | Ask pi: the pi panel, cursor in its box (with the editor context) |
+| Cmd+Shift+R | Review: everything pi changed and said in the open sessions, in one tab |
 | Esc (in the pi box) | Back to the editor |
 | `/` · `@` (in the pi box) | pi's commands · mention a project file (Tab completes) |
 | Enter / Option+Enter (while pi works) | Steer / queue a follow-up |

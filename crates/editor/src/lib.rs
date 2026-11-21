@@ -3,6 +3,7 @@
 //! shows the bars around it (read-only, conflict, deleted). Also the pi diff tab.
 
 pub mod diff_panel;
+pub mod review_panel;
 mod follow;
 mod git_gutter;
 mod goto_line;
@@ -73,6 +74,7 @@ pub fn init(cx: &mut App) {
     typst::init();
     tex::init(cx);
     diff_panel::init(cx);
+    review_panel::init(cx);
     cx.set_global(pide_core::context::EditorContextSource(std::rc::Rc::new(
         editor_context,
     )));

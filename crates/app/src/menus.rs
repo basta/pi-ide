@@ -141,6 +141,7 @@ fn menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 cmd("Take a Tour…", "agent.tour"),
                 cmd("Explain This Code", "agent.explain_this"),
+                cmd("Review Changes", "agent.review"),
                 cmd("Walk Through Changes", "agent.walk_through"),
                 cmd("Tell It as a Story", "agent.change_story"),
                 cmd("Catch Me Up", "agent.catch_up"),
