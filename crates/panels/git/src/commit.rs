@@ -119,7 +119,11 @@ pub fn ask_pi(cwd: &Path, prompt: &str) -> anyhow::Result<String> {
         .context("run pi")?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
-        let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+        let last = err
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("");
         bail!("pi failed: {last}");
     }
     let text = clean_reply(&String::from_utf8_lossy(&out.stdout));
@@ -171,7 +175,10 @@ mod tests {
     #[test]
     fn replies() {
         assert_eq!(clean_reply("```\nFix it\n```\n"), "Fix it");
-        assert_eq!(clean_reply("```text\nFix it\n\nBody\n```"), "Fix it\n\nBody");
+        assert_eq!(
+            clean_reply("```text\nFix it\n\nBody\n```"),
+            "Fix it\n\nBody"
+        );
         assert_eq!(clean_reply("  Fix it \n"), "Fix it");
     }
 

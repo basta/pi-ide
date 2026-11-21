@@ -1126,7 +1126,12 @@ impl PiSettings {
                 }
                 let grouped: Vec<&Model> = order
                     .iter()
-                    .flat_map(|p| matches[..shown].iter().copied().filter(move |m| m.provider == *p))
+                    .flat_map(|p| {
+                        matches[..shown]
+                            .iter()
+                            .copied()
+                            .filter(move |m| m.provider == *p)
+                    })
                     .collect();
                 let mut last_provider: Option<&str> = None;
                 for m in grouped {

@@ -578,7 +578,10 @@ fn diagnostics_queries_parse_from_the_recording() {
         for r in pide_agent_pi::wire::parse_line(line) {
             match r {
                 Inbound::Query { payload, .. } => {
-                    assert_eq!(payload, json!({"kind": "diagnostics", "paths": ["stats.py"]}));
+                    assert_eq!(
+                        payload,
+                        json!({"kind": "diagnostics", "paths": ["stats.py"]})
+                    );
                     queries += 1;
                 }
                 Inbound::Dialog(d) => panic!("a pide query became a dialog card: {d:?}"),
@@ -604,7 +607,9 @@ fn tour_stops_land_on_their_quoted_code() {
     for line in fixture.lines() {
         for rec in pide_agent_pi::wire::parse_line(line) {
             match rec {
-                Inbound::Event(AgentEvent::ToolStart { name, args: a, .. }) if name == "ide_tour" => {
+                Inbound::Event(AgentEvent::ToolStart { name, args: a, .. })
+                    if name == "ide_tour" =>
+                {
                     args = Some(a)
                 }
                 Inbound::Event(AgentEvent::Pin(p)) => pins.push(p),
@@ -618,7 +623,12 @@ fn tour_stops_land_on_their_quoted_code() {
     let mut moved = 0;
     for (pin, st) in pins.iter().zip(stops) {
         let code = st["code"].as_str().unwrap().trim();
-        assert!(pin.anchor.text.contains(code), "{} {:?} vs {code:?}", pin.id, pin.anchor.text);
+        assert!(
+            pin.anchor.text.contains(code),
+            "{} {:?} vs {code:?}",
+            pin.id,
+            pin.anchor.text
+        );
         assert!(pin.id.starts_with("tour:"));
         if pin.anchor.line as u64 != st["line"].as_u64().unwrap() {
             moved += 1;

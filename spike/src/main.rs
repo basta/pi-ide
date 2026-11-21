@@ -190,24 +190,40 @@ impl Spike {
         cx.spawn_in(window, async move |this, cx| {
             let tick = || Duration::from_millis(16);
             let mut out = String::new();
-            out += &format!("# pide M0 spike results\n\nos: {} {}\n", std::env::consts::OS, std::env::consts::ARCH);
+            out += &format!(
+                "# pide M0 spike results\n\nos: {} {}\n",
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            );
 
             // Let the first layout + initial tree-sitter parse finish.
             let rss_before = rss_mb();
             let mut collector = FrameTimingCollector::new();
-            let mut idle = PhaseStats { name: "settle (3 s idle after open, includes initial parse)", ..Default::default() };
+            let mut idle = PhaseStats {
+                name: "settle (3 s idle after open, includes initial parse)",
+                ..Default::default()
+            };
             cx.background_executor().timer(Duration::from_secs(3)).await;
             idle.absorb(collector.collect_unseen());
             out += &idle.report();
-            out += &format!("rss after open+parse: {:.0} MB (at start of settle: {:.0} MB)\n\n", rss_mb(), rss_before);
+            out += &format!(
+                "rss after open+parse: {:.0} MB (at start of settle: {:.0} MB)\n\n",
+                rss_mb(),
+                rss_before
+            );
 
-            let Ok(editor) = this.read_with(cx, |this, _| this.editor.clone()) else { return };
+            let Ok(editor) = this.read_with(cx, |this, _| this.editor.clone()) else {
+                return;
+            };
             let line_h = editor
                 .read_with(cx, |e, _| e.line_height())
                 .unwrap_or(px(20.));
 
             // Phase 1: smooth scroll, ~3 lines per frame, top -> 3000 lines down.
-            let mut smooth = PhaseStats { name: "smooth scroll (3 lines/frame, 1000 frames)", ..Default::default() };
+            let mut smooth = PhaseStats {
+                name: "smooth scroll (3 lines/frame, 1000 frames)",
+                ..Default::default()
+            };
             collector.collect_unseen();
             for i in 0..1000 {
                 let y = line_h * (3.0 * i as f32);
@@ -221,7 +237,10 @@ impl Spike {
             out += "\n";
 
             // Phase 2: fast fling, 60 lines per frame across the whole file.
-            let mut fling = PhaseStats { name: "fast scroll (60 lines/frame, whole file)", ..Default::default() };
+            let mut fling = PhaseStats {
+                name: "fast scroll (60 lines/frame, whole file)",
+                ..Default::default()
+            };
             let total = this.read_with(cx, |this, _| this.lines).unwrap_or(50_000);
             let steps = (total / 60).max(1);
             for i in 0..steps {
@@ -236,20 +255,26 @@ impl Spike {
             out += "\n";
 
             // Phase 3: typing in the middle of the file, one char per frame.
-            let mut typing = PhaseStats { name: "typing (400 chars at line 25000, 1 char / 16 ms)", ..Default::default() };
+            let mut typing = PhaseStats {
+                name: "typing (400 chars at line 25000, 1 char / 16 ms)",
+                ..Default::default()
+            };
             let _ = this.update_in(cx, |this, window, cx| {
                 this.editor.update(cx, |e, cx| {
                     e.set_cursor_position(Position::new(25_000, 0), window, cx);
                 });
             });
-            cx.background_executor().timer(Duration::from_millis(500)).await;
+            cx.background_executor()
+                .timer(Duration::from_millis(500))
+                .await;
             collector.collect_unseen();
             let sample = "let spike_value = compute(alpha, beta) + 42; // typing\n";
             let chars: Vec<char> = sample.chars().cycle().take(400).collect();
             for ch in chars {
                 let t = Instant::now();
                 let _ = this.update_in(cx, |this, window, cx| {
-                    this.editor.update(cx, |e, cx| e.insert(ch.to_string(), window, cx));
+                    this.editor
+                        .update(cx, |e, cx| e.insert(ch.to_string(), window, cx));
                 });
                 typing.op_times.push(t.elapsed());
                 cx.background_executor().timer(tick()).await;
@@ -258,10 +283,16 @@ impl Spike {
             out += &typing.report();
 
             // Phase 4: a large paste (1000 lines) to stress reparse/highlight.
-            let mut paste = PhaseStats { name: "paste 1000 lines at cursor", ..Default::default() };
-            cx.background_executor().timer(Duration::from_millis(500)).await;
+            let mut paste = PhaseStats {
+                name: "paste 1000 lines at cursor",
+                ..Default::default()
+            };
+            cx.background_executor()
+                .timer(Duration::from_millis(500))
+                .await;
             collector.collect_unseen();
-            let block = "fn pasted(x: u32) -> u32 { x.wrapping_mul(31) ^ 0xdead_beef }\n".repeat(1000);
+            let block =
+                "fn pasted(x: u32) -> u32 { x.wrapping_mul(31) ^ 0xdead_beef }\n".repeat(1000);
             let t = Instant::now();
             let _ = this.update_in(cx, |this, window, cx| {
                 this.editor.update(cx, |e, cx| e.insert(block, window, cx));
@@ -324,7 +355,10 @@ fn histograms(window: &Window) -> String {
     s += &h!("draw duration ms", f.draw_duration_histogram);
     s += &h!("dirty->present ms", f.dirty_to_present_histogram);
     s += &h!("present interval ms", f.present_interval_histogram);
-    s += &h!("input->frame latency ms (real OS input only)", l.latency_histogram);
+    s += &h!(
+        "input->frame latency ms (real OS input only)",
+        l.latency_histogram
+    );
     s
 }
 
@@ -349,7 +383,10 @@ impl Render for Spike {
                     .text_sm()
                     .bg(cx.theme().secondary)
                     .text_color(cx.theme().muted_foreground)
-                    .child(format!("{} — {} lines — {}", self.path, self.lines, self.status))
+                    .child(format!(
+                        "{} — {} lines — {}",
+                        self.path, self.lines, self.status
+                    ))
                     .child(format!("{}:{}", pos.line + 1, pos.character + 1)),
             )
     }
@@ -366,7 +403,11 @@ fn main() {
         .unwrap_or_else(|| DEFAULT_FILE.to_string());
     let t = Instant::now();
     let text = std::fs::read_to_string(&path).expect("read file");
-    eprintln!("[spike] read {} bytes in {} ms", text.len(), ms(t.elapsed()));
+    eprintln!(
+        "[spike] read {} bytes in {} ms",
+        text.len(),
+        ms(t.elapsed())
+    );
 
     gpui_kit::application().run(move |cx| {
         gpui_kit::init(cx);

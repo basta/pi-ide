@@ -34,9 +34,13 @@ pub fn init(cx: &mut App) {
         CommandSpec::new("git.push", "Git: Push…").key("cmd-shift-k"),
         open_push,
     );
-    CommandRegistry::register(cx, CommandSpec::new("git.fetch", "Git: Fetch"), |window, cx| {
-        run_op("Fetching…", remote::fetch, window, cx);
-    });
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("git.fetch", "Git: Fetch"),
+        |window, cx| {
+            run_op("Fetching…", remote::fetch, window, cx);
+        },
+    );
     CommandRegistry::register(
         cx,
         CommandSpec::new("git.branches", "Git: Branches…"),
@@ -45,7 +49,11 @@ pub fn init(cx: &mut App) {
 }
 
 fn root(window: &Window, cx: &App) -> PathBuf {
-    Services::of(window, cx).workspace.read(cx).root().to_path_buf()
+    Services::of(window, cx)
+        .workspace
+        .read(cx)
+        .root()
+        .to_path_buf()
 }
 
 /// Run a git operation off the UI thread; its summary or error becomes a notification.
@@ -257,7 +265,13 @@ fn show_branches(list: Vec<BranchInfo>, window: &mut Window, cx: &mut App) {
                             h_flex()
                                 .w_full()
                                 .gap_2()
-                                .child(div().flex_1().min_w_0().overflow_hidden().child(label.clone()))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .overflow_hidden()
+                                        .child(label.clone()),
+                                )
                                 .child(div().text_xs().text_color(muted).child(hint.clone()))
                         })
                     })
@@ -277,7 +291,9 @@ fn show_branches(list: Vec<BranchInfo>, window: &mut Window, cx: &mut App) {
                             window.refresh();
                         })
                         .on_confirm(move |ix, window, cx| {
-                            let Some(&i) = order_c.get(ix.row) else { return };
+                            let Some(&i) = order_c.get(ix.row) else {
+                                return;
+                            };
                             window.close_dialog(cx);
                             let picks = picks_c.clone();
                             let current = current_c.clone();
@@ -354,8 +370,12 @@ fn branch_actions(b: BranchInfo, current: Option<String>, window: &mut Window, c
     let state = cx.new(|cx| CommandState::new(window, cx));
     let focus_once = Rc::new(Cell::new(true));
     window.open_dialog(cx, move |dialog, _, _| {
-        let (actions, state, focus_once, b) =
-            (actions.clone(), state.clone(), focus_once.clone(), b.clone());
+        let (actions, state, focus_once, b) = (
+            actions.clone(),
+            state.clone(),
+            focus_once.clone(),
+            b.clone(),
+        );
         dialog
             .text_sm()
             .close_button(false)
@@ -512,7 +532,9 @@ impl PushView {
         self.selected = ix;
         self.files = None;
         cx.notify();
-        let Some(c) = self.out.commits.get(ix) else { return };
+        let Some(c) = self.out.commits.get(ix) else {
+            return;
+        };
         let (root, hash) = (self.root.clone(), c.hash.clone());
         let work = cx
             .background_executor()
@@ -565,7 +587,11 @@ impl Render for PushView {
                             .flex_none()
                             .text_xs()
                             .text_color(theme.muted_foreground)
-                            .child(format!("{} · {}", c.author, log::when(c.time, c.offset, now))),
+                            .child(format!(
+                                "{} · {}",
+                                c.author,
+                                log::when(c.time, c.offset, now)
+                            )),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| this.select(i, cx)))
                     .into_any_element()
@@ -588,7 +614,10 @@ impl Render for PushView {
             Some(Ok(list)) => v_flex()
                 .py_1()
                 .children(list.iter().map(|f| {
-                    let color = pide_core::colors::change(pide_core::colors::Change::from_letter(f.kind), cx);
+                    let color = pide_core::colors::change(
+                        pide_core::colors::Change::from_letter(f.kind),
+                        cx,
+                    );
                     h_flex()
                         .px_2()
                         .gap_2()
@@ -610,7 +639,12 @@ impl Render for PushView {
                                 .child(f.added.map_or("bin".into(), |n| format!("+{n}"))),
                         )
                         .when_some(f.deleted, |d, n| {
-                            d.child(div().text_xs().text_color(theme.danger).child(format!("−{n}")))
+                            d.child(
+                                div()
+                                    .text_xs()
+                                    .text_color(theme.danger)
+                                    .child(format!("−{n}")),
+                            )
                         })
                 }))
                 .into_any_element(),
@@ -743,7 +777,11 @@ fn show_push(root: PathBuf, out: Outgoing, window: &mut Window, cx: &mut App) {
         let view = view.clone();
         move |force: bool, window: &mut Window, cx: &mut App| {
             let out = view.read(cx).out.clone();
-            let label = if force { "Force pushing…" } else { "Pushing…" };
+            let label = if force {
+                "Force pushing…"
+            } else {
+                "Pushing…"
+            };
             run_op(label, move |w| remote::push(w, &out, force), window, cx);
         }
     });

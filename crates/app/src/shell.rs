@@ -361,11 +361,18 @@ impl Shell {
         let (cur, open) = {
             let d = self.dock.read(cx);
             let size = |p| {
-                if d.is_dock_open(p) { d.dock_size(p).unwrap_or(px(0.)) } else { px(0.) }
+                if d.is_dock_open(p) {
+                    d.dock_size(p).unwrap_or(px(0.))
+                } else {
+                    px(0.)
+                }
             };
             (
                 (size(DockPlacement::Left), size(DockPlacement::Right)),
-                (d.is_dock_open(DockPlacement::Left), d.is_dock_open(DockPlacement::Right)),
+                (
+                    d.is_dock_open(DockPlacement::Left),
+                    d.is_dock_open(DockPlacement::Right),
+                ),
             )
         };
         if self.dock_applied != Some(cur) {
@@ -380,7 +387,13 @@ impl Shell {
             (pl, pr)
         } else {
             let f = room / sides;
-            let fit = |w: Pixels| if w > px(0.) { px((f32::from(w) * f).max(MIN_SIDE)) } else { w };
+            let fit = |w: Pixels| {
+                if w > px(0.) {
+                    px((f32::from(w) * f).max(MIN_SIDE))
+                } else {
+                    w
+                }
+            };
             (fit(pl), fit(pr))
         };
         if target != cur {
@@ -575,7 +588,8 @@ impl Shell {
                             .text_right()
                             .child(l.clone())
                             .tooltip(move |window, cx| {
-                                gpui_kit::component::tooltip::Tooltip::new(l.clone()).build(window, cx)
+                                gpui_kit::component::tooltip::Tooltip::new(l.clone())
+                                    .build(window, cx)
                             })
                     }))
                     .children(items)
@@ -815,7 +829,13 @@ pub fn show_pdf(req: pide_core::opener::PdfRequest, window: &mut Window, cx: &mu
             let p = cx.new(|cx| pide_pdf::PdfPanel::new(req.path.clone(), window, cx));
             let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
             shell.dock.update(cx, |d, cx| {
-                d.add_panel_view(panel_handle(p.clone()), DockPlacement::Center, None, window, cx);
+                d.add_panel_view(
+                    panel_handle(p.clone()),
+                    DockPlacement::Center,
+                    None,
+                    window,
+                    cx,
+                );
                 if req.beside {
                     let node = d
                         .layout(DockPlacement::Center)

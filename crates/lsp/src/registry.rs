@@ -159,9 +159,8 @@ fn builtin() -> Vec<ServerSpec> {
             language_id: "plaintext",
             extensions: &[
                 "tex", "typ", "md", "markdown", "txt", "rs", "py", "pyi", "ts", "mts", "cts",
-                "tsx", "js", "mjs", "cjs", "jsx", "go", "c", "h", "cpp", "cc", "hpp", "java",
-                "rb", "lua", "zig", "swift", "php", "sh", "bash", "toml", "yaml", "yml",
-                "html", "css",
+                "tsx", "js", "mjs", "cjs", "jsx", "go", "c", "h", "cpp", "cc", "hpp", "java", "rb",
+                "lua", "zig", "swift", "php", "sh", "bash", "toml", "yaml", "yml", "html", "css",
             ],
             command: "codebook-lsp".into(),
             args: vec!["serve".into()],
@@ -255,7 +254,9 @@ pub fn specs(lsp_settings: Option<&Value>) -> Vec<ServerSpec> {
 /// The main server for a file, by extension.
 pub fn spec_for<'a>(specs: &'a [ServerSpec], path: &Path) -> Option<&'a ServerSpec> {
     let ext = path.extension()?.to_str()?;
-    specs.iter().find(|s| !s.addon && s.extensions.contains(&ext))
+    specs
+        .iter()
+        .find(|s| !s.addon && s.extensions.contains(&ext))
 }
 
 /// The add-on servers for a file (spell checking), by extension.

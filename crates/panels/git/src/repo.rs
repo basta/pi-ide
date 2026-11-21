@@ -491,10 +491,15 @@ mod tests {
         std::fs::remove_file(dir.join("gone.txt")).unwrap();
         std::fs::write(dir.join("new.txt"), "n\n").unwrap();
         let c: Changes = status(&dir).unwrap().unwrap().into();
-        let tracked: Vec<(&str, Kind)> = c.tracked.iter().map(|e| (e.rel.as_str(), e.kind)).collect();
+        let tracked: Vec<(&str, Kind)> =
+            c.tracked.iter().map(|e| (e.rel.as_str(), e.kind)).collect();
         assert_eq!(
             tracked,
-            [("a.txt", Kind::Modified), ("b.txt", Kind::Modified), ("gone.txt", Kind::Deleted)]
+            [
+                ("a.txt", Kind::Modified),
+                ("b.txt", Kind::Modified),
+                ("gone.txt", Kind::Deleted)
+            ]
         );
         assert_eq!(c.unversioned[0].rel, "new.txt");
 
@@ -512,7 +517,10 @@ mod tests {
         assert_eq!(show("HEAD:new.txt"), "n\n");
         assert!(git(&dir, &["show", "HEAD:gone.txt"], None).is_err());
         // The file on disk keeps its other change; b.txt stays staged.
-        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "ONE\n2\n3\n4\nFIVE\n");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("a.txt")).unwrap(),
+            "ONE\n2\n3\n4\nFIVE\n"
+        );
         let s = status(&dir).unwrap().unwrap();
         assert_eq!(rels(&s.staged), [("b.txt", Kind::Modified)]);
         assert_eq!(rels(&s.unstaged), [("a.txt", Kind::Modified)]);
@@ -521,7 +529,10 @@ mod tests {
         let c: Changes = s.into();
         rollback_to_head(&dir, &c.tracked).unwrap();
         assert_eq!(std::fs::read_to_string(dir.join("b.txt")).unwrap(), "b\n");
-        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "ONE\n2\n3\n4\n5\n");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("a.txt")).unwrap(),
+            "ONE\n2\n3\n4\n5\n"
+        );
         assert!(status(&dir).unwrap().unwrap().staged.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }

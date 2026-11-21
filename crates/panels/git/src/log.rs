@@ -421,8 +421,22 @@ fn changed_between(
     id: String,
 ) -> anyhow::Result<Vec<ChangedFile>> {
     let base: Vec<&str> = match &parent {
-        Some(p) => vec!["diff-tree", "-r", "-M", "--no-commit-id", p.as_str(), id.as_str()],
-        None => vec!["diff-tree", "-r", "-M", "--no-commit-id", "--root", id.as_str()],
+        Some(p) => vec![
+            "diff-tree",
+            "-r",
+            "-M",
+            "--no-commit-id",
+            p.as_str(),
+            id.as_str(),
+        ],
+        None => vec![
+            "diff-tree",
+            "-r",
+            "-M",
+            "--no-commit-id",
+            "--root",
+            id.as_str(),
+        ],
     };
     let mut status_args = base.clone();
     status_args.insert(1, "--name-status");
@@ -638,7 +652,10 @@ mod tests {
         std::fs::write(dir.join("c.txt"), "one\ntwo\n").unwrap();
         sh(&dir, &["add", "."]);
         sh(&dir, &["commit", "-q", "-m", "rename"]);
-        sh(&dir, &["merge", "-q", "--no-ff", "side", "-m", "merge side"]);
+        sh(
+            &dir,
+            &["merge", "-q", "--no-ff", "side", "-m", "merge side"],
+        );
 
         let log = read(&dir, None).unwrap().unwrap();
         let subjects: Vec<&str> = log.commits.iter().map(|c| c.subject.as_str()).collect();
@@ -674,7 +691,10 @@ mod tests {
         assert_eq!(files[0].old_path.as_deref(), Some("a.txt"));
         assert_eq!(files[0].added, Some(1));
         let parent = rename.parents[0].to_string();
-        assert_eq!(file_at(&log.workdir, &parent, "a.txt").as_deref(), Some("one\n"));
+        assert_eq!(
+            file_at(&log.workdir, &parent, "a.txt").as_deref(),
+            Some("one\n")
+        );
         assert_eq!(
             file_at(&log.workdir, &rename.id.to_string(), "c.txt").as_deref(),
             Some("one\ntwo\n")
@@ -692,7 +712,10 @@ mod tests {
         let numstat = "2\t1\tsrc/main.rs\n3\t0\t{old.rs => new.rs}\n-\t-\timg.png\n";
         let files = parse_changes(status, numstat);
         assert_eq!(files.len(), 3);
-        assert_eq!((files[0].kind, files[0].added, files[0].deleted), ('M', Some(2), Some(1)));
+        assert_eq!(
+            (files[0].kind, files[0].added, files[0].deleted),
+            ('M', Some(2), Some(1))
+        );
         assert_eq!(files[1].path, "new.rs");
         assert_eq!(files[1].old_path.as_deref(), Some("old.rs"));
         assert_eq!(files[2].added, None);

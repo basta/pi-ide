@@ -53,7 +53,11 @@ pub fn blame_line(workdir: &Path, rel: &str, line: u32) -> anyhow::Result<(Blame
 }
 
 /// Like [`blame_line`], with the line's number in that commit ([`BlameLine::orig_line`]).
-pub fn blame_line_at(workdir: &Path, rel: &str, line: u32) -> anyhow::Result<(BlameCommit, BlameLine)> {
+pub fn blame_line_at(
+    workdir: &Path,
+    rel: &str,
+    line: u32,
+) -> anyhow::Result<(BlameCommit, BlameLine)> {
     let range = format!("{line},{line}");
     let out = crate::repo::git_out(workdir, &["blame", "--porcelain", "-L", &range, "--", rel])?;
     let b = parse(&out);
@@ -96,7 +100,11 @@ fn parse(out: &str) -> Blame {
             });
             current = Some(c);
             // "<hash> <line in that commit> <line now> [<group size>]"
-            orig = value.split(' ').next().and_then(|n| n.parse().ok()).unwrap_or(0);
+            orig = value
+                .split(' ')
+                .next()
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(0);
             continue;
         }
         let Some(c) = current.and_then(|c| b.commits.get_mut(c)) else {
@@ -168,7 +176,10 @@ filename a.txt
         assert_eq!(b.commits[0].short(), "1111111");
         assert!(b.commits[1].uncommitted());
         assert_eq!(b.commits[1].offset, -(5 * 3600 + 30 * 60));
-        assert_eq!(b.commits[1].previous.as_deref(), Some("1111111111111111111111111111111111111111"));
+        assert_eq!(
+            b.commits[1].previous.as_deref(),
+            Some("1111111111111111111111111111111111111111")
+        );
     }
 
     #[test]

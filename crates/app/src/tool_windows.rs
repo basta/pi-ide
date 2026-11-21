@@ -38,8 +38,7 @@ pub fn init(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
-        CommandSpec::new("view.hide_all_tools", "View: Hide All Tool Windows")
-            .key("cmd-shift-f12"),
+        CommandSpec::new("view.hide_all_tools", "View: Hide All Tool Windows").key("cmd-shift-f12"),
         |window, cx| {
             if let Some(dock) = crate::shell::dock_of(window, cx) {
                 hide_all(&dock, window, cx);
@@ -67,10 +66,12 @@ pub fn forget(window: WindowId, cx: &mut App) {
 fn selected_panel(dock: &DockArea, p: DockPlacement) -> Option<PanelId> {
     use gpui_kit::component::dock::PaneRef;
     let tree = dock.layout(p)?;
-    tree.node_ids().into_iter().find_map(|n| match tree.find_node(n)?.kind() {
-        PaneRef::Tabs { panels, active_ix } => panels.get(active_ix).copied(),
-        PaneRef::Split { .. } => None,
-    })
+    tree.node_ids()
+        .into_iter()
+        .find_map(|n| match tree.find_node(n)?.kind() {
+            PaneRef::Tabs { panels, active_ix } => panels.get(active_ix).copied(),
+            PaneRef::Split { .. } => None,
+        })
 }
 
 /// Focus the editor area's selected tab (after hiding a tool window).
@@ -114,7 +115,9 @@ fn hide_all(dock: &Entity<DockArea>, window: &mut Window, cx: &mut App) {
             .remove(&id)
             .unwrap_or_default()
     } else {
-        cx.default_global::<HiddenByAll>().0.insert(id, open.clone());
+        cx.default_global::<HiddenByAll>()
+            .0
+            .insert(id, open.clone());
         open
     };
     dock.update(cx, |d, cx| {
@@ -337,9 +340,10 @@ pub fn stripe(side: Side, dock: &Entity<DockArea>, cx: &App) -> impl IntoElement
                 ]
                 .into_iter()
                 .fold(menu, |menu, (label, to)| {
-                    menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
-                        move_to(id, to, window, cx)
-                    }))
+                    menu.item(
+                        PopupMenuItem::new(label)
+                            .on_click(move |_, window, cx| move_to(id, to, window, cx)),
+                    )
                 })
             })
             .child(
@@ -354,11 +358,20 @@ pub fn stripe(side: Side, dock: &Entity<DockArea>, cx: &App) -> impl IntoElement
     };
     let (top, bottom): (Vec<_>, Vec<_>) = match side {
         Side::Left => (
-            tools.iter().filter(|t| t.1 == DockPlacement::Left).collect(),
-            tools.iter().filter(|t| t.1 == DockPlacement::Bottom).collect(),
+            tools
+                .iter()
+                .filter(|t| t.1 == DockPlacement::Left)
+                .collect(),
+            tools
+                .iter()
+                .filter(|t| t.1 == DockPlacement::Bottom)
+                .collect(),
         ),
         Side::Right => (
-            tools.iter().filter(|t| t.1 == DockPlacement::Right).collect(),
+            tools
+                .iter()
+                .filter(|t| t.1 == DockPlacement::Right)
+                .collect(),
             Vec::new(),
         ),
     };

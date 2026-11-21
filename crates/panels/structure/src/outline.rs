@@ -89,7 +89,11 @@ pub fn from_lsp(
         let heading = prose && is_heading_kind(kind);
         let at = to_chars(at);
         Entry {
-            name: if heading { plain(name) } else { name.trim().to_string() },
+            name: if heading {
+                plain(name)
+            } else {
+                name.trim().to_string()
+            },
             kind: if heading {
                 ""
             } else if prose {
@@ -133,12 +137,24 @@ pub fn from_lsp(
         }
         DocumentSymbolResponse::Flat(mut list) => {
             // No nesting given: a symbol is inside the ones whose range holds it.
-            list.sort_by_key(|s| (s.location.range.start.line, s.location.range.start.character));
+            list.sort_by_key(|s| {
+                (
+                    s.location.range.start.line,
+                    s.location.range.start.character,
+                )
+            });
             let mut open: Vec<lsp_types::Range> = Vec::new();
             for s in list {
                 let r = s.location.range;
                 open.retain(|o| o.start <= r.start && o.end >= r.end);
-                out.push(entry(&s.name, s.kind, r.start, r.start.line, r.end.line, open.len()));
+                out.push(entry(
+                    &s.name,
+                    s.kind,
+                    r.start,
+                    r.start.line,
+                    r.end.line,
+                    open.len(),
+                ));
                 open.push(r);
             }
         }
@@ -223,7 +239,11 @@ pub fn scan_headings(text: &str, path: &Path) -> Vec<Entry> {
                     }
                     rest = rest.strip_prefix('*').unwrap_or(rest).trim_start();
                     if rest.starts_with('[') {
-                        rest = rest.split_once(']').map(|(_, r)| r).unwrap_or("").trim_start();
+                        rest = rest
+                            .split_once(']')
+                            .map(|(_, r)| r)
+                            .unwrap_or("")
+                            .trim_start();
                     }
                     let Some(arg) = rest.strip_prefix('{').and_then(braced) else {
                         continue;
@@ -306,7 +326,9 @@ pub fn ids(entries: &[Entry]) -> Vec<String> {
 }
 
 pub fn has_children(entries: &[Entry], i: usize) -> bool {
-    entries.get(i + 1).is_some_and(|n| n.depth > entries[i].depth)
+    entries
+        .get(i + 1)
+        .is_some_and(|n| n.depth > entries[i].depth)
 }
 
 /// The entries shown: everything but what's inside a collapsed entry.
@@ -333,7 +355,10 @@ pub fn visible(entries: &[Entry], ids: &[String], collapsed: &HashSet<String>) -
 pub fn current(entries: &[Entry], line: u32) -> Option<usize> {
     let mut best: Option<usize> = None;
     for (i, e) in entries.iter().enumerate() {
-        if e.start_line <= line && line <= e.end_line && best.is_none_or(|b| e.depth > entries[b].depth) {
+        if e.start_line <= line
+            && line <= e.end_line
+            && best.is_none_or(|b| e.depth > entries[b].depth)
+        {
             best = Some(i);
         }
     }
@@ -365,7 +390,12 @@ mod tests {
         let e = scan_headings(text, Path::new("a.typ"));
         assert_eq!(
             names(&e),
-            [(0, "Introduction"), (1, "Background"), (2, "Deep bold part"), (0, "Method")]
+            [
+                (0, "Introduction"),
+                (1, "Background"),
+                (2, "Deep bold part"),
+                (0, "Method")
+            ]
         );
         assert_eq!((e[0].line, e[0].character), (1, 2));
         // A section runs until the next one at its level or above.
@@ -379,7 +409,12 @@ mod tests {
         let e = scan_headings(text, Path::new("a.tex"));
         assert_eq!(
             names(&e),
-            [(0, "Intro to $\\mathbf{x}$"), (1, "Background"), (2, "Deep"), (0, "Method")]
+            [
+                (0, "Intro to $\\mathbf{x}$"),
+                (1, "Background"),
+                (2, "Deep"),
+                (0, "Method")
+            ]
         );
     }
 
@@ -406,11 +441,17 @@ mod tests {
         ]);
         let resp: DocumentSymbolResponse = serde_json::from_value(v).unwrap();
         let e = from_lsp(resp, true, &|p| p);
-        assert_eq!(names(&e), [(0, "Introduction"), (1, "helper"), (1, "Deep bold part")]);
+        assert_eq!(
+            names(&e),
+            [(0, "Introduction"), (1, "helper"), (1, "Deep bold part")]
+        );
         assert_eq!(e[1].kind, "fn");
         assert_eq!(e[2].kind, "");
         assert!(e[0].heading && !e[1].heading);
-        assert_eq!(names(&headings_only(&e)), [(0, "Introduction"), (1, "Deep bold part")]);
+        assert_eq!(
+            names(&headings_only(&e)),
+            [(0, "Introduction"), (1, "Deep bold part")]
+        );
         // In code, a namespace is a module, not a heading.
         let resp: DocumentSymbolResponse =
             serde_json::from_value(serde_json::json!([{"name": "m", "kind": 3,

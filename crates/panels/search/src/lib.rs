@@ -11,13 +11,13 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use gpui_kit::component::button::Button;
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::component::dock::{PanelEvent, PanelState, panel_handle, register_panel};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{
     ActiveTheme, Disableable as _, Sizable as _, WindowExt as _, h_flex, v_flex,
 };
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use pide_core::{DockPosition, Panel, Services, Workspace};
 
@@ -39,7 +39,9 @@ pub fn init(cx: &mut App) {
             dock: pide_core::DockPosition::Bottom,
             command: "view.find",
             key: Some("cmd-3"),
-            create: |window, cx| panel_handle(cx.new(|cx| FindInFiles::new(window, cx))),
+            create: std::rc::Rc::new(|window, cx| {
+                panel_handle(cx.new(|cx| FindInFiles::new(window, cx)))
+            }),
         },
     );
 }
@@ -415,7 +417,11 @@ impl Render for FindInFiles {
                         let plain = &m.text[at..hit.range.start];
                         pieces.push(
                             div()
-                                .child(if k == 0 { plain.trim_start().to_string() } else { plain.to_string() })
+                                .child(if k == 0 {
+                                    plain.trim_start().to_string()
+                                } else {
+                                    plain.to_string()
+                                })
                                 .into_any_element(),
                         );
                         pieces.push(
@@ -427,7 +433,11 @@ impl Render for FindInFiles {
                         );
                         at = hit.range.end;
                     }
-                    pieces.push(div().child(m.text[at..].chars().take(160).collect::<String>()).into_any_element());
+                    pieces.push(
+                        div()
+                            .child(m.text[at..].chars().take(160).collect::<String>())
+                            .into_any_element(),
+                    );
                     let (path, line, ch) = (f.path.clone(), m.line, m.character);
                     rows.push(
                         h_flex()

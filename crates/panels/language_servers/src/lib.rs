@@ -164,7 +164,9 @@ impl LanguageServers {
                     spec.extensions[0]
                 ),
             ),
-            (_, Some(Installed::No { .. })) => (theme.muted_foreground, "not installed".to_string()),
+            (_, Some(Installed::No { .. })) => {
+                (theme.muted_foreground, "not installed".to_string())
+            }
             (_, None) => (theme.muted_foreground, "checking…".to_string()),
         };
         let detail = match &installed {

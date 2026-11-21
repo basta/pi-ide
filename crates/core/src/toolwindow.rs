@@ -14,6 +14,9 @@ use gpui_kit::*;
 
 use crate::{CommandRegistry, CommandSpec, DockPosition};
 
+/// Builds a tool window's panel.
+pub type PanelFactory = Rc<dyn Fn(&mut Window, &mut App) -> Arc<dyn PanelView>>;
+
 #[derive(Clone)]
 pub struct ToolWindowSpec {
     /// The panel's `panel_name` (how it's found in the dock and in saved layouts).
@@ -25,8 +28,9 @@ pub struct ToolWindowSpec {
     /// The toggle command (`view.toggle_project`) and its default key.
     pub command: &'static str,
     pub key: Option<&'static str>,
-    /// Builds the panel the first time it's shown in a window.
-    pub create: fn(&mut Window, &mut App) -> Arc<dyn PanelView>,
+    /// Builds the panel the first time it's shown in a window. A closure, so a
+    /// tool window found at run time (a script panel) can carry what it builds.
+    pub create: PanelFactory,
 }
 
 #[derive(Default)]
@@ -59,6 +63,14 @@ pub fn all(cx: &App) -> Vec<ToolWindowSpec> {
     cx.try_global::<ToolWindows>()
         .map(|t| t.0.clone())
         .unwrap_or_default()
+}
+
+/// Remove a tool window (a script panel that was deleted). Its toggle command stays
+/// registered but does nothing.
+pub fn unregister(cx: &mut App, id: &str) {
+    if cx.has_global::<ToolWindows>() {
+        cx.global_mut::<ToolWindows>().0.retain(|s| s.id != id);
+    }
 }
 
 pub fn get(id: &str, cx: &App) -> Option<ToolWindowSpec> {
