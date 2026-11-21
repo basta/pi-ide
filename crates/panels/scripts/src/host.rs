@@ -55,7 +55,7 @@ export interface Colors {
  */
 export function nextEvent(): Promise<PideEvent>;
 export interface PideEvent {
-  kind: "diagnostics" | "saved" | "changed" | "active" | "files" | "git",
+  kind: "diagnostics" | "saved" | "changed" | "active" | "files" | "git" | "cursor",
   path: string | null,
 }
 "#;
@@ -85,7 +85,9 @@ pub fn module() -> HostModule {
                         h.update(cx, |_, window, cx| pide_core::context::current(window, cx))
                             .ok()
                     })
-                    .flatten();
+                    .flatten()
+                    .or_else(|| CURSOR.with(|c| c.borrow().get(&id).cloned()))
+                    .filter(|c| root.join(&c.path) == path || Path::new(&c.path) == path);
                 let mut o = HostObject::new().field("path", rel(&root, &path));
                 o = match ctx {
                     Some(c) => o
@@ -319,11 +321,16 @@ thread_local! {
     /// Scripts waiting in `nextEvent`, per project window.
     static WAITERS: RefCell<HashMap<WindowId, Vec<oneshot::Sender<HostValue>>>> =
         RefCell::new(HashMap::new());
+    /// The active editor's file and selection, per window, as last seen. A
+    /// script that runs inside one of the window's events can't read the
+    /// window, so `activeFile` falls back to this.
+    static CURSOR: RefCell<HashMap<WindowId, pide_core::context::EditorContext>> =
+        RefCell::new(HashMap::new());
 }
 
 /// Windows whose project events already feed `nextEvent`.
 #[derive(Default)]
-struct Watched(HashMap<WindowId, Vec<Subscription>>);
+struct Watched(HashMap<WindowId, (Vec<Subscription>, Task<()>)>);
 impl Global for Watched {}
 
 /// Start passing this window's project events to waiting scripts (once per window).
@@ -338,6 +345,7 @@ pub fn watch_window(window: &Window, cx: &mut App) {
     let root = services.workspace.read(cx).root().to_path_buf();
     let store = LspStore::for_workspace(&services.workspace, cx);
     let r = root.clone();
+    let r2 = root.clone();
     let subs = vec![
         cx.subscribe(&services.workspace, move |_, ev: &WorkspaceEvent, cx| {
             let path = |b: &Entity<pide_core::Buffer>| Some(rel(&r, &b.read(cx).path));
@@ -358,7 +366,34 @@ pub fn watch_window(window: &Window, cx: &mut App) {
             }
         }),
     ];
-    cx.default_global::<Watched>().0.insert(id, subs);
+    // GPUI has no cursor event outside the editor: look a few times a second
+    // and wake scripts with `cursor` when the line or selection moves.
+    let handle = window.window_handle();
+    let poll = cx.spawn(async move |cx| {
+        loop {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(250))
+                .await;
+            let Ok(now) =
+                handle.update(cx, |_, window, cx| pide_core::context::current(window, cx))
+            else {
+                break;
+            };
+            let moved = CURSOR.with(|c| {
+                let mut c = c.borrow_mut();
+                let moved = c.get(&id) != now.as_ref();
+                match &now {
+                    Some(n) => c.insert(id, n.clone()),
+                    None => c.remove(&id),
+                };
+                moved
+            });
+            if moved {
+                wake(id, "cursor", now.map(|n| rel(&r2, &r2.join(&n.path))));
+            }
+        }
+    });
+    cx.default_global::<Watched>().0.insert(id, (subs, poll));
 }
 
 /// Stop for a closed window: its waiting scripts get an error.
@@ -367,6 +402,7 @@ pub fn forget_window(id: WindowId, cx: &mut App) {
         cx.global_mut::<Watched>().0.remove(&id);
     }
     WAITERS.with(|w| w.borrow_mut().remove(&id));
+    CURSOR.with(|c| c.borrow_mut().remove(&id));
 }
 
 fn wake(id: WindowId, kind: &str, path: Option<String>) {

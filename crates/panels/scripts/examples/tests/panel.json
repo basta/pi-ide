@@ -1,0 +1,1 @@
+{ "title": "Tests", "dock": "bottom", "icon": "terminal", "permissions": { "run": ["python3"] } }

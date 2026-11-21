@@ -90,6 +90,10 @@ export default class Example extends View {
   `main.js`: the complete API (every element, style method and component, and
   the `pide` module) with documentation. Read it rather than guessing a name.
 - The shipped Problems panel (`builtin-panels/problems/main.js`) is a complete example.
+  More in `crates/panels/scripts/examples/`: `code-weight` (lines per file),
+  `todos` (TODO/FIXME list), `outline` (follows the cursor with `cursor` events),
+  `tests` (runs pytest through `process`, with `run` permission, and hands
+  failures to pi).
 
 ## The `pide` module
 
@@ -98,7 +102,7 @@ Paths are relative to the project root; lines and columns are 1-based.
 | Call | |
 | --- | --- |
 | `root()` | the project root (absolute) |
-| `activeFile()` | `{ path, line, column, selection }` of the active editor tab, or `null` (line is `null` when called from inside a click) |
+| `activeFile()` | `{ path, line, column, selection }` of the active editor tab, or `null` (line is the last one seen when called from inside a click) |
 | `openFile(path, line?, column?)` | open in an editor tab |
 | `diagnostics()` | `[{ path, line, column, endLine, endColumn, severity, message, source }]` |
 | `await readFile(path)` | the open editor's text (unsaved edits included) or the file on disk |
@@ -106,7 +110,7 @@ Paths are relative to the project root; lines and columns are 1-based.
 | `runCommand(id)` | run any pide command (`view.problems`, `git.pull`, …); false if unknown |
 | `askPi(text)` | put text in the pi box, focused, not sent |
 | `colors()` | theme colors as `#rrggbb`: `background foreground muted border accent selection list_hover danger warning info success pi` |
-| `await nextEvent()` | the next project event: `{ kind, path }`, kind `diagnostics`, `saved`, `changed`, `active`, `files` or `git` |
+| `await nextEvent()` | the next project event: `{ kind, path }`, kind `diagnostics`, `saved`, `changed`, `active`, `files`, `git` or `cursor` (the caret or selection moved; checked 4 times a second) |
 
 gpui-shell's own modules work too, within the panel's permissions: `fs/promises`
 (read the project; write with `write`), `process` / `spawn` (with `run`),
