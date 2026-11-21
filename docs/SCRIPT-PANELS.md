@@ -43,8 +43,8 @@ folder created while pide runs.
 - `icon`: `triangle-alert`, `map`, `search`, `terminal`, `folder`, `bot`, `github`, `refresh`; anything else is a file icon.
 - `permissions`: reading the project is always allowed. `write` lets it write
   project files; `run` names the programs it may start (`["*"]` = any);
-  `network` the hosts it may reach; `pi` lets it read pi's sessions (the
-  `pi*` calls below), which can hold more than the code. Everything else is denied.
+  `network` the hosts it may reach; `pi` lets it read pi's sessions and message pi (the
+  `pi*` calls below); chats can hold more than the code. Everything else is denied.
 
 The first time a panel runs, pide shows what it asks for and waits for **Allow
 and Run** (shipped panels skip this). A `panel.json` that asks for more asks
@@ -99,7 +99,8 @@ export default class Example extends View {
   `codebase-map`, custom drawing without HTML: `window.paint_path` rings, graph
   edges and gradient areas, 60 fps animation from a timer, hover tracing, and
   `TextView.markdown`; `pi-session`, what pi did in a session (checklist,
-  changes with reasons, notes and replies, the conversation, saved sessions),
+  changes with reasons, notes with replies in place, the conversation with a
+  message box, saved sessions),
   with `pi` permission.
 - `gpui-base` parts (`Slider`, `Input`, …) draw nothing themselves; style
   them or use the `gpui-component` version. A state with `.on("change")`
@@ -122,7 +123,7 @@ Paths are relative to the project root; lines and columns are 1-based.
 | `colors()` | theme colors as `#rrggbb`: `background foreground muted border accent selection list_hover danger warning info success pi` |
 | `await nextEvent()` | the next project event: `{ kind, path }`, kind `diagnostics`, `saved`, `changed`, `active`, `files`, `git`, `cursor` (the caret or selection moved; checked 4 times a second) or `pi` (with `what`: `status`, `message`, `tool`, `change`, `note`, `progress`, `settled` or `sessions`, and `session`) |
 
-### pi's sessions (needs `"pi": true`)
+### pi's sessions (needs `"pi": true`, which also lets the panel message pi)
 
 A session id is a string that stays the same while the session is open.
 
@@ -135,6 +136,8 @@ A session id is a string that stays the same while the session is open.
 | `piBefore(session, path)` | the file before pi first touched it in that session (`null`: pi created it) |
 | `await piMessages(session)` | the conversation, from an open session's id or a saved session's `file`: `{ role: user/assistant/tool, text, thinking?, tools?: [{ id, name, args }], toolId?, toolName?, error?, time }` (tool output clipped at 4000 characters) |
 | `await piSavedSessions()` | this project's saved sessions, newest first: `{ file, name, preview, modified }` |
+| `piSend(session, text)` | send pi a message in that session, as if typed in the pi panel; while pi is busy it waits as a follow-up. Returns `"sent"` or `"queued"` |
+| `piReply(session, note, text)` | reply on a note (a `piNotes` id) like its card in the editor: your text joins the thread and pi answers there. False while pi is busy |
 | `piOpen(session)` | show the session in the pi panel |
 
 Images: `FileImage.new("plot.png")` from `gpui-component` shows a PNG, JPEG,

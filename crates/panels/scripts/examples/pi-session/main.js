@@ -1,11 +1,12 @@
 // What pi did in a session, in one place: its checklist, the files it changed
-// and why, the notes it left (click to jump), and the conversation.
+// and why, the notes it left (click to jump, reply in place), and the
+// conversation, with a box to send pi a message.
 // Needs "permissions": { "pi": true } in panel.json.
 import { View, div } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
+import { h_flex, v_flex, Input, InputState, TextView } from "gpui-base";
 import { Tag, Progress, TabBar, Tab } from "gpui-component";
 import {
-  piSessions, piChanges, piNotes, piProgress, piMessages, piSavedSessions, piOpen,
+  piSessions, piChanges, piNotes, piProgress, piMessages, piSavedSessions, piOpen, piSend, piReply,
   openFile, nextEvent, colors,
 } from "pide";
 
@@ -23,6 +24,13 @@ export default class PiSession extends View {
     this.chat = [];
     this.saved = [];
     this.error = null;
+    this.status = ""; // what happened to the last thing you sent
+    // One box for the chat and one for replying on a note (the note you picked).
+    this.ask = InputState.new({ placeholder: "Message pi… (Enter to send)" });
+    this.ask.on("submit", () => this.send());
+    this.replying = null;
+    this.reply = InputState.new({ placeholder: "Reply… (Enter to send)" });
+    this.reply.on("submit", () => this.answer());
     this.refresh = async () => {
       try {
         this.sessions = piSessions();
@@ -38,13 +46,39 @@ export default class PiSession extends View {
       }
       cx.notify();
     };
-    cx.spawn(async () => {
+    cx.spawn(async (cx) => {
+      await this.refresh();
+      // Sessions restored at startup fill in their changes a moment later.
+      await cx.sleep(1500);
       await this.refresh();
       for (;;) {
         const e = await nextEvent();
         if (e.kind === "pi") await this.refresh();
       }
     });
+  }
+
+  send() {
+    const s = this.session();
+    const text = this.ask.value().trim();
+    if (!s || !text) return;
+    this.status = piSend(s.id, text) === "queued" ? "Queued: pi will read it after this run." : "";
+    this.ask.set_value("");
+    this.file = null;
+    this.refresh();
+  }
+
+  answer() {
+    const s = this.session();
+    const text = this.reply.value().trim();
+    if (!s || !text || !this.replying) return;
+    if (piReply(s.id, this.replying, text)) {
+      this.reply.set_value("");
+      this.status = "";
+    } else {
+      this.status = "pi is busy; reply when it's done.";
+    }
+    this.refresh();
   }
 
   session() {
@@ -84,7 +118,11 @@ export default class PiSession extends View {
         .on_change((i) => set(() => { this.tab = i; }))
         .children(TABS.map((t) => Tab.new().label(t)))))
       .child(v_flex().id("body").flex_1().overflow_y_scroll().px_3().py_2().gap_2()
-        .children(this.body(c)));
+        .children(this.body(c)))
+      .child(this.status ? div().px_3().pb_1().text_xs().text_color(c.warning).child(this.status) : div())
+      // The chat box, on the Chat tab of an open session.
+      .child(this.tab !== 2 || this.file ? div() : div().px_3().pb_3()
+        .child(div().px_2().py_1().rounded_md().border_1().border_color(c.border).child(Input.new(this.ask))));
   }
 
   body(c) {
@@ -104,12 +142,18 @@ export default class PiSession extends View {
       const live = this.notes.filter((n) => !n.dismissed);
       if (!live.length) return empty("pi hasn't left notes.");
       return live.map((n) => v_flex().id(`n${n.id}`).p_2().gap_1().rounded_md().border_1().border_color(c.border)
-        .cursor_pointer().hover((st) => st.bg(c.list_hover)).on_click(() => openFile(n.path, n.line))
-        .child(div().text_xs().text_color(c.muted)
+        // The header jumps to the line; the rest of the card is for reading and replying.
+        .child(div().id(`go${n.id}`).text_xs().text_color(c.muted).cursor_pointer()
+          .hover((st) => st.text_color(c.foreground)).on_click(() => openFile(n.path, n.line))
           .child(`${n.kind} · ${n.path}:${n.line}${n.outdated ? " · outdated" : ""}${n.seen ? "" : " · new"}`))
         .child(div().text_sm().child(n.note))
         .children(n.thread.map((r, i) => div().id(`r${n.id}${i}`).text_sm().pl_2().border_l_2()
-          .border_color(r.pi ? c.pi : c.border).child(`${r.pi ? "pi" : "You"}: ${r.text}`))));
+          .border_color(r.pi ? c.pi : c.border).child(`${r.pi ? "pi" : "You"}: ${r.text}`)))
+        .child(this.replying === n.id
+          ? div().px_2().py_1().rounded_md().border_1().border_color(c.border).child(Input.new(this.reply))
+          : div().id(`reply${n.id}`).text_xs().text_color(c.pi).cursor_pointer()
+            .on_click(() => { this.replying = n.id; this.reply.set_value(""); this.refresh(); })
+            .child("Reply")));
     }
     if (this.tab === 2) {
       const shown = this.chat.filter((m) => m.role !== "tool");
@@ -120,7 +164,7 @@ export default class PiSession extends View {
         .child(i > 0 && shown[i - 1].role === m.role ? div() : div().pt_1().text_xs().font_weight(600)
           .text_color(m.role === "user" ? c.info : c.pi).child(m.role === "user" ? "You" : "pi"))
         .child(m.thinking ? div().text_xs().italic().text_color(c.muted).child(m.thinking.slice(0, 300)) : div())
-        .child(m.text ? div().text_sm().child(m.text) : div())
+        .child(m.text ? div().text_sm().child(m.role === "assistant" ? TextView.markdown(`md${i}`, m.text).selectable(true) : m.text) : div())
         .children((m.tools || []).map((t, j) => div().id(`t${i}.${j}`).text_xs().text_color(c.muted)
           .child(`→ ${t.name} ${arg(t.args)}`))));
     }

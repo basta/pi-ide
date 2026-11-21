@@ -39,7 +39,7 @@ pub struct Permissions {
     pub run: Vec<String>,
     /// Hosts it may reach over the network.
     pub network: Vec<String>,
-    /// Read pi's sessions: its changes, notes and conversations (the `pi*` functions).
+    /// Read pi's sessions (changes, notes, conversations) and message pi (the `pi*` functions).
     /// Left out of saved grants when off, so grants from before it still match.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub pi: bool,
@@ -61,7 +61,7 @@ impl Permissions {
             lines.push((true, format!("Reach: {}", self.network.join(", "))));
         }
         if self.pi {
-            lines.push((true, "Read your pi sessions and chats".into()));
+            lines.push((true, "Read your pi sessions and send pi messages".into()));
         }
         lines
     }

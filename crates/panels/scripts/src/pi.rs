@@ -10,7 +10,7 @@ use std::sync::{LazyLock, Mutex};
 
 use gpui_kit::*;
 use gpui_shell::{HostError, HostModule, HostObject, HostValue};
-use pide_core::collab::{Anchor, Reply};
+use pide_core::collab::{Anchor, Reply, StopRef};
 use pide_core::{Agent, AgentEvent, AgentStatus, Services, SessionsEvent};
 use serde_json::Value;
 
@@ -68,6 +68,17 @@ export interface PiMessage {
   toolId?: string, toolName?: string, error?: boolean,
   time: string | null,
 }
+/**
+ * Send pi a message in that session, as if typed in the pi panel. While pi is
+ * busy it waits as a follow-up ("queued"). Returns "sent" or "queued".
+ */
+export function piSend(session: string, text: string): "sent" | "queued";
+/**
+ * Reply on one of pi's notes (a PiNote's id): your text joins its thread and
+ * pi answers there, as from the note's card in the editor. False while pi is
+ * busy or when the note is gone.
+ */
+export function piReply(session: string, note: string, text: string): boolean;
 /** Show a session in the pi panel. */
 export function piOpen(session: string): boolean;
 "#;
@@ -392,6 +403,51 @@ pub fn register(m: HostModule) -> HostModule {
                     })
                     .collect(),
             ))
+        })
+    })
+    .function("piSend", |args| {
+        allowed()?;
+        let id = args.string(0)?.to_string();
+        let text = args.string(1)?.trim().to_string();
+        if text.is_empty() {
+            return Err(HostError::new("piSend: nothing to send"));
+        }
+        with_project(move |s, _, cx| {
+            let a = find(s, &id, cx)?;
+            let queued = a.update(cx, |a, cx| {
+                if a.is_busy() {
+                    a.queue(text, true, cx);
+                    true
+                } else {
+                    a.prompt(text, cx);
+                    false
+                }
+            });
+            Ok(if queued { "queued" } else { "sent" }.into())
+        })
+    })
+    .function("piReply", |args| {
+        allowed()?;
+        let id = args.string(0)?.to_string();
+        let note = args.string(1)?.to_string();
+        let text = args.string(2)?.to_string();
+        with_project(move |s, _, cx| {
+            let root = s.workspace.read(cx).root().to_path_buf();
+            let a = find(s, &id, cx)?;
+            let stop = {
+                let ag = a.read(cx);
+                ag.stops().into_iter().find(|st| match &st.at {
+                    StopRef::Pin(i) => ag.pins.get(*i).is_some_and(|p| p.id == note),
+                    StopRef::Hunk { file, note: n } => ag.changes.get(*file).is_some_and(|c| {
+                        format!("change:{}:{n}", rel(&root, &c.path)) == note
+                    }),
+                    StopRef::File(_) => false,
+                })
+            };
+            let Some(stop) = stop else {
+                return Ok(false.into());
+            };
+            Ok(a.update(cx, |a, cx| a.reply_to_stop(&stop, &root, text, cx)).into())
         })
     })
     .function("piOpen", |args| {
