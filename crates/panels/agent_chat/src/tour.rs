@@ -37,8 +37,7 @@ pub(crate) fn open(sessions: Entity<Sessions>, window: &mut Window, cx: &mut App
         return;
     }
     let input = cx.new(|cx| {
-        InputState::new(window, cx)
-            .placeholder("e.g. how does a pi session resume after a restart?")
+        InputState::new(window, cx).placeholder("e.g. how does a pi session resume after a restart?")
     });
     let focus_once = Rc::new(Cell::new(true));
     let run = Rc::new({
@@ -104,12 +103,7 @@ pub(crate) fn open(sessions: Entity<Sessions>, window: &mut Window, cx: &mut App
 
 impl AgentChat {
     /// A tour's card: its stops in order (click one to go there) and Start.
-    pub(crate) fn render_tour(
-        &self,
-        call_id: &str,
-        ix: usize,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    pub(crate) fn render_tour(&self, call_id: &str, ix: usize, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let agent = self.active(cx);
         let prefix = format!("{}{call_id}:", pide_core::collab::TOUR_PREFIX);

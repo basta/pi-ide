@@ -37,15 +37,7 @@ impl AgentChat {
     pub(crate) fn render_understand(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let pi = pide_core::colors::pi_note(cx);
-        let swatch = |c: Hsla| {
-            div()
-                .flex_none()
-                .mt(px(1.))
-                .w(px(3.))
-                .h(px(14.))
-                .rounded(px(1.))
-                .bg(c)
-        };
+        let swatch = |c: Hsla| div().flex_none().mt(px(1.)).w(px(3.)).h(px(14.)).rounded(px(1.)).bg(c);
         v_flex()
             .gap_2()
             .child(

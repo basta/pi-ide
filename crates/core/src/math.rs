@@ -146,12 +146,7 @@ impl MarkdownPlugin for InlineMath {
     ) -> Option<InlineElement> {
         let formula = node.data::<Formula>()?;
         let size = f32::from(context.font_size()) * INLINE_SCALE;
-        let r = cached(
-            formula,
-            size,
-            window.scale_factor(),
-            context.text_style().color,
-        )?;
+        let r = cached(formula, size, window.scale_factor(), context.text_style().color)?;
         Some(
             InlineElement::new(img(r.image.clone()).w(px(r.width)).h(px(r.height)))
                 .with_baseline(px(r.baseline)),
@@ -185,12 +180,7 @@ impl MarkdownPlugin for DisplayMath {
     }
 
     fn render(&self, node: &MarkdownNode, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let row = div()
-            .w_full()
-            .flex()
-            .justify_center()
-            .overflow_hidden()
-            .py_1();
+        let row = div().w_full().flex().justify_center().overflow_hidden().py_1();
         let Some(formula) = node.data::<Formula>() else {
             return row;
         };
@@ -472,10 +462,7 @@ mod tests {
 
     #[::core::prelude::v1::test]
     fn rewrites_delimiters() {
-        assert_eq!(
-            normalize_delimiters(r"so \( x^2 \) holds"),
-            "so $x^2$ holds"
-        );
+        assert_eq!(normalize_delimiters(r"so \( x^2 \) holds"), "so $x^2$ holds");
         assert_eq!(
             normalize_delimiters("see\n\\[\na+b\n\\]\nok"),
             "see\n$$\na+b\n$$\nok"
@@ -484,10 +471,7 @@ mod tests {
         // Unclosed: left alone (streaming).
         assert_eq!(normalize_delimiters(r"open \(x"), r"open \(x");
         // Not inside code.
-        assert_eq!(
-            normalize_delimiters(r"`\(x\)` and \(y\)"),
-            r"`\(x\)` and $y$"
-        );
+        assert_eq!(normalize_delimiters(r"`\(x\)` and \(y\)"), r"`\(x\)` and $y$");
         let fenced = "```\n\\(x\\)\n```\n\\(y\\)\n";
         assert_eq!(normalize_delimiters(fenced), "```\n\\(x\\)\n```\n$y$\n");
         // Escaped backslash isn't a delimiter.

@@ -159,13 +159,7 @@ impl AgentChat {
         let unexplained: Vec<String> = changes
             .iter()
             .filter(|c| !c.reverted && c.summary.is_none() && c.notes.is_empty())
-            .map(|c| {
-                c.path
-                    .strip_prefix(&root)
-                    .unwrap_or(&c.path)
-                    .display()
-                    .to_string()
-            })
+            .map(|c| c.path.strip_prefix(&root).unwrap_or(&c.path).display().to_string())
             .collect();
         let agent_explain = agent.clone();
         let rows: Vec<AnyElement> = changes
@@ -269,25 +263,21 @@ impl AgentChat {
                             .text_xs()
                             .text_color(theme.muted_foreground)
                             // No reason from pi: one click asks it about every such file.
-                            .when(
-                                !c.reverted && c.summary.is_none() && c.notes.is_empty(),
-                                |this| {
-                                    let (agent, files) =
-                                        (agent_explain.clone(), unexplained.clone());
-                                    this.child(
-                                        div()
-                                            .id(("ask-why", i))
-                                            .text_color(pide_core::colors::pi_note(cx))
-                                            .cursor_pointer()
-                                            .hover(|s| s.underline())
-                                            .on_click(move |_, _, cx| {
-                                                cx.stop_propagation();
-                                                send_or_queue(&agent, ask_why_prompt(&files), cx);
-                                            })
-                                            .child("no reason given · ask why"),
-                                    )
-                                },
-                            )
+                            .when(!c.reverted && c.summary.is_none() && c.notes.is_empty(), |this| {
+                                let (agent, files) = (agent_explain.clone(), unexplained.clone());
+                                this.child(
+                                    div()
+                                        .id(("ask-why", i))
+                                        .text_color(pide_core::colors::pi_note(cx))
+                                        .cursor_pointer()
+                                        .hover(|s| s.underline())
+                                        .on_click(move |_, _, cx| {
+                                            cx.stop_propagation();
+                                            send_or_queue(&agent, ask_why_prompt(&files), cx);
+                                        })
+                                        .child("no reason given · ask why"),
+                                )
+                            })
                             .child(div().flex_1().child(if c.reverted {
                                 "reverted".into()
                             } else if c.notes.is_empty() {

@@ -302,10 +302,7 @@ impl Agent {
 
     /// Pins that still ask something (not resolved, not replied to).
     pub fn open_questions(&self) -> usize {
-        self.pins
-            .iter()
-            .filter(|p| crate::walk::pin_open(p))
-            .count()
+        self.pins.iter().filter(|p| crate::walk::pin_open(p)).count()
     }
 
     pub fn set_reviewed(&mut self, path: &std::path::Path, reviewed: bool, cx: &mut Context<Self>) {
@@ -532,22 +529,14 @@ impl Agent {
     }
 
     /// See [`AgentBackend::ask_aside`].
-    pub fn ask_aside(
-        &mut self,
-        prompt: String,
-        cx: &mut Context<Self>,
-    ) -> Task<anyhow::Result<String>> {
+    pub fn ask_aside(&mut self, prompt: String, cx: &mut Context<Self>) -> Task<anyhow::Result<String>> {
         let mut task = None;
         self.with_backend(cx, |b, a, cx| task = Some(b.ask_aside(prompt, a, cx)));
         task.unwrap_or_else(|| Task::ready(Err(anyhow::anyhow!("no backend"))))
     }
 
     /// Keep a new "catch me up" briefing (saved with the session).
-    pub fn set_catch_up(
-        &mut self,
-        catch_up: Option<crate::collab::CatchUp>,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_catch_up(&mut self, catch_up: Option<crate::collab::CatchUp>, cx: &mut Context<Self>) {
         self.catch_up = catch_up;
         self.persist_changes(cx);
         cx.notify();
@@ -781,12 +770,7 @@ impl Agent {
 
     /// Make `at` the current stop and mark it seen (see [`crate::walk::visit`]).
     pub fn visit_stop(&mut self, at: &StopRef, cx: &mut Context<Self>) {
-        crate::walk::visit(
-            &mut self.changes,
-            &mut self.pins,
-            &mut self.current_stop,
-            at,
-        );
+        crate::walk::visit(&mut self.changes, &mut self.pins, &mut self.current_stop, at);
         self.persist_changes(cx);
         cx.notify();
     }
@@ -853,12 +837,7 @@ impl Agent {
 
     /// Hide a pin or hunk note (see [`crate::walk::dismiss`]).
     pub fn dismiss_stop(&mut self, at: &StopRef, cx: &mut Context<Self>) {
-        crate::walk::dismiss(
-            &mut self.changes,
-            &mut self.pins,
-            &mut self.current_stop,
-            at,
-        );
+        crate::walk::dismiss(&mut self.changes, &mut self.pins, &mut self.current_stop, at);
         self.persist_changes(cx);
         cx.notify();
     }

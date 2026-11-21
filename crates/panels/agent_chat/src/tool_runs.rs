@@ -307,9 +307,7 @@ impl AgentChat {
                 }
             }))
             .child(div().flex_none().child(if open { "▾" } else { "▸" }))
-            .when(ended_failed, |this| {
-                this.child(div().flex_none().child("✗"))
-            })
+            .when(ended_failed, |this| this.child(div().flex_none().child("✗")))
             .child(
                 // Wraps rather than clipping: the summary is the point of the line.
                 div().flex_1().min_w_0().child(line),

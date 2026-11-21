@@ -119,11 +119,7 @@ As shown in \cref{sec:intro} and \cite{smith2024}, $x^2 + y$ is \textbf{bold}.
         let caps = captures();
         assert!(has(&caps, "comment", "% a comment"), "{caps:?}");
         assert!(has(&caps, "title", "{Introduction}"));
-        assert!(has(
-            &caps,
-            "title",
-            "{Coherence-preserving Activation Steering}"
-        ));
+        assert!(has(&caps, "title", "{Coherence-preserving Activation Steering}"));
         assert!(has(&caps, "label", "{sec:intro}"));
         assert!(has(&caps, "label", "{smith2024}"));
         assert!(has(&caps, "preproc", "\\usepackage"));

@@ -12,9 +12,9 @@ use std::process::Command;
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::notification::Notification;
 use gpui_kit::*;
-use pide_core::Services;
 use pide_core::commands::{CommandRegistry, CommandSpec};
 use pide_core::opener::{PdfRequest, PdfSpot};
+use pide_core::Services;
 
 use crate::EditorPanel;
 
@@ -45,11 +45,7 @@ struct ToldNoServer(bool);
 impl Global for ToldNoServer {}
 
 /// After a LaTeX file is saved: build its document, then show the PDF.
-pub(crate) fn build_on_save(
-    panel: &EditorPanel,
-    window: &mut Window,
-    cx: &mut Context<EditorPanel>,
-) {
+pub(crate) fn build_on_save(panel: &EditorPanel, window: &mut Window, cx: &mut Context<EditorPanel>) {
     let path = panel.path.clone();
     let project = panel.workspace.read(cx).root().to_path_buf();
     let store = pide_lsp::LspStore::for_workspace(&panel.workspace, cx);
@@ -148,11 +144,7 @@ fn forward_search(window: &mut Window, cx: &mut App) {
     let Some(ctx) = pide_core::context::current(window, cx) else {
         return;
     };
-    let project = Services::of(window, cx)
-        .workspace
-        .read(cx)
-        .root()
-        .to_path_buf();
+    let project = Services::of(window, cx).workspace.read(cx).root().to_path_buf();
     let file = project.join(&ctx.path);
     if !is_latex(&file) {
         window.push_notification(Notification::info("Open a LaTeX file first."), cx);
@@ -335,14 +327,8 @@ mod tests {
 
     #[::core::prelude::v1::test]
     fn magic_comment() {
-        assert_eq!(
-            magic_root("% !TEX root = ../main.tex\n").as_deref(),
-            Some("../main.tex")
-        );
-        assert_eq!(
-            magic_root("%!tex root=main.tex").as_deref(),
-            Some("main.tex")
-        );
+        assert_eq!(magic_root("% !TEX root = ../main.tex\n").as_deref(), Some("../main.tex"));
+        assert_eq!(magic_root("%!tex root=main.tex").as_deref(), Some("main.tex"));
         assert_eq!(magic_root("% TEX root = x"), None);
     }
 
@@ -368,11 +354,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(dir.join("sections/one.tex"), "\\section{One}\n").unwrap();
-        std::fs::write(
-            dir.join("sections/two.tex"),
-            "% !TEX root = ../report.tex\n",
-        )
-        .unwrap();
+        std::fs::write(dir.join("sections/two.tex"), "% !TEX root = ../report.tex\n").unwrap();
         assert_eq!(
             root_document(&dir.join("sections/one.tex"), &dir),
             Some(dir.join("findings.tex"))

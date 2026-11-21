@@ -44,11 +44,7 @@ impl AgentChat {
                         ..
                     } => out.push_str(&format!(
                         "tool {name}{} {}\n",
-                        if *state == ToolState::Failed {
-                            " (failed)"
-                        } else {
-                            ""
-                        },
+                        if *state == ToolState::Failed { " (failed)" } else { "" },
                         clip(summary, 120)
                     )),
                     Item::Notice { text, error: true } => {
@@ -62,23 +58,13 @@ impl AgentChat {
         if !changes.is_empty() {
             out.push_str("\n## Files pi changed\n");
             for c in changes {
-                let stats = c
-                    .stats
-                    .map(|(p, m)| format!(" +{p} −{m}"))
-                    .unwrap_or_default();
+                let stats = c.stats.map(|(p, m)| format!(" +{p} −{m}")).unwrap_or_default();
                 out.push_str(&format!(
                     "- {} [{}{stats}]{}{}\n",
                     rel(&c.path),
                     c.badge(),
-                    c.summary
-                        .as_deref()
-                        .map(|s| format!(": {s}"))
-                        .unwrap_or_default(),
-                    if c.reviewed {
-                        " (user reviewed it)"
-                    } else {
-                        ""
-                    }
+                    c.summary.as_deref().map(|s| format!(": {s}")).unwrap_or_default(),
+                    if c.reviewed { " (user reviewed it)" } else { "" }
                 ));
                 for n in &c.notes {
                     out.push_str(&format!("  - line {}: {}\n", n.anchor.line, n.note));
@@ -101,11 +87,7 @@ impl AgentChat {
         if !a.progress.is_empty() {
             out.push_str("\n## Plan\n");
             for s in &a.progress {
-                out.push_str(&format!(
-                    "- [{}] {}\n",
-                    if s.done { "x" } else { " " },
-                    s.text
-                ));
+                out.push_str(&format!("- [{}] {}\n", if s.done { "x" } else { " " }, s.text));
             }
         }
         if out.len() > MAX_RECORD {
@@ -182,10 +164,9 @@ impl AgentChat {
         });
         let markdown = brief.as_ref().map(|b| {
             let text = b.text.clone();
-            let entry = self
-                .catch_up_md
-                .entry(id)
-                .or_insert_with(|| (String::new(), cx.new(|cx| TextViewState::markdown("", cx))));
+            let entry = self.catch_up_md.entry(id).or_insert_with(|| {
+                (String::new(), cx.new(|cx| TextViewState::markdown("", cx)))
+            });
             if entry.0 != text {
                 entry.0 = text.clone();
                 let shown = pide_core::math::normalize_delimiters(&text);
@@ -244,12 +225,14 @@ impl AgentChat {
                 )
                 .when_some(markdown, |this, md| {
                     this.child(
-                        div().text_sm().child(
-                            TextView::new(&md)
-                                .style(chat_text_style())
-                                .markdown_extensions(pide_core::math::markdown_extensions())
-                                .selectable(true),
-                        ),
+                        div()
+                            .text_sm()
+                            .child(
+                                TextView::new(&md)
+                                    .style(chat_text_style())
+                                    .markdown_extensions(pide_core::math::markdown_extensions())
+                                    .selectable(true),
+                            ),
                     )
                 })
                 .into_any_element(),

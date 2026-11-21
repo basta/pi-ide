@@ -54,10 +54,7 @@ fn save_at(path: &Path, notes: &CommitNotes) -> std::io::Result<()> {
     }
     std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))?;
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(
-        &tmp,
-        serde_json::to_vec(notes).map_err(std::io::Error::other)?,
-    )?;
+    std::fs::write(&tmp, serde_json::to_vec(notes).map_err(std::io::Error::other)?)?;
     std::fs::rename(tmp, path)
 }
 
@@ -89,9 +86,10 @@ pub fn collect(
             .unwrap_or_else(|_| rel.clone());
         let found = agents.iter().find_map(|agent| {
             let a = agent.read(cx);
-            let c = a.changes.iter().find(|c| {
-                c.path == path && !c.reverted && (c.summary.is_some() || !c.notes.is_empty())
-            })?;
+            let c = a
+                .changes
+                .iter()
+                .find(|c| c.path == path && !c.reverted && (c.summary.is_some() || !c.notes.is_empty()))?;
             Some(FileReason {
                 path: rel.clone(),
                 session: a.name.to_string(),
