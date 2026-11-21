@@ -1,0 +1,5 @@
+{
+  "title": "Showcase",
+  "dock": "right",
+  "permissions": { "run": ["git"] }
+}

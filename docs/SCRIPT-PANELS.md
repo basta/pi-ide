@@ -93,7 +93,11 @@ export default class Example extends View {
   More in `crates/panels/scripts/examples/`: `code-weight` (lines per file),
   `todos` (TODO/FIXME list), `outline` (follows the cursor with `cursor` events),
   `tests` (runs pytest through `process`, with `run` permission, and hands
-  failures to pi).
+  failures to pi), and `showcase`, a tour of everything: the `pide` module,
+  gpui-component controls, charts, files, processes, network, storage, timers.
+- `gpui-base` parts (`Slider`, `Input`, …) draw nothing themselves; style
+  them or use the `gpui-component` version. A state with `.on("change")`
+  (`SliderState`, `InputState`) comes from `gpui-base`.
 
 ## The `pide` module
 
