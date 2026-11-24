@@ -19,7 +19,8 @@ This file is also the guide pi reads before writing a panel (pide copies it to
 `<name>` is lower case: `a-z`, `0-9`, `-`, `_`. Each panel is a tool window: a
 stripe button, a `view.script.<scope>.<name>` command in Find Action, and its
 place in the saved layout. **Script Panels: Look for New Panels** picks up a
-folder created while pide runs.
+folder created while pide runs. **Settings → Script Panels** lists them all: on/off
+(for everyone or this project), permissions and Revoke, the files behind each.
 
 ```text
 .pide/panels/crate-map/

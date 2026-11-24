@@ -9,7 +9,7 @@ Every command is also in **Find Action** (Cmd+Shift+A), with its shortcut beside
 | Key | Command |
 | --- | --- |
 | Cmd+Shift+A | Find Action (every command) |
-| Cmd+, | pide settings (theme, switches; Keymap… from there) |
+| Cmd+, | Settings (every page: theme, editor, keymap, tool windows, script panels, languages, pi) |
 | Cmd+S | Save |
 | Cmd+W / Cmd+Shift+T | Close tab / reopen the last closed tab |
 | Cmd+1 / Cmd+6 | Project panel / Problems panel |

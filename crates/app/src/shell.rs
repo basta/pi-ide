@@ -205,6 +205,8 @@ impl Shell {
             log::info!("no saved layout ({e:#}); using the default");
             Self::default_layout(&dock, window, cx);
         }
+        // A saved layout can hold tool windows that were turned off since.
+        window.defer(cx, pide_core::toolwindow::close_disabled);
         dock.update(cx, |d, cx| {
             for p in [
                 DockPlacement::Left,
@@ -634,64 +636,6 @@ fn save_state(path: &Path, state: &DockAreaState) {
 }
 
 /// Open (or focus) the Language Servers tab in `window`.
-pub fn show_language_servers(window: &mut Window, cx: &mut App) {
-    let id = window.window_handle().window_id();
-    let Some(shell) = cx
-        .try_global::<Shells>()
-        .and_then(|h| h.0.get(&id)?.upgrade())
-    else {
-        return;
-    };
-    shell.update(cx, |shell, cx| {
-        if let Some(p) = pide_language_servers::existing(window, cx) {
-            let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
-            if shell.dock.read(cx).panel(pid).is_some() {
-                shell
-                    .dock
-                    .update(cx, |d, cx| d.select_panel(pid, window, cx));
-                return;
-            }
-        }
-        let p = cx.new(|cx| pide_language_servers::LanguageServers::new(window, cx));
-        shell.dock.update(cx, |d, cx| {
-            d.add_panel_view(
-                panel_handle(p.clone()),
-                DockPlacement::Center,
-                None,
-                window,
-                cx,
-            )
-        });
-        let _ = p;
-    });
-}
-
-/// Open (or focus) the pi Settings tab in `window`.
-pub fn show_pi_settings(window: &mut Window, cx: &mut App) {
-    let id = window.window_handle().window_id();
-    let Some(shell) = cx
-        .try_global::<Shells>()
-        .and_then(|h| h.0.get(&id)?.upgrade())
-    else {
-        return;
-    };
-    shell.update(cx, |shell, cx| {
-        if let Some(p) = pide_pi_settings::existing(window, cx) {
-            let pid = gpui_kit::component::dock::PanelId::from(p.entity_id());
-            if shell.dock.read(cx).panel(pid).is_some() {
-                shell
-                    .dock
-                    .update(cx, |d, cx| d.select_panel(pid, window, cx));
-                return;
-            }
-        }
-        let p = cx.new(|cx| pide_pi_settings::PiSettings::new(window, cx));
-        shell.dock.update(cx, |d, cx| {
-            d.add_panel_view(panel_handle(p), DockPlacement::Center, None, window, cx)
-        });
-    });
-}
-
 /// Open (or focus) Find in Files in the bottom dock, searching for the selection if there is one.
 pub fn show_find_in_files(window: &mut Window, cx: &mut App) {
     let selection = pide_core::context::current(window, cx).and_then(|c| c.selected);
@@ -976,7 +920,7 @@ pub fn show_locations(
 }
 
 impl Render for Shell {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .size_full()
             .track_focus(&self.focus)
@@ -1047,9 +991,9 @@ impl Render for Shell {
                     .flex_1()
                     .w_full()
                     .min_h_0()
-                    .child(tool_windows::stripe(Side::Left, &self.dock, cx))
+                    .child(tool_windows::stripe(Side::Left, &self.dock, window, cx))
                     .child(editor_area)
-                    .child(tool_windows::stripe(Side::Right, &self.dock, cx))
+                    .child(tool_windows::stripe(Side::Right, &self.dock, window, cx))
             })
             .child(self.render_status_bar(cx))
     }
