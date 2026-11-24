@@ -13,7 +13,7 @@ use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dock::{DockArea, DockPlacement, PanelId};
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
-use gpui_kit::component::{Selectable as _, Sizable as _, v_flex};
+use gpui_kit::component::{Selectable as _, Sizable as _, WindowExt as _, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use pide_core::toolwindow::{self, ToolWindowHost, ToolWindowSpec};
@@ -24,6 +24,25 @@ pub fn init(cx: &mut App) {
         toggle: Rc::new(|id, window, cx| {
             if let Some(dock) = crate::shell::dock_of(window, cx) {
                 toggle(&dock, id, window, cx);
+            }
+        }),
+        close: Rc::new(|id, window, cx| {
+            let Some(dock) = crate::shell::dock_of(window, cx) else {
+                return;
+            };
+            let (Some(spec), Some((pid, p))) = (toolwindow::get(id, cx), find(dock.read(cx), id, cx))
+            else {
+                return;
+            };
+            if let Some(view) = dock.read(cx).panel(pid).cloned() {
+                (spec.remove)(&view, &dock, window, cx);
+            }
+            // Don't leave an open, empty dock behind.
+            if p != DockPlacement::Center
+                && dock.read(cx).is_dock_open(p)
+                && dock.read(cx).is_empty(p, cx)
+            {
+                dock.update(cx, |d, cx| d.toggle_dock(p, window, cx));
             }
         }),
     });
@@ -250,6 +269,16 @@ pub fn toggle(dock: &Entity<DockArea>, id: &str, window: &mut Window, cx: &mut A
         log::error!("unknown tool window {id}");
         return;
     };
+    if !toolwindow::is_enabled(id, window, cx) {
+        let title = spec.title;
+        window.push_notification(
+            gpui_kit::component::notification::Notification::info(format!(
+                "{title} is turned off. Turn it on in Settings → Tool Windows."
+            )),
+            cx,
+        );
+        return;
+    }
     let found = find(dock.read(cx), id, cx);
     if let Some((pid, p)) = found
         && p != DockPlacement::Center
@@ -302,10 +331,10 @@ pub enum Side {
 }
 
 /// One edge's stripe of tool buttons.
-pub fn stripe(side: Side, dock: &Entity<DockArea>, cx: &App) -> impl IntoElement {
+pub fn stripe(side: Side, dock: &Entity<DockArea>, window: &Window, cx: &App) -> impl IntoElement {
     let d = dock.read(cx);
     // Each tool where it is now (or will open), and whether it's showing.
-    let tools: Vec<(ToolWindowSpec, DockPlacement, bool)> = toolwindow::all(cx)
+    let tools: Vec<(ToolWindowSpec, DockPlacement, bool)> = toolwindow::enabled(window, cx)
         .into_iter()
         .map(|spec| {
             let (p, showing) = match find(d, spec.id, cx) {

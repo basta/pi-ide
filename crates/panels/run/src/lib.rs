@@ -37,6 +37,7 @@ pub fn init(cx: &mut App) {
             create: std::rc::Rc::new(|window, cx| {
                 panel_handle(cx.new(|cx| RunPanel::new(window, cx)))
             }),
+            remove: pide_core::toolwindow::remover::<RunPanel>(),
         },
     );
 }

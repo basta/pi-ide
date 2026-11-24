@@ -10,6 +10,7 @@
 
 pub mod host;
 pub mod image;
+pub mod manage;
 pub mod pi;
 pub mod manifest;
 
@@ -60,6 +61,7 @@ pub fn init(cx: &mut App) {
     {
         register(found, cx);
     }
+    manage::init(cx);
     CommandRegistry::register(
         cx,
         CommandSpec::new("panels.rescan", "Script Panels: Look for New Panels"),
@@ -69,11 +71,13 @@ pub fn init(cx: &mut App) {
                 .read(cx)
                 .root()
                 .to_path_buf();
-            open_project(&root, cx);
-            for found in manifest::scan(&user_dir(), None) {
-                register(found, cx);
-            }
+            rescan(&root, cx);
         },
+    );
+    CommandRegistry::register(
+        cx,
+        CommandSpec::new("panels.manage", "Settings: Script Panels…"),
+        |window, cx| pide_core::settings_page::open(Some("script_panels"), window, cx),
     );
     CommandRegistry::register(
         cx,
@@ -160,6 +164,44 @@ pub fn open_project(root: &Path, cx: &mut App) {
     }
 }
 
+/// Look for new panels (yours and `root`'s), and forget ones whose folder is gone.
+pub fn rescan(root: &Path, cx: &mut App) {
+    open_project(root, cx);
+    for found in manifest::scan(&user_dir(), None) {
+        register(found, cx);
+    }
+    let gone: Vec<String> = cx
+        .try_global::<Panels>()
+        .map(|p| {
+            p.0.iter()
+                .filter(|(_, f)| !f.builtin && !f.dir.join(manifest::ENTRY).is_file())
+                .map(|(id, _)| id.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    if gone.is_empty() {
+        return;
+    }
+    for id in &gone {
+        log::info!("script panel {id} is gone");
+        cx.default_global::<Panels>().0.remove(id);
+    }
+    // Close them first (closing needs the tool window's spec), then forget them.
+    cx.defer(move |cx| {
+        for w in cx.windows() {
+            let _ = w.update(cx, |_, window, cx| {
+                for id in &gone {
+                    pide_core::toolwindow::close(id, window, cx);
+                }
+            });
+        }
+        for id in &gone {
+            pide_core::toolwindow::unregister(cx, id);
+        }
+        cx.refresh_windows();
+    });
+}
+
 /// Called when a project window closes.
 pub fn forget_window(id: WindowId, cx: &mut App) {
     host::forget_window(id, cx);
@@ -227,6 +269,7 @@ fn register(found: Found, cx: &mut App) {
             command,
             key,
             create: Rc::new(make),
+            remove: pide_core::toolwindow::remover::<ScriptPanel>(),
         },
     );
     cx.default_global::<Panels>().0.insert(id, found);
@@ -248,11 +291,15 @@ fn load_grants() -> HashMap<String, serde_json::Value> {
 }
 
 fn granted(found: &Found) -> bool {
+    granted_in(found, &load_grants())
+}
+
+fn granted_in(found: &Found, grants: &HashMap<String, serde_json::Value>) -> bool {
     if found.builtin {
         return true;
     }
     let want = serde_json::to_value(&found.manifest.permissions).unwrap_or_default();
-    load_grants().get(&found.dir.display().to_string()) == Some(&want)
+    grants.get(&found.dir.display().to_string()) == Some(&want)
 }
 
 fn grant(found: &Found) {
@@ -261,15 +308,27 @@ fn grant(found: &Found) {
         found.dir.display().to_string(),
         serde_json::to_value(&found.manifest.permissions).unwrap_or_default(),
     );
+    save_grants(&all);
+}
+
+fn save_grants(all: &HashMap<String, serde_json::Value>) {
     let path = grants_file();
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
     if let Err(e) = std::fs::write(
         &path,
-        serde_json::to_string_pretty(&all).unwrap_or_default(),
+        serde_json::to_string_pretty(all).unwrap_or_default(),
     ) {
         log::warn!("couldn't save panel grants to {}: {e}", path.display());
+    }
+}
+
+/// Forget what you allowed a panel: it asks again the next time it's shown.
+fn revoke(found: &Found) {
+    let mut all = load_grants();
+    if all.remove(&found.dir.display().to_string()).is_some() {
+        save_grants(&all);
     }
 }
 

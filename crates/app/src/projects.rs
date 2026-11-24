@@ -38,6 +38,7 @@ pub fn init(keymap_errors: Vec<String>, cx: &mut App) {
         pide_editor::remove_host(id, cx);
         crate::shell::forget(id, cx);
         crate::tool_windows::forget(id, cx);
+        pide_core::settings_page::forget_window(id, cx);
         crate::recent_files::forget(id, cx);
         pide_scripts::forget_window(id, cx);
         if cx.windows().is_empty() {
@@ -90,6 +91,7 @@ fn open_now(root: PathBuf, cx: &mut App) {
     log::info!("opening project {}", root.display());
     // Before the window restores its layout, so saved script panels come back.
     pide_scripts::open_project(&root, cx);
+    pide_core::toolwindow::load_project(&root, cx);
     let title = format!(
         "pide — {}",
         root.file_name()
