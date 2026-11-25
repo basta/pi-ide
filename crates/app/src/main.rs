@@ -112,6 +112,7 @@ fn main() {
             panel: Rc::new(shell::open_center_panel),
             pdf: Rc::new(shell::show_pdf),
             locations: Rc::new(shell::show_locations),
+            terminal: Rc::new(pide_terminal::open_in),
         });
         register_app_commands(cx);
         theme::register_commands(cx);

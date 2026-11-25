@@ -425,6 +425,30 @@ pub fn snapshot<T: alacritty_terminal::event::EventListener>(
     Snapshot { rows, cursor }
 }
 
+/// The text of the (possibly wrapped) line through `point`, and the byte
+/// offset of `point`'s character in it.
+pub fn logical_line<T>(term: &alacritty_terminal::Term<T>, point: GridPoint) -> (String, usize) {
+    use alacritty_terminal::index::{Column, Line};
+    let start = term.line_search_left(point);
+    let end = term.line_search_right(point);
+    let mut text = String::new();
+    let mut offset = 0;
+    for line in start.line.0..=end.line.0 {
+        let row = &term.grid()[Line(line)];
+        for col in 0..term.columns() {
+            let cell = &row[Column(col)];
+            if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                continue;
+            }
+            if line == point.line.0 && col == point.column.0 {
+                offset = text.len();
+            }
+            text.push(cell.c);
+        }
+    }
+    (text, offset)
+}
+
 /// The screen cell (column, row) under `position`.
 pub fn screen_cell(g: &Geometry, position: Point<Pixels>) -> (usize, usize) {
     let x = f32::from(position.x - g.origin.x).max(0.);

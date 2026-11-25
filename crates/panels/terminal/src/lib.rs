@@ -105,6 +105,14 @@ pub fn init(cx: &mut App) {
     );
 }
 
+/// A new terminal tab in `dir` (File tree: Open in Terminal).
+pub fn open_in(dir: PathBuf, window: &mut Window, cx: &mut App) {
+    pide_core::toolwindow::show(PANEL_NAME, true, window, cx);
+    if let Some(p) = existing(window, cx) {
+        p.update(cx, |p, cx| p.add_tab_in(dir, window, cx));
+    }
+}
+
 #[derive(Default)]
 struct Instances(HashMap<WindowId, WeakEntity<TerminalPanel>>);
 impl Global for Instances {}
@@ -122,6 +130,9 @@ pub struct TerminalPanel {
     tabs: Vec<Entity<TerminalView>>,
     active: usize,
     focus: FocusHandle,
+    /// The first shell starts when the panel is first drawn, so a terminal
+    /// restored in a saved layout but never shown starts nothing.
+    start_on_show: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -138,15 +149,14 @@ impl TerminalPanel {
         cx.default_global::<Instances>()
             .0
             .insert(window.window_handle().window_id(), me);
-        let mut this = Self {
+        Self {
             root,
             tabs: Vec::new(),
             active: 0,
             focus: cx.focus_handle(),
+            start_on_show: true,
             _subscriptions: Vec::new(),
-        };
-        this.add_tab(window, cx);
-        this
+        }
     }
 
     pub fn active_view(&self) -> Option<Entity<TerminalView>> {
@@ -154,12 +164,16 @@ impl TerminalPanel {
     }
 
     pub fn add_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let root = self.root.clone();
+        self.add_tab_in(self.root.clone(), window, cx);
+    }
+
+    pub fn add_tab_in(&mut self, cwd: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_on_show = false;
         let setting = cx
             .try_global::<pide_core::settings::Settings>()
             .and_then(|s| s.terminal_shell.clone());
         let shell = session::shell_command(setting.as_deref());
-        let view = cx.new(|cx| TerminalView::new(shell, &root, window, cx));
+        let view = cx.new(|cx| TerminalView::new(shell, cwd, window, cx));
         let sub = cx.subscribe_in(&view, window, |this, view, event, window, cx| match event {
             TerminalEvent::TitleChanged => cx.notify(),
             // A shell that ended normally (`exit`) closes its tab; a failure stays to be read.
@@ -179,7 +193,9 @@ impl TerminalPanel {
         self.active = i.min(self.tabs.len().saturating_sub(1));
         if let Some(v) = self.active_view() {
             let focus = v.read(cx).focus_handle().clone();
-            window.focus(&focus, cx);
+            // Deferred: showing the tool window focuses the panel in a defer of its
+            // own, queued before this (`toolwindow::show` from `open_in`).
+            window.defer(cx, move |window, cx| window.focus(&focus, cx));
         }
         cx.notify();
     }
@@ -247,8 +263,9 @@ impl Panel for TerminalPanel {
 
 impl Render for TerminalPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.tabs.is_empty() && self.focus.is_focused(window) {
-            // Shown again after its last tab closed: start a fresh shell.
+        if self.tabs.is_empty() && (self.start_on_show || self.focus.is_focused(window)) {
+            // First shown, or shown again (and focused) after its last tab closed.
+            self.start_on_show = false;
             cx.defer_in(window, |this, window, cx| {
                 if this.tabs.is_empty() {
                     this.add_tab(window, cx);

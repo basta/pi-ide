@@ -2,7 +2,7 @@
 //! events alacritty sends back (title, clipboard, replies to queries).
 
 use std::ops::Range;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use alacritty_terminal::event::{Event, WindowSize};
 use alacritty_terminal::grid::{Dimensions as _, Scroll};
@@ -34,6 +34,8 @@ pub enum TerminalEvent {
 
 pub struct TerminalView {
     session: Option<Session>,
+    /// Where the shell started: relative `file:line` links resolve from here.
+    cwd: PathBuf,
     error: Option<String>,
     default_title: SharedString,
     title: SharedString,
@@ -55,7 +57,7 @@ const START_SIZE: GridSize = GridSize { cols: 80, rows: 24 };
 impl TerminalView {
     pub fn new(
         shell: ShellCommand,
-        cwd: &Path,
+        cwd: PathBuf,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -73,6 +75,7 @@ impl TerminalView {
             .into();
         let mut this = Self {
             session: None,
+            cwd: cwd.clone(),
             error: None,
             title: default_title.clone(),
             default_title,
@@ -86,7 +89,7 @@ impl TerminalView {
             _events: None,
             _subscriptions: subscriptions,
         };
-        match Session::spawn(shell, cwd, START_SIZE, (8, 16)) {
+        match Session::spawn(shell, &cwd, START_SIZE, (8, 16)) {
             Ok((session, events)) => {
                 this.session = Some(session);
                 this._events = Some(Self::pump(events, cx));
@@ -316,8 +319,41 @@ impl TerminalView {
         }
     }
 
+    /// The `file:line` under `position`, if it names a file that exists.
+    fn link_at(&self, position: Point<Pixels>) -> Option<(PathBuf, u32, u32)> {
+        let g = self.geometry?;
+        let s = self.session.as_ref()?;
+        let term = s.term.lock();
+        let (point, _) = element::grid_point(&g, position, term.grid().display_offset());
+        let (text, offset) = element::logical_line(&term, point);
+        let (_, path, line, col) = pide_core::location::find_locations(&text)
+            .into_iter()
+            .find(|(r, ..)| r.contains(&offset))?;
+        let path = PathBuf::from(path);
+        let full = if path.is_absolute() {
+            path
+        } else {
+            self.cwd.join(path)
+        };
+        full.is_file().then_some((full, line, col))
+    }
+
     fn mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
+        let follow = if cfg!(target_os = "macos") {
+            event.modifiers.platform
+        } else {
+            event.modifiers.control
+        };
+        if follow
+            && event.button == MouseButton::Left
+            && let Some((path, line, col)) = self.link_at(event.position)
+        {
+            window.defer(cx, move |window, cx| {
+                pide_core::opener::open_file_at(path, line - 1, col - 1, window, cx);
+            });
+            return;
+        }
         if let Some(mode) = self.mouse_reporting(&event.modifiers) {
             let button = button_code(event.button);
             self.report_mouse(button, false, true, event.position, &event.modifiers, mode);
@@ -509,11 +545,11 @@ impl Render for TerminalView {
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::mouse_up))
             .on_scroll(cx.listener(Self::scroll_wheel))
             .context_menu(|menu, _, _| {
+                // Run in the click, not deferred: the menu gives the focus back
+                // to where it was unless the item already moved it (New Tab).
                 let run = |id: &'static str| {
                     move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
-                        window.defer(cx, move |window, cx| {
-                            CommandRegistry::run(id, window, cx);
-                        });
+                        CommandRegistry::run(id, window, cx);
                     }
                 };
                 menu.item(PopupMenuItem::new("Copy").on_click(run("terminal.copy")))
