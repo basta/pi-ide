@@ -93,14 +93,21 @@ fn open_now(root: PathBuf, cx: &mut App) {
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default()
     );
+    let mut bounds = new_window_bounds(cx);
+    // A hidden window on Windows keeps CW_USEDEFAULT for its size and can't be
+    // drawn: under test control it's shown instead, far off every screen.
+    let offscreen = controlled() && cfg!(windows);
+    if offscreen {
+        bounds.origin = point(px(-30000.), px(-30000.));
+    }
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(new_window_bounds(cx))),
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
         titlebar: Some(TitlebarOptions {
             title: Some(title.into()),
             ..Default::default()
         }),
         // Under test control (devctl) windows stay hidden and never take focus.
-        show: !controlled(),
+        show: !controlled() || offscreen,
         focus: !controlled(),
         ..Default::default()
     };

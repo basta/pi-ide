@@ -12,8 +12,9 @@
     dev/pidectl shot out.png [--scale 0.5]       render the window (even hidden) to a PNG
     dev/pidectl quit
 
-The socket is $PIDE_CTL (default /tmp/pide-ctl.sock). Nothing here touches the
-screen: the window stays hidden and the app never activates.
+The socket is $PIDE_CTL (default /tmp/pide-ctl.sock; on Windows a TCP address,
+default 127.0.0.1:47123). Nothing here touches the screen: the window stays
+hidden and the app never activates.
 """
 
 import json
@@ -24,13 +25,18 @@ import sys
 import tempfile
 import time
 
-SOCK = os.environ.get("PIDE_CTL", "/tmp/pide-ctl.sock")
+WINDOWS = os.name == "nt"
+SOCK = os.environ.get("PIDE_CTL", "127.0.0.1:47123" if WINDOWS else "/tmp/pide-ctl.sock")
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def send(req):
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.connect(SOCK)
+    if WINDOWS:
+        host, port = SOCK.rsplit(":", 1)
+        s = socket.create_connection((host, int(port)))
+    else:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.connect(SOCK)
     s.sendall((json.dumps(req) + "\n").encode())
     buf = b""
     while not buf.endswith(b"\n"):
@@ -54,13 +60,14 @@ def launch(args):
     env = dict(os.environ, PIDE_CTL=SOCK,
                XDG_STATE_HOME=os.path.join(state, "state"),
                XDG_CONFIG_HOME=os.path.join(state, "config"))
-    if os.path.exists(SOCK):
+    if not WINDOWS and os.path.exists(SOCK):
         os.remove(SOCK)
-    binary = os.path.join(REPO, "target", "debug", "pide")
+    target = os.environ.get("CARGO_TARGET_DIR", os.path.join(REPO, "target"))
+    binary = os.path.join(target, "debug", "pide.exe" if WINDOWS else "pide")
     log = open(os.path.join(state, "pide.out"), "w")
     p = subprocess.Popen([binary, project], env=env, stdout=log, stderr=log, start_new_session=True)
     for _ in range(200):
-        if os.path.exists(SOCK):
+        if WINDOWS or os.path.exists(SOCK):
             try:
                 if send({"cmd": "windows"}).get("windows"):
                     print(json.dumps({"pid": p.pid, "state": state, "socket": SOCK}))
@@ -79,6 +86,9 @@ def main():
     cmd, args = sys.argv[1], sys.argv[2:]
     if cmd == "launch":
         return launch(args)
+    if cmd == "quit" and WINDOWS:
+        print(json.dumps(send({"cmd": "run", "id": "app.quit"})))
+        return
     if cmd == "quit":
         pids = subprocess.run(["lsof", "-t", SOCK], capture_output=True, text=True).stdout.split()
         for pid in set(pids):
@@ -88,6 +98,20 @@ def main():
         out = os.path.abspath(args[0])
         tmp = out + ".bmp"
         reply = send({"cmd": "shot", "path": tmp})
+        if WINDOWS:
+            # No sips: convert with Pillow if it's there, else keep the BMP.
+            try:
+                from PIL import Image
+                im = Image.open(tmp)
+                if "--scale" in args:
+                    s = float(args[args.index("--scale") + 1])
+                    im = im.resize((int(im.width * s), int(im.height * s)))
+                im.save(out)
+                os.remove(tmp)
+            except ImportError:
+                out = tmp
+            print(json.dumps(dict(reply, path=out)))
+            return
         conv = ["sips", "-s", "format", "png", tmp, "--out", out]
         if "--scale" in args:
             w = int(reply["width"] * float(args[args.index("--scale") + 1]))
