@@ -4,7 +4,7 @@ pide is built with Rust on [GPUI](https://www.gpui.rs/) and GPUI Kit. The contri
 
 ## Status
 
-Milestones **M0–M5** are built. M6 (scripted panels) has its options written up in [M6-SCRIPTED-PANELS.md](M6-SCRIPTED-PANELS.md) and waits on a decision. Collaborator mode, the notes-in-the-code work that came after, is described in [COLLAB.md](COLLAB.md).
+Milestones **M0–M5** are built. M6 (scripted panels) has its options written up in [M6-SCRIPTED-PANELS.md](M6-SCRIPTED-PANELS.md) and waits on a decision. Collaborator mode, the notes-in-the-code work that came after, is described in [COLLAB.md](COLLAB.md). The terminal (2026-11, outside the milestones) is `alacritty_terminal` under a GPUI view: `crates/panels/terminal`.
 
 - [GAPS.md](GAPS.md): what GPUI Kit or pi can't do yet.
 - [IDEAS.md](IDEAS.md): what is deliberately not built.
@@ -18,6 +18,10 @@ Milestones **M0–M5** are built. M6 (scripted panels) has its options written u
 - macOS (primary target, Apple Silicon): Xcode command line tools.
 - Linux (secondary): a Wayland or X11 session with a working Vulkan driver. GPUI Kit may also need
   `libwebkit2gtk-4.1-dev` at build time. Recommended: `mold` for linking.
+- Windows (experimental, x64): Visual Studio Build Tools with the C++ workload and a Windows SDK.
+  GPUI draws with Direct3D 11. Install pi with npm as usual; pide finds `pi.cmd` and runs its
+  script with `node` directly. pide's folders follow `XDG_CONFIG_HOME`/`XDG_STATE_HOME`/
+  `XDG_DATA_HOME` (without them, the folder pide is started from).
 
 ## Build and run
 

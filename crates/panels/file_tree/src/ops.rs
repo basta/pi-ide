@@ -223,7 +223,8 @@ pub(crate) fn rename(path: PathBuf, window: &mut Window, cx: &mut App) {
     );
 }
 
-/// Move to the Trash: Finder on macOS (Put Back works), `gio trash` elsewhere.
+/// Move to the Trash: Finder on macOS (Put Back works), the Recycle Bin on Windows,
+/// `gio trash` elsewhere.
 fn trash(path: &Path) -> std::io::Result<()> {
     let status = if cfg!(target_os = "macos") {
         std::process::Command::new("/usr/bin/osascript")
@@ -238,6 +239,21 @@ fn trash(path: &Path) -> std::io::Result<()> {
             .arg(path)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::piped())
+            .output()?
+    } else if cfg!(windows) {
+        // The path goes in through the environment, never into the script.
+        std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Add-Type -AssemblyName Microsoft.VisualBasic; $p = $env:PIDE_TRASH; \
+                 $fs = [Microsoft.VisualBasic.FileIO.FileSystem]; \
+                 if (Test-Path -LiteralPath $p -PathType Container) \
+                 { $fs::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } \
+                 else { $fs::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin') }",
+            ])
+            .env("PIDE_TRASH", path)
             .output()?
     } else {
         std::process::Command::new("gio")
@@ -299,7 +315,12 @@ pub(crate) fn reveal(path: &Path) {
         } else {
             path.parent().unwrap_or(path)
         };
-        std::process::Command::new("xdg-open").arg(dir).spawn()
+        let opener = if cfg!(windows) {
+            "explorer"
+        } else {
+            "xdg-open"
+        };
+        std::process::Command::new(opener).arg(dir).spawn()
     };
     match r {
         // Reap the child so it doesn't linger as a zombie.

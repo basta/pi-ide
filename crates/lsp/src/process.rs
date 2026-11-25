@@ -44,7 +44,11 @@ pub fn spawn(spec: &ServerSpec, root: &Path) -> Started {
     let root = root.to_path_buf();
     let id = spec.id;
     pide_runtime::spawn(async move {
-        let mut child = match tokio::process::Command::new(&command)
+        let mut args = args;
+        args.extend(crate::registry::extra_args(id, &args, &root));
+        let mut cmd = tokio::process::Command::from(pide_runtime::process::command_for(&command));
+        cmd.envs(crate::registry::extra_env(id));
+        let mut child = match cmd
             .args(&args)
             .current_dir(&root)
             .env(
@@ -126,13 +130,29 @@ pub fn spawn(spec: &ServerSpec, root: &Path) -> Started {
 }
 
 pub fn file_uri(path: &Path) -> String {
-    // Percent-encode what a URI can't hold; keep `/`.
+    file_uri_of(&path.to_string_lossy(), cfg!(windows))
+}
+
+/// `D:\a\b` → `file:///D:/a/b` on Windows; `/a/b` → `file:///a/b` elsewhere.
+fn file_uri_of(path: &str, windows: bool) -> String {
+    let path = if windows {
+        let p = path.replace('\\', "/");
+        if p.as_bytes().get(1) == Some(&b':') {
+            format!("/{p}")
+        } else {
+            p
+        }
+    } else {
+        path.to_string()
+    };
+    // Percent-encode what a URI can't hold; keep `/` (and a drive's `:`).
     let mut out = String::from("file://");
-    for b in path.to_string_lossy().bytes() {
+    for (i, b) in path.bytes().enumerate() {
         match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => {
                 out.push(b as char)
             }
+            b':' if windows && i == 2 => out.push(':'),
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -140,6 +160,26 @@ pub fn file_uri(path: &Path) -> String {
 }
 
 pub fn uri_path(uri: &str) -> Option<std::path::PathBuf> {
+    uri_path_of(uri, cfg!(windows))
+}
+
+fn uri_path_of(uri: &str, windows: bool) -> Option<std::path::PathBuf> {
+    let decoded = decode_uri_path(uri)?;
+    if !windows {
+        return Some(decoded.into());
+    }
+    // `/d:/a/b` (VS Code style `d%3A` decodes the same) → `D:\a\b`, matching
+    // the canonical paths the workspace keys buffers by.
+    let b = decoded.as_bytes();
+    let path = if b.len() >= 3 && b[0] == b'/' && b[1].is_ascii_alphabetic() && b[2] == b':' {
+        format!("{}{}", (b[1] as char).to_ascii_uppercase(), &decoded[2..])
+    } else {
+        decoded
+    };
+    Some(path.replace('/', "\\").into())
+}
+
+fn decode_uri_path(uri: &str) -> Option<String> {
     let rest = uri.strip_prefix("file://")?;
     let bytes = rest.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -156,7 +196,7 @@ pub fn uri_path(uri: &str) -> Option<std::path::PathBuf> {
         out.push(bytes[i]);
         i += 1;
     }
-    Some(std::path::PathBuf::from(String::from_utf8(out).ok()?))
+    String::from_utf8(out).ok()
 }
 
 /// What we tell servers we can do. Only what pide actually handles.
@@ -234,5 +274,20 @@ mod tests {
             Some(Path::new("/a/b.rs"))
         );
         assert_eq!(uri_path("untitled:1"), None);
+    }
+
+    #[test]
+    fn windows_drive_uris() {
+        let uri = file_uri_of(r"D:\vrg proj\src\a.cpp", true);
+        assert_eq!(uri, "file:///D:/vrg%20proj/src/a.cpp");
+        let back = |u: &str| {
+            uri_path_of(u, true)
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap()
+        };
+        assert_eq!(back(&uri), r"D:\vrg proj\src\a.cpp");
+        // Lower-case and encoded drives (clangd, VS Code) land on the same path.
+        assert_eq!(back("file:///d:/a/b.h"), r"D:\a\b.h");
+        assert_eq!(back("file:///d%3A/a/b.h"), r"D:\a\b.h");
     }
 }

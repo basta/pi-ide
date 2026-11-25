@@ -214,8 +214,7 @@ pub fn pi_session_dir(cwd: &Path) -> PathBuf {
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .unwrap_or_else(|| {
-            std::env::var_os("HOME")
-                .map(PathBuf::from)
+            crate::paths::home_dir()
                 .unwrap_or_default()
                 .join(".pi/agent")
         });

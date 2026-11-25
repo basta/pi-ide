@@ -39,8 +39,7 @@ impl PiConfig {
         let agent_dir = std::env::var_os("PI_CODING_AGENT_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| {
-                std::env::var_os("HOME")
-                    .map(PathBuf::from)
+                pide_core::paths::home_dir()
                     .unwrap_or_default()
                     .join(".pi/agent")
             });
@@ -610,7 +609,7 @@ pub fn find_pi() -> Option<PathBuf> {
 /// Blocking (a few seconds): every model pi can use now.
 pub fn list_models(cwd: &Path) -> Result<Vec<Model>> {
     let pi = find_pi().context("pi isn't installed")?;
-    let out = std::process::Command::new(pi)
+    let out = pide_runtime::process::command_for(&pi)
         .arg("--list-models")
         .current_dir(cwd)
         .env(
@@ -673,7 +672,7 @@ pub fn parse_get_commands(line: &str) -> Result<Vec<PiCommand>> {
 pub fn list_commands(cwd: &Path) -> Result<Vec<PiCommand>> {
     use std::io::{BufRead, Write};
     let pi = find_pi().context("pi isn't installed")?;
-    let mut child = std::process::Command::new(pi)
+    let mut child = pide_runtime::process::command_for(&pi)
         .args(["--mode", "rpc", "--no-session"])
         .current_dir(cwd)
         .env(

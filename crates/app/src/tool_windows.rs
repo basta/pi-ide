@@ -26,10 +26,17 @@ pub fn init(cx: &mut App) {
                 toggle(&dock, id, window, cx);
             }
         }),
+        show: Rc::new(|id, focus, window, cx| {
+            if let Some(dock) = crate::shell::dock_of(window, cx) {
+                show(&dock, id, focus, window, cx);
+            }
+        }),
     });
     CommandRegistry::register(
         cx,
-        CommandSpec::new("view.hide_tool", "View: Hide Active Tool Window").key("shift-escape"),
+        CommandSpec::new("view.hide_tool", "View: Hide Active Tool Window")
+            .key("shift-escape")
+            .over_terminal(),
         |window, cx| {
             if let Some(dock) = crate::shell::dock_of(window, cx) {
                 hide_focused(&dock, window, cx);
@@ -38,7 +45,9 @@ pub fn init(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
-        CommandSpec::new("view.hide_all_tools", "View: Hide All Tool Windows").key("cmd-shift-f12"),
+        CommandSpec::new("view.hide_all_tools", "View: Hide All Tool Windows")
+            .key("cmd-shift-f12")
+            .over_terminal(),
         |window, cx| {
             if let Some(dock) = crate::shell::dock_of(window, cx) {
                 hide_all(&dock, window, cx);
@@ -66,12 +75,10 @@ pub fn forget(window: WindowId, cx: &mut App) {
 fn selected_panel(dock: &DockArea, p: DockPlacement) -> Option<PanelId> {
     use gpui_kit::component::dock::PaneRef;
     let tree = dock.layout(p)?;
-    tree.node_ids()
-        .into_iter()
-        .find_map(|n| match tree.find_node(n)?.kind() {
-            PaneRef::Tabs { panels, active_ix } => panels.get(active_ix).copied(),
-            PaneRef::Split { .. } => None,
-        })
+    tree.node_ids().into_iter().find_map(|n| match tree.find_node(n)?.kind() {
+        PaneRef::Tabs { panels, active_ix } => panels.get(active_ix).copied(),
+        PaneRef::Split { .. } => None,
+    })
 }
 
 /// Focus the editor area's selected tab (after hiding a tool window).
@@ -115,9 +122,7 @@ fn hide_all(dock: &Entity<DockArea>, window: &mut Window, cx: &mut App) {
             .remove(&id)
             .unwrap_or_default()
     } else {
-        cx.default_global::<HiddenByAll>()
-            .0
-            .insert(id, open.clone());
+        cx.default_global::<HiddenByAll>().0.insert(id, open.clone());
         open
     };
     dock.update(cx, |d, cx| {
@@ -246,10 +251,6 @@ fn default_size(p: DockPlacement) -> Pixels {
 /// Show `id` (creating it the first time) and focus it, or hide its dock if
 /// it's already showing.
 pub fn toggle(dock: &Entity<DockArea>, id: &str, window: &mut Window, cx: &mut App) {
-    let Some(spec) = toolwindow::get(id, cx) else {
-        log::error!("unknown tool window {id}");
-        return;
-    };
     let found = find(dock.read(cx), id, cx);
     if let Some((pid, p)) = found
         && p != DockPlacement::Center
@@ -270,6 +271,16 @@ pub fn toggle(dock: &Entity<DockArea>, id: &str, window: &mut Window, cx: &mut A
         }
         return;
     }
+    show(dock, id, true, window, cx);
+}
+
+/// Show `id` (creating it the first time), focusing it if `focus`.
+pub fn show(dock: &Entity<DockArea>, id: &str, focus: bool, window: &mut Window, cx: &mut App) {
+    let Some(spec) = toolwindow::get(id, cx) else {
+        log::error!("unknown tool window {id}");
+        return;
+    };
+    let found = find(dock.read(cx), id, cx);
     let (pid, p) = match found {
         Some(f) => f,
         None => {
@@ -289,7 +300,7 @@ pub fn toggle(dock: &Entity<DockArea>, id: &str, window: &mut Window, cx: &mut A
         }
         d.select_panel(pid, window, cx);
     });
-    if let Some(view) = dock.read(cx).panel(pid).cloned() {
+    if focus && let Some(view) = dock.read(cx).panel(pid).cloned() {
         let focus = view.focus_handle(cx);
         window.defer(cx, move |window, cx| focus.focus(window, cx));
     }
@@ -340,10 +351,9 @@ pub fn stripe(side: Side, dock: &Entity<DockArea>, cx: &App) -> impl IntoElement
                 ]
                 .into_iter()
                 .fold(menu, |menu, (label, to)| {
-                    menu.item(
-                        PopupMenuItem::new(label)
-                            .on_click(move |_, window, cx| move_to(id, to, window, cx)),
-                    )
+                    menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
+                        move_to(id, to, window, cx)
+                    }))
                 })
             })
             .child(
@@ -358,20 +368,11 @@ pub fn stripe(side: Side, dock: &Entity<DockArea>, cx: &App) -> impl IntoElement
     };
     let (top, bottom): (Vec<_>, Vec<_>) = match side {
         Side::Left => (
-            tools
-                .iter()
-                .filter(|t| t.1 == DockPlacement::Left)
-                .collect(),
-            tools
-                .iter()
-                .filter(|t| t.1 == DockPlacement::Bottom)
-                .collect(),
+            tools.iter().filter(|t| t.1 == DockPlacement::Left).collect(),
+            tools.iter().filter(|t| t.1 == DockPlacement::Bottom).collect(),
         ),
         Side::Right => (
-            tools
-                .iter()
-                .filter(|t| t.1 == DockPlacement::Right)
-                .collect(),
+            tools.iter().filter(|t| t.1 == DockPlacement::Right).collect(),
             Vec::new(),
         ),
     };

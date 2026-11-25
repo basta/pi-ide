@@ -386,7 +386,7 @@ impl PiSettings {
 
 /// `/Users/ja/x` -> `~/x`, for display.
 fn tilde(path: &std::path::Path) -> String {
-    match std::env::var_os("HOME").map(PathBuf::from) {
+    match pide_core::paths::home_dir() {
         Some(home) if path.starts_with(&home) => {
             format!("~/{}", path.strip_prefix(&home).unwrap().display())
         }

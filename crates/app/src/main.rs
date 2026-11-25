@@ -81,12 +81,14 @@ fn main() {
         pide_editor::init(cx);
         pide_file_tree::init(cx);
         pide_run::init(cx);
+        pide_terminal::init(cx);
         pide_git::init(cx);
         palette::init(cx);
         pide_agent_chat::init(cx);
         pide_language_servers::init(cx);
         pide_problems::init(cx);
         pide_structure::init(cx);
+        pide_cmake::init(cx);
         pide_pi_settings::init(cx);
         pide_search::init(cx);
         pide_preview::init(cx);
@@ -111,6 +113,7 @@ fn main() {
             panel: Rc::new(shell::open_center_panel),
             pdf: Rc::new(shell::show_pdf),
             locations: Rc::new(shell::show_locations),
+            terminal: Rc::new(pide_terminal::open_in),
         });
         register_app_commands(cx);
         theme::register_commands(cx);
@@ -205,7 +208,9 @@ fn watch_keymap(cx: &mut App) {
 fn register_app_commands(cx: &mut App) {
     CommandRegistry::register(
         cx,
-        CommandSpec::new("palette.open", "Find Action…").key("cmd-shift-a"),
+        CommandSpec::new("palette.open", "Find Action…")
+            .key("cmd-shift-a")
+            .over_terminal(),
         palette::open,
     );
     CommandRegistry::register(
@@ -242,7 +247,9 @@ fn register_app_commands(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
-        CommandSpec::new("file.goto", "Navigate: Go to File…").key("cmd-shift-o"),
+        CommandSpec::new("file.goto", "Navigate: Go to File…")
+            .key("cmd-shift-o")
+            .over_terminal(),
         goto_file::open,
     );
     CommandRegistry::register(
@@ -258,6 +265,8 @@ fn register_app_commands(cx: &mut App) {
             let log = paths::state_dir().join("pide.log");
             let opener = if cfg!(target_os = "macos") {
                 "/usr/bin/open"
+            } else if cfg!(windows) {
+                "explorer"
             } else {
                 "xdg-open"
             };
@@ -277,7 +286,9 @@ fn register_app_commands(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
-        CommandSpec::new("settings.pide", "Settings: pide…").key("cmd-,"),
+        CommandSpec::new("settings.pide", "Settings: pide…")
+            .key("cmd-,")
+            .over_terminal(),
         settings_ui::open,
     );
 

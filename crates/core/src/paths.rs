@@ -1,12 +1,31 @@
 //! Config and state locations. XDG-style on every platform (a developer tool;
 //! matches pi and most CLIs), with the usual fallbacks.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// `std::fs::canonicalize`, minus the `\\?\` Windows puts on drive paths: git, language
+/// servers and pi's session folders all expect the plain `D:\…` form.
+pub fn canonicalize(path: &Path) -> std::io::Result<PathBuf> {
+    let p = std::fs::canonicalize(path)?;
+    if cfg!(windows)
+        && let Some(plain) = p.to_str().and_then(|s| s.strip_prefix(r"\\?\"))
+        && plain.as_bytes().get(1) == Some(&b':')
+    {
+        return Ok(PathBuf::from(plain));
+    }
+    Ok(p)
+}
+
+/// The user's home: `HOME`, else (Windows, started from Explorer) `USERPROFILE`.
+pub fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
+}
 
 fn home() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
+    home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
 fn xdg(var: &str, fallback: &str) -> PathBuf {
