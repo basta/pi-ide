@@ -6563,6 +6563,8 @@ dependencies = [
  "serde_json",
  "similar 3.2.1",
  "tree-sitter",
+ "tree-sitter-c",
+ "tree-sitter-cpp",
 ]
 
 [[package]]

@@ -2,6 +2,7 @@
 //! it shows a workspace [`Buffer`], pushes edits back to the workspace, and
 //! shows the bars around it (read-only, conflict, deleted). Also the pi diff tab.
 
+mod cpp;
 pub mod diff_panel;
 mod follow;
 mod git_gutter;
@@ -69,6 +70,7 @@ impl Global for OpenEditors {}
 
 pub fn init(cx: &mut App) {
     cx.set_global(OpenEditors::default());
+    cpp::init();
     latex::init();
     typst::init();
     tex::init(cx);
