@@ -81,6 +81,7 @@ fn main() {
         pide_editor::init(cx);
         pide_file_tree::init(cx);
         pide_run::init(cx);
+        pide_terminal::init(cx);
         pide_git::init(cx);
         palette::init(cx);
         pide_agent_chat::init(cx);
@@ -205,7 +206,9 @@ fn watch_keymap(cx: &mut App) {
 fn register_app_commands(cx: &mut App) {
     CommandRegistry::register(
         cx,
-        CommandSpec::new("palette.open", "Find Action…").key("cmd-shift-a"),
+        CommandSpec::new("palette.open", "Find Action…")
+            .key("cmd-shift-a")
+            .over_terminal(),
         palette::open,
     );
     CommandRegistry::register(
@@ -242,7 +245,9 @@ fn register_app_commands(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
-        CommandSpec::new("file.goto", "Navigate: Go to File…").key("cmd-shift-o"),
+        CommandSpec::new("file.goto", "Navigate: Go to File…")
+            .key("cmd-shift-o")
+            .over_terminal(),
         goto_file::open,
     );
     CommandRegistry::register(
@@ -279,7 +284,9 @@ fn register_app_commands(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
-        CommandSpec::new("settings.pide", "Settings: pide…").key("cmd-,"),
+        CommandSpec::new("settings.pide", "Settings: pide…")
+            .key("cmd-,")
+            .over_terminal(),
         settings_ui::open,
     );
 

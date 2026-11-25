@@ -48,6 +48,12 @@ pub fn register(cx: &mut App, spec: ToolWindowSpec) {
     let mut command = CommandSpec::new(spec.command, format!("View: {}", spec.title));
     if let Some(key) = spec.key {
         command = command.key(key);
+        // Digit and F-key toggles keep working in a terminal; a letter one
+        // (Commit's Cmd+K, Ctrl+K off macOS) is the shell's there.
+        let last = key.rsplit('-').next().unwrap_or(key);
+        if !(last.len() == 1 && last.chars().all(|c| c.is_ascii_alphabetic())) {
+            command = command.over_terminal();
+        }
     }
     let id = spec.id;
     CommandRegistry::register(cx, command, move |window, cx| toggle(id, window, cx));

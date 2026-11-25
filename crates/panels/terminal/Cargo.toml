@@ -1,0 +1,13 @@
+[package]
+name = "pide-terminal"
+description = "Terminal tool window: shells in a PTY through alacritty_terminal, drawn with GPUI."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+pide-core.workspace = true
+pide-runtime.workspace = true
+log.workspace = true
+alacritty_terminal.workspace = true

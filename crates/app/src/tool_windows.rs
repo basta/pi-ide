@@ -34,7 +34,9 @@ pub fn init(cx: &mut App) {
     });
     CommandRegistry::register(
         cx,
-        CommandSpec::new("view.hide_tool", "View: Hide Active Tool Window").key("shift-escape"),
+        CommandSpec::new("view.hide_tool", "View: Hide Active Tool Window")
+            .key("shift-escape")
+            .over_terminal(),
         |window, cx| {
             if let Some(dock) = crate::shell::dock_of(window, cx) {
                 hide_focused(&dock, window, cx);
@@ -44,7 +46,8 @@ pub fn init(cx: &mut App) {
     CommandRegistry::register(
         cx,
         CommandSpec::new("view.hide_all_tools", "View: Hide All Tool Windows")
-            .key("cmd-shift-f12"),
+            .key("cmd-shift-f12")
+            .over_terminal(),
         |window, cx| {
             if let Some(dock) = crate::shell::dock_of(window, cx) {
                 hide_all(&dock, window, cx);
