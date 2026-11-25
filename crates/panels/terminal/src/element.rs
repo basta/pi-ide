@@ -95,8 +95,17 @@ impl Element for TerminalElement {
         cx: &mut App,
     ) -> Frame {
         let theme = cx.theme();
-        let font_size = theme.mono_font_size;
-        let base_font = font(theme.mono_font_family.clone());
+        let settings = cx.try_global::<pide_core::settings::Settings>();
+        let font_size = settings
+            .and_then(|s| s.terminal_font_size)
+            .map(px)
+            .unwrap_or(theme.mono_font_size);
+        let base_font = font(
+            settings
+                .and_then(|s| s.terminal_font_family.clone())
+                .map(SharedString::from)
+                .unwrap_or_else(|| theme.mono_font_family.clone()),
+        );
         let palette = Palette::from_theme(cx);
         let text_system = window.text_system().clone();
         let font_id = text_system.resolve_font(&base_font);
@@ -416,18 +425,25 @@ pub fn snapshot<T: alacritty_terminal::event::EventListener>(
     Snapshot { rows, cursor }
 }
 
-/// The screen cell under `position`, and which half of it.
+/// The screen cell (column, row) under `position`.
+pub fn screen_cell(g: &Geometry, position: Point<Pixels>) -> (usize, usize) {
+    let x = f32::from(position.x - g.origin.x).max(0.);
+    let y = f32::from(position.y - g.origin.y).max(0.);
+    let col = ((x / f32::from(g.cell.width)) as usize).min(g.size.cols - 1);
+    let row = ((y / f32::from(g.cell.height)) as usize).min(g.size.rows - 1);
+    (col, row)
+}
+
+/// The grid point under `position`, and which half of the cell.
 pub fn grid_point(
     g: &Geometry,
     position: Point<Pixels>,
     display_offset: usize,
 ) -> (GridPoint, alacritty_terminal::index::Side) {
     use alacritty_terminal::index::{Column, Line, Side};
-    let x = f32::from(position.x - g.origin.x).max(0.);
-    let y = f32::from(position.y - g.origin.y).max(0.);
+    let (col, row) = screen_cell(g, position);
     let cw = f32::from(g.cell.width);
-    let col = ((x / cw) as usize).min(g.size.cols - 1);
-    let row = ((y / f32::from(g.cell.height)) as usize).min(g.size.rows - 1);
+    let x = f32::from(position.x - g.origin.x).max(0.);
     let side = if x - col as f32 * cw > cw / 2. {
         Side::Right
     } else {

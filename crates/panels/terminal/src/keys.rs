@@ -1,6 +1,7 @@
-//! Keystrokes → the bytes a terminal sends (xterm conventions, as alacritty
-//! and most terminals do). Printable text without Ctrl/Alt isn't handled here:
-//! it arrives through the input handler, so IME, dead keys and AltGr work.
+//! Keystrokes, mouse events and pastes → the bytes a terminal sends (xterm
+//! conventions, as alacritty and most terminals do). Printable text without
+//! Ctrl/Alt isn't handled here: it arrives through the input handler, so IME,
+//! dead keys and AltGr work.
 
 use std::borrow::Cow;
 
@@ -150,6 +151,42 @@ fn control_byte(key: &str, shift: bool) -> Option<u8> {
     })
 }
 
+/// A mouse event for a program that asked for them (vim, htop, lazygit), at
+/// screen cell `col`, `row` (0-based). `button`: 0 left, 1 middle, 2 right,
+/// 3 none (motion only), 64/65 wheel up/down; `motion` adds 32.
+pub fn mouse_report(
+    button: u8,
+    motion: bool,
+    pressed: bool,
+    (col, row): (usize, usize),
+    modifiers: &gpui_kit::Modifiers,
+    mode: TermMode,
+) -> Option<Vec<u8>> {
+    let mods = 4 * modifiers.shift as u8 + 8 * modifiers.alt as u8 + 16 * modifiers.control as u8;
+    let code = button + 32 * motion as u8 + mods;
+    if mode.contains(TermMode::SGR_MOUSE) {
+        let end = if pressed { 'M' } else { 'm' };
+        return Some(format!("\x1b[<{code};{};{}{end}", col + 1, row + 1).into_bytes());
+    }
+    // The legacy encoding has no per-button release, and cells fit in a byte.
+    let code = if pressed {
+        code
+    } else {
+        3 + mods + 32 * motion as u8
+    };
+    if col >= 223 || row >= 223 {
+        return None;
+    }
+    Some(vec![
+        0x1b,
+        b'[',
+        b'M',
+        32 + code,
+        32 + col as u8 + 1,
+        32 + row as u8 + 1,
+    ])
+}
+
 /// Pasted text as the shell should get it: bracketed if the program asked for
 /// it (so a multi-line paste doesn't run line by line), newlines as Enter.
 pub fn paste_bytes(text: &str, mode: TermMode) -> Vec<u8> {
@@ -220,6 +257,42 @@ mod tests {
             assert_eq!(b.unwrap(), b"\x1bb");
         }
         assert_eq!(bytes("ctrl-alt-q", TermMode::empty()), None);
+    }
+
+    #[::core::prelude::v1::test]
+    fn mouse_reports() {
+        let none = gpui_kit::Modifiers::default();
+        let sgr = TermMode::SGR_MOUSE;
+        assert_eq!(
+            mouse_report(0, false, true, (4, 2), &none, sgr).unwrap(),
+            b"\x1b[<0;5;3M"
+        );
+        assert_eq!(
+            mouse_report(0, false, false, (4, 2), &none, sgr).unwrap(),
+            b"\x1b[<0;5;3m"
+        );
+        assert_eq!(
+            mouse_report(64, false, true, (0, 0), &none, sgr).unwrap(),
+            b"\x1b[<64;1;1M"
+        );
+        let ctrl = gpui_kit::Modifiers {
+            control: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            mouse_report(0, true, true, (1, 1), &ctrl, sgr).unwrap(),
+            b"\x1b[<48;2;2M"
+        );
+        let legacy = TermMode::MOUSE_REPORT_CLICK;
+        assert_eq!(
+            mouse_report(0, false, true, (0, 0), &none, legacy).unwrap(),
+            [0x1b, b'[', b'M', 32, 33, 33]
+        );
+        assert_eq!(
+            mouse_report(1, false, false, (0, 0), &none, legacy).unwrap(),
+            [0x1b, b'[', b'M', 35, 33, 33]
+        );
+        assert_eq!(mouse_report(0, false, true, (300, 0), &none, legacy), None);
     }
 
     #[::core::prelude::v1::test]

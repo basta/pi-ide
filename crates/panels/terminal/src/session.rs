@@ -54,8 +54,15 @@ pub struct ShellCommand {
     pub args: Vec<String>,
 }
 
-/// pwsh (else Windows PowerShell) on Windows; the login shell elsewhere.
-pub fn default_shell() -> ShellCommand {
+/// `terminal.shell` if set; else pwsh (else Windows PowerShell) on Windows,
+/// the login shell elsewhere.
+pub fn shell_command(setting: Option<&[String]>) -> ShellCommand {
+    if let Some([program, args @ ..]) = setting {
+        return ShellCommand {
+            program: program.clone(),
+            args: args.to_vec(),
+        };
+    }
     if cfg!(windows) {
         let program = if pide_runtime::process::find_command("pwsh").is_some() {
             "pwsh"

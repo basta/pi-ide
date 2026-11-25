@@ -5,10 +5,13 @@ use std::ops::Range;
 use std::path::Path;
 
 use alacritty_terminal::event::{Event, WindowSize};
-use alacritty_terminal::grid::Scroll;
+use alacritty_terminal::grid::{Dimensions as _, Scroll};
+use alacritty_terminal::index::{Column, Line, Point as GridPoint};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::TermMode;
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
 use gpui_kit::*;
+use pide_core::CommandRegistry;
 use pide_runtime::tokio::sync::mpsc;
 
 use crate::element::{self, TerminalElement};
@@ -39,8 +42,10 @@ pub struct TerminalView {
     geometry: Option<Geometry>,
     preedit: Option<String>,
     selecting: bool,
+    last_motion_cell: Option<(usize, usize)>,
     scroll_remainder: f32,
     _events: Option<Task<()>>,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl EventEmitter<TerminalEvent> for TerminalView {}
@@ -48,7 +53,19 @@ impl EventEmitter<TerminalEvent> for TerminalView {}
 const START_SIZE: GridSize = GridSize { cols: 80, rows: 24 };
 
 impl TerminalView {
-    pub fn new(shell: ShellCommand, cwd: &Path, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        shell: ShellCommand,
+        cwd: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let focus = cx.focus_handle();
+        let subscriptions = vec![
+            cx.on_focus_in(&focus, window, |this, _, cx| this.focus_changed(true, cx)),
+            cx.on_focus_out(&focus, window, |this, _, _, cx| {
+                this.focus_changed(false, cx)
+            }),
+        ];
         let default_title: SharedString = Path::new(&shell.program)
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
@@ -60,12 +77,14 @@ impl TerminalView {
             title: default_title.clone(),
             default_title,
             exited: None,
-            focus: cx.focus_handle(),
+            focus,
             geometry: None,
             preedit: None,
             selecting: false,
+            last_motion_cell: None,
             scroll_remainder: 0.,
             _events: None,
+            _subscriptions: subscriptions,
         };
         match Session::spawn(shell, cwd, START_SIZE, (8, 16)) {
             Ok((session, events)) => {
@@ -266,8 +285,47 @@ impl TerminalView {
         }
     }
 
+    /// The mode, if the running program takes mouse events (vim, htop).
+    /// Shift selects text anyway, as in other terminals.
+    fn mouse_reporting(&self, modifiers: &Modifiers) -> Option<TermMode> {
+        let mode = self.mode();
+        (mode.intersects(TermMode::MOUSE_MODE) && !modifiers.shift).then_some(mode)
+    }
+
+    fn report_mouse(
+        &mut self,
+        button: u8,
+        motion: bool,
+        pressed: bool,
+        position: Point<Pixels>,
+        modifiers: &Modifiers,
+        mode: TermMode,
+    ) {
+        let Some(g) = self.geometry else {
+            return;
+        };
+        let cell = element::screen_cell(&g, position);
+        if motion {
+            if self.last_motion_cell == Some(cell) {
+                return;
+            }
+            self.last_motion_cell = Some(cell);
+        }
+        if let Some(bytes) = keys::mouse_report(button, motion, pressed, cell, modifiers, mode) {
+            self.write(bytes);
+        }
+    }
+
     fn mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
+        if let Some(mode) = self.mouse_reporting(&event.modifiers) {
+            let button = button_code(event.button);
+            self.report_mouse(button, false, true, event.position, &event.modifiers, mode);
+            return;
+        }
+        if event.button != MouseButton::Left {
+            return;
+        }
         let (Some(g), Some(s)) = (self.geometry, &self.session) else {
             return;
         };
@@ -288,6 +346,16 @@ impl TerminalView {
     }
 
     fn mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(mode) = self.mouse_reporting(&event.modifiers) {
+            let button = event.pressed_button.map(button_code);
+            if mode.contains(TermMode::MOUSE_MOTION)
+                || (mode.contains(TermMode::MOUSE_DRAG) && button.is_some())
+            {
+                let button = button.unwrap_or(3);
+                self.report_mouse(button, true, true, event.position, &event.modifiers, mode);
+            }
+            return;
+        }
         if !self.selecting || event.pressed_button != Some(MouseButton::Left) {
             return;
         }
@@ -302,7 +370,14 @@ impl TerminalView {
         cx.notify();
     }
 
-    fn mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn mouse_up(&mut self, event: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.selecting
+            && let Some(mode) = self.mouse_reporting(&event.modifiers)
+        {
+            let button = button_code(event.button);
+            self.report_mouse(button, false, false, event.position, &event.modifiers, mode);
+            return;
+        }
         self.selecting = false;
         if let Some(s) = &self.session {
             let mut term = s.term.lock();
@@ -314,18 +389,25 @@ impl TerminalView {
     }
 
     fn scroll_wheel(&mut self, event: &ScrollEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let (Some(g), Some(s)) = (self.geometry, &self.session) else {
+        let Some(g) = self.geometry else {
             return;
         };
-        let line_height = g.cell.height;
-        self.scroll_remainder += f32::from(event.delta.pixel_delta(line_height).y);
-        let lines = (self.scroll_remainder / f32::from(line_height)) as i32;
+        let line_height = f32::from(g.cell.height);
+        self.scroll_remainder += f32::from(event.delta.pixel_delta(g.cell.height).y);
+        let lines = (self.scroll_remainder / line_height) as i32;
         if lines == 0 {
             return;
         }
-        self.scroll_remainder -= lines as f32 * f32::from(line_height);
-        let mode = *s.term.lock().mode();
-        // Full-screen programs (less, vim) without mouse support get arrow keys.
+        self.scroll_remainder -= lines as f32 * line_height;
+        if let Some(mode) = self.mouse_reporting(&event.modifiers) {
+            let button = if lines > 0 { 64 } else { 65 };
+            for _ in 0..lines.unsigned_abs() {
+                self.report_mouse(button, false, true, event.position, &event.modifiers, mode);
+            }
+            return;
+        }
+        let mode = self.mode();
+        // Full-screen programs without mouse support (less) get arrow keys.
         if mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL) {
             let key: &[u8] = match (lines > 0, mode.contains(TermMode::APP_CURSOR)) {
                 (true, true) => b"\x1bOA",
@@ -333,12 +415,55 @@ impl TerminalView {
                 (false, true) => b"\x1bOB",
                 (false, false) => b"\x1b[B",
             };
-            let bytes: Vec<u8> = key.repeat(lines.unsigned_abs() as usize);
-            self.write(bytes);
-        } else {
+            self.write(key.repeat(lines.unsigned_abs() as usize));
+        } else if let Some(s) = &self.session {
             s.term.lock().scroll_display(Scroll::Delta(lines));
             cx.notify();
         }
+    }
+
+    fn focus_changed(&mut self, focused: bool, cx: &mut Context<Self>) {
+        if self.mode().contains(TermMode::FOCUS_IN_OUT) {
+            self.write(if focused {
+                &b"\x1b[I"[..]
+            } else {
+                &b"\x1b[O"[..]
+            });
+        }
+        cx.notify();
+    }
+
+    /// For pi: the selection, else what's on screen.
+    pub fn ask_pi_draft(&self) -> Option<String> {
+        let text = self.selected_text().or_else(|| self.screen_text())?;
+        Some(format!(
+            "From the terminal ({}):\n```\n{}\n```\n",
+            self.title,
+            text.trim_end()
+        ))
+    }
+
+    fn screen_text(&self) -> Option<String> {
+        let s = self.session.as_ref()?;
+        let term = s.term.lock();
+        let offset = term.grid().display_offset() as i32;
+        let start = GridPoint::new(Line(-offset), Column(0));
+        let end = GridPoint::new(
+            Line(term.screen_lines() as i32 - 1 - offset),
+            Column(term.columns() - 1),
+        );
+        let text = term.bounds_to_string(start, end);
+        let text = text.trim_end();
+        (!text.is_empty()).then(|| text.to_string())
+    }
+}
+
+fn button_code(button: MouseButton) -> u8 {
+    match button {
+        MouseButton::Left => 0,
+        MouseButton::Middle => 1,
+        MouseButton::Right => 2,
+        _ => 3,
     }
 }
 
@@ -377,10 +502,29 @@ impl Render for TerminalView {
             .cursor(CursorStyle::IBeam)
             .on_key_down(cx.listener(Self::key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::mouse_down))
+            .on_mouse_down(MouseButton::Middle, cx.listener(Self::mouse_down))
             .on_mouse_move(cx.listener(Self::mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::mouse_up))
+            .on_mouse_up(MouseButton::Middle, cx.listener(Self::mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::mouse_up))
             .on_scroll(cx.listener(Self::scroll_wheel))
+            .context_menu(|menu, _, _| {
+                let run = |id: &'static str| {
+                    move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+                        window.defer(cx, move |window, cx| {
+                            CommandRegistry::run(id, window, cx);
+                        });
+                    }
+                };
+                menu.item(PopupMenuItem::new("Copy").on_click(run("terminal.copy")))
+                    .item(PopupMenuItem::new("Paste").on_click(run("terminal.paste")))
+                    .separator()
+                    .item(PopupMenuItem::new("Ask pi About This").on_click(run("terminal.ask_pi")))
+                    .separator()
+                    .item(PopupMenuItem::new("Clear").on_click(run("terminal.clear")))
+                    .item(PopupMenuItem::new("New Tab").on_click(run("terminal.new")))
+                    .item(PopupMenuItem::new("Close Tab").on_click(run("terminal.close")))
+            })
             .child(match &self.error {
                 Some(e) => div().p_2().child(e.clone()).into_any_element(),
                 None => TerminalElement::new(me, self.focus.clone()).into_any_element(),

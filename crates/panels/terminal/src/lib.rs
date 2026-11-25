@@ -88,6 +88,18 @@ pub fn init(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
+        CommandSpec::new("terminal.ask_pi", "Terminal: Ask pi About This"),
+        |window, cx| {
+            let draft = existing(window, cx)
+                .and_then(|p| p.read(cx).active_view())
+                .and_then(|v| v.read(cx).ask_pi_draft());
+            if let Some(draft) = draft {
+                pide_core::opener::ask_agent(draft, window, cx);
+            }
+        },
+    );
+    CommandRegistry::register(
+        cx,
         CommandSpec::new("terminal.clear", "Terminal: Clear"),
         on_view(|v, cx| v.clear(cx)),
     );
@@ -143,7 +155,11 @@ impl TerminalPanel {
 
     pub fn add_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let root = self.root.clone();
-        let view = cx.new(|cx| TerminalView::new(session::default_shell(), &root, cx));
+        let setting = cx
+            .try_global::<pide_core::settings::Settings>()
+            .and_then(|s| s.terminal_shell.clone());
+        let shell = session::shell_command(setting.as_deref());
+        let view = cx.new(|cx| TerminalView::new(shell, &root, window, cx));
         let sub = cx.subscribe_in(&view, window, |this, view, event, window, cx| match event {
             TerminalEvent::TitleChanged => cx.notify(),
             // A shell that ended normally (`exit`) closes its tab; a failure stays to be read.
