@@ -47,6 +47,11 @@ pub fn spawn(spec: &ServerSpec, root: &Path) -> Started {
         let mut args = args;
         args.extend(crate::registry::extra_args(id, &args, &root));
         let mut cmd = tokio::process::Command::from(pide_runtime::process::command_for(&command));
+        cmd.envs(
+            crate::registry::extra_env(id)
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str())),
+        );
         let mut child = match cmd
             .args(&args)
             .current_dir(&root)

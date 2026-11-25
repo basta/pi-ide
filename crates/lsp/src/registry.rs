@@ -255,6 +255,17 @@ pub fn extra_args(id: &str, args: &[String], root: &Path) -> Vec<String> {
     }
 }
 
+/// Environment added when a server starts. Blocking the first time: call off
+/// the UI thread. clangd on Windows gets Visual Studio's developer environment
+/// (`msvc::dev_env`), so cl.exe command lines find ATL/MFC and friends.
+pub fn extra_env(id: &str) -> &'static [(String, String)] {
+    if id == CLANGD {
+        crate::msvc::dev_env()
+    } else {
+        &[]
+    }
+}
+
 /// The folder of the newest `compile_commands.json` in the project's build
 /// folders, when clangd wouldn't find one by itself.
 fn compile_commands_dir(root: &Path) -> Option<PathBuf> {

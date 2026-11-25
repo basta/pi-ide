@@ -4,6 +4,7 @@
 
 pub mod convert;
 pub mod install;
+pub mod msvc;
 pub mod process;
 pub mod registry;
 pub mod rpc;
