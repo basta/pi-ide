@@ -1,7 +1,20 @@
 //! Config and state locations. XDG-style on every platform (a developer tool;
 //! matches pi and most CLIs), with the usual fallbacks.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// `std::fs::canonicalize`, minus the `\\?\` Windows puts on drive paths: git, language
+/// servers and pi's session folders all expect the plain `D:\…` form.
+pub fn canonicalize(path: &Path) -> std::io::Result<PathBuf> {
+    let p = std::fs::canonicalize(path)?;
+    if cfg!(windows)
+        && let Some(plain) = p.to_str().and_then(|s| s.strip_prefix(r"\\?\"))
+        && plain.as_bytes().get(1) == Some(&b':')
+    {
+        return Ok(PathBuf::from(plain));
+    }
+    Ok(p)
+}
 
 fn home() -> PathBuf {
     std::env::var_os("HOME")

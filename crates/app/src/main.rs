@@ -257,6 +257,8 @@ fn register_app_commands(cx: &mut App) {
             let log = paths::state_dir().join("pide.log");
             let opener = if cfg!(target_os = "macos") {
                 "/usr/bin/open"
+            } else if cfg!(windows) {
+                "explorer"
             } else {
                 "xdg-open"
             };

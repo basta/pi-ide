@@ -70,7 +70,13 @@ pub(crate) enum Request {
 
 /// Where pdfium lives once installed through pide (not used on macOS).
 pub fn library_dir() -> PathBuf {
-    pide_core::paths::data_dir().join("pdfium/lib")
+    // pdfium-binaries puts the Windows DLL in bin/, the other platforms' library in lib/.
+    let sub = if cfg!(windows) {
+        "pdfium/bin"
+    } else {
+        "pdfium/lib"
+    };
+    pide_core::paths::data_dir().join(sub)
 }
 
 /// Whether the engine is there. PDFKit always is.
@@ -90,6 +96,8 @@ pub fn download_url() -> Option<String> {
         ("macos", "x86_64") => "pdfium-mac-x64.tgz",
         ("linux", "x86_64") => "pdfium-linux-x64.tgz",
         ("linux", "aarch64") => "pdfium-linux-arm64.tgz",
+        ("windows", "x86_64") => "pdfium-win-x64.tgz",
+        ("windows", "aarch64") => "pdfium-win-arm64.tgz",
         _ => return None,
     };
     Some(format!(

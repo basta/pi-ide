@@ -187,12 +187,19 @@ impl RunPanel {
         self.lines.clear();
         self.status = None;
         self.started = Some(Instant::now());
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-        // A login shell, so PATH matches the terminal's.
-        let run = pide_runtime::process::run_streaming(
-            vec![shell, "-lc".into(), command],
-            Some(self.root.clone()),
-        );
+        let argv = if cfg!(windows) {
+            let shell = if pide_runtime::process::find_command("pwsh").is_some() {
+                "pwsh"
+            } else {
+                "powershell"
+            };
+            vec![shell.into(), "-NoLogo".into(), "-Command".into(), command]
+        } else {
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+            // A login shell, so PATH matches the terminal's.
+            vec![shell, "-lc".into(), command]
+        };
+        let run = pide_runtime::process::run_streaming(argv, Some(self.root.clone()));
         let pide_runtime::process::Streaming {
             mut lines,
             done,

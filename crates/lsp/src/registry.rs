@@ -336,7 +336,7 @@ pub fn detect(spec: &ServerSpec) -> Installed {
         },
         None => (path.clone(), vec!["--version".to_string()]),
     };
-    let mut child = match std::process::Command::new(&program)
+    let mut child = match pide_runtime::process::command_for(&program)
         .args(&args)
         .env(
             "PATH",

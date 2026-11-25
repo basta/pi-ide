@@ -44,7 +44,8 @@ pub fn spawn(spec: &ServerSpec, root: &Path) -> Started {
     let root = root.to_path_buf();
     let id = spec.id;
     pide_runtime::spawn(async move {
-        let mut child = match tokio::process::Command::new(&command)
+        let mut cmd = tokio::process::Command::from(pide_runtime::process::command_for(&command));
+        let mut child = match cmd
             .args(&args)
             .current_dir(&root)
             .env(

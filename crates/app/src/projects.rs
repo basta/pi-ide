@@ -78,7 +78,7 @@ pub fn open(root: PathBuf, cx: &mut App) {
 }
 
 fn open_now(root: PathBuf, cx: &mut App) {
-    let root = std::fs::canonicalize(&root).unwrap_or(root);
+    let root = pide_core::paths::canonicalize(&root).unwrap_or(root);
     remember(&root, cx);
 
     if let Some(handle) = window_of(&root, cx) {

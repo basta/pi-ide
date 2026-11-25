@@ -18,6 +18,10 @@ Milestones **M0–M5** are built. M6 (scripted panels) has its options written u
 - macOS (primary target, Apple Silicon): Xcode command line tools.
 - Linux (secondary): a Wayland or X11 session with a working Vulkan driver. GPUI Kit may also need
   `libwebkit2gtk-4.1-dev` at build time. Recommended: `mold` for linking.
+- Windows (experimental, x64): Visual Studio Build Tools with the C++ workload and a Windows SDK.
+  GPUI draws with Direct3D 11. Install pi with npm as usual; pide finds `pi.cmd` and runs its
+  script with `node` directly. pide's folders follow `XDG_CONFIG_HOME`/`XDG_STATE_HOME`/
+  `XDG_DATA_HOME` (without them, the folder pide is started from).
 
 ## Build and run
 
