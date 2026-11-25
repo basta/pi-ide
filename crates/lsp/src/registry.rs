@@ -98,6 +98,40 @@ fn builtin() -> Vec<ServerSpec> {
             organize_imports_command: None,
             addon: false,
         },
+        // C, C++ and CUDA. Needs a compile_commands.json for real results;
+        // `extra_args` points it at one in a CMake build folder.
+        ServerSpec {
+            id: CLANGD,
+            language: "C/C++",
+            language_id: "cpp",
+            extensions: C_FAMILY,
+            command: "clangd".into(),
+            args: vec![],
+            install: if cfg!(windows) {
+                Some(vec![
+                    "winget".into(),
+                    "install".into(),
+                    "-e".into(),
+                    "--id".into(),
+                    "LLVM.LLVM".into(),
+                ])
+            } else if cfg!(target_os = "macos") {
+                None // Xcode's command line tools ship it
+            } else {
+                None // the distribution's clangd package
+            },
+            source: if cfg!(windows) {
+                "LLVM (winget)"
+            } else if cfg!(target_os = "macos") {
+                "Xcode command line tools"
+            } else {
+                "distribution package"
+            },
+            overridden: false,
+            version_command: None,
+            organize_imports_command: None,
+            addon: false,
+        },
         // Completion, references, outline, and the build: the editor asks it to
         // build on save (`textDocument/build`: latexmk -pdf -synctex=1), and
         // errors from the LaTeX log come back as diagnostics.
@@ -159,7 +193,8 @@ fn builtin() -> Vec<ServerSpec> {
             language_id: "plaintext",
             extensions: &[
                 "tex", "typ", "md", "markdown", "txt", "rs", "py", "pyi", "ts", "mts", "cts",
-                "tsx", "js", "mjs", "cjs", "jsx", "go", "c", "h", "cpp", "cc", "hpp", "java",
+                "tsx", "js", "mjs", "cjs", "jsx", "go", "c", "h", "cpp", "cc", "cxx", "hpp",
+                "hh", "hxx", "cu", "cuh", "java",
                 "rb", "lua", "zig", "swift", "php", "sh", "bash", "toml", "yaml", "yml",
                 "html", "css",
             ],
@@ -191,13 +226,114 @@ fn builtin() -> Vec<ServerSpec> {
 /// The spell checker's server id.
 pub const CODEBOOK: &str = "codebook";
 
+/// clangd's server id.
+pub const CLANGD: &str = "clangd";
+
+/// C, C++ and CUDA sources and headers.
+const C_FAMILY: &[&str] = &[
+    "c", "h", "cpp", "cc", "cxx", "c++", "hpp", "hh", "hxx", "h++", "inl", "ipp", "tpp", "ixx",
+    "cppm", "cu", "cuh",
+];
+
+/// Arguments added when a server starts in `root`, after looking at the
+/// project. Blocking (reads a few directories): call off the UI thread.
+///
+/// clangd only looks for `compile_commands.json` next to the sources and in
+/// `build/`; CMake presets put it in `out/build/<preset>/` and CLion in
+/// `cmake-build-<type>/`. Point it at the newest one there, unless the user
+/// already said where (`--compile-commands-dir` in settings, or `.clangd`).
+pub fn extra_args(id: &str, args: &[String], root: &Path) -> Vec<String> {
+    if id != CLANGD || args.iter().any(|a| a.contains("compile-commands-dir")) {
+        return vec![];
+    }
+    match compile_commands_dir(root) {
+        Some(dir) => {
+            log::info!("clangd: using {}", dir.join("compile_commands.json").display());
+            vec![format!("--compile-commands-dir={}", dir.display())]
+        }
+        None => vec![],
+    }
+}
+
+/// Environment added when a server starts. Blocking the first time: call off
+/// the UI thread. clangd on Windows gets Visual Studio's developer environment
+/// (`msvc::dev_env`), so cl.exe command lines find ATL/MFC and friends.
+/// Its `PATH` stays out: servers get pide's search path.
+pub fn extra_env(id: &str) -> Vec<(String, String)> {
+    if id != CLANGD {
+        return vec![];
+    }
+    crate::msvc::dev_env()
+        .iter()
+        .filter(|(k, _)| !k.eq_ignore_ascii_case("PATH"))
+        .cloned()
+        .collect()
+}
+
+/// The folder of the newest `compile_commands.json` in the project's build
+/// folders, when clangd wouldn't find one by itself.
+fn compile_commands_dir(root: &Path) -> Option<PathBuf> {
+    const DB: &str = "compile_commands.json";
+    if root.join(DB).is_file() || root.join("build").join(DB).is_file() {
+        return None;
+    }
+    if std::fs::read_to_string(root.join(".clangd"))
+        .is_ok_and(|s| s.contains("CompilationDatabase"))
+    {
+        return None;
+    }
+    let is_build_dir = |name: &str| {
+        let n = name.to_ascii_lowercase();
+        n == "out" || n == "_build" || n.starts_with("build") || n.starts_with("cmake-build")
+    };
+    let mut found: Vec<(std::time::SystemTime, PathBuf)> = vec![];
+    // Breadth-first, at most three levels below the root (out/build/Debug).
+    let mut level: Vec<PathBuf> = std::fs::read_dir(root)
+        .ok()?
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .filter(|e| e.file_name().to_str().is_some_and(is_build_dir))
+        .map(|e| e.path())
+        .collect();
+    for _ in 0..3 {
+        let mut next = vec![];
+        for dir in level {
+            let db = dir.join(DB);
+            if let Ok(meta) = std::fs::metadata(&db) {
+                found.push((meta.modified().unwrap_or(std::time::UNIX_EPOCH), dir.clone()));
+            }
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            next.extend(
+                entries
+                    .flatten()
+                    .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+                    .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+                    // CMake's own scratch folders never hold the database.
+                    .filter(|e| e.file_name() != "CMakeFiles")
+                    .map(|e| e.path()),
+            );
+        }
+        level = next;
+    }
+    found.into_iter().max_by_key(|(t, _)| *t).map(|(_, d)| d)
+}
+
 /// The `languageId` an add-on server gets for a file (Codebook picks its
 /// parser by it): VS Code's ids, by extension.
 pub fn language_id_for(spec: &ServerSpec, path: &Path) -> &'static str {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if spec.id == CLANGD {
+        return match ext {
+            "c" => "c",
+            "cu" | "cuh" => "cuda-cpp",
+            _ => "cpp",
+        };
+    }
     if !spec.addon {
         return spec.language_id;
     }
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     match ext {
         "tex" => "latex",
         "typ" => "typst",
@@ -210,7 +346,8 @@ pub fn language_id_for(spec: &ServerSpec, path: &Path) -> &'static str {
         "jsx" => "javascriptreact",
         "go" => "go",
         "c" | "h" => "c",
-        "cpp" | "cc" | "hpp" => "cpp",
+        "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => "cpp",
+        "cu" | "cuh" => "cuda-cpp",
         "java" => "java",
         "rb" => "ruby",
         "lua" => "lua",
@@ -336,7 +473,7 @@ pub fn detect(spec: &ServerSpec) -> Installed {
         },
         None => (path.clone(), vec!["--version".to_string()]),
     };
-    let mut child = match std::process::Command::new(&program)
+    let mut child = match pide_runtime::process::command_for(&program)
         .args(&args)
         .env(
             "PATH",
@@ -460,6 +597,43 @@ mod tests {
         assert!(spec_for(&specs, Path::new("README.md")).is_none());
         assert_eq!(addons_for(&specs, Path::new("README.md")).len(), 1);
         assert!(addons_for(&specs, Path::new("a.png")).is_empty());
+    }
+
+    #[test]
+    fn c_family_goes_to_clangd() {
+        let specs = specs(None);
+        for f in ["a.c", "a.h", "a.cpp", "a.hpp", "k.cu", "k.cuh", "x.inl"] {
+            assert_eq!(spec_for(&specs, Path::new(f)).unwrap().id, CLANGD, "{f}");
+        }
+        let clangd = spec_for(&specs, Path::new("a.c")).unwrap();
+        assert_eq!(language_id_for(clangd, Path::new("a.c")), "c");
+        assert_eq!(language_id_for(clangd, Path::new("a.h")), "cpp");
+        assert_eq!(language_id_for(clangd, Path::new("k.cu")), "cuda-cpp");
+    }
+
+    #[test]
+    fn compile_commands_in_a_cmake_preset_folder() {
+        let root = std::env::temp_dir().join(format!("pide-cc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let debug = root.join("out").join("build").join("Debug");
+        std::fs::create_dir_all(&debug).unwrap();
+        std::fs::create_dir_all(root.join("src").join("build")).unwrap();
+        // Nothing yet: no argument.
+        assert!(extra_args(CLANGD, &[], &root).is_empty());
+        std::fs::write(debug.join("compile_commands.json"), "[]").unwrap();
+        assert_eq!(
+            extra_args(CLANGD, &[], &root),
+            [format!("--compile-commands-dir={}", debug.display())]
+        );
+        // Only clangd, and not when the user chose one.
+        assert!(extra_args("rust-analyzer", &[], &root).is_empty());
+        let mine = ["--compile-commands-dir=x".to_string()];
+        assert!(extra_args(CLANGD, &mine, &root).is_empty());
+        // One where clangd looks anyway wins.
+        std::fs::create_dir_all(root.join("build")).unwrap();
+        std::fs::write(root.join("build").join("compile_commands.json"), "[]").unwrap();
+        assert!(extra_args(CLANGD, &[], &root).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// pyright's server rejects `--version`; detection asks its CLI instead.

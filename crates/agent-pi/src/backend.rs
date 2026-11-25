@@ -347,6 +347,8 @@ fn handle_response(
             if let Some(p) = data.get("path").and_then(Value::as_str) {
                 let opener = if cfg!(target_os = "macos") {
                     "/usr/bin/open"
+                } else if cfg!(windows) {
+                    "explorer"
                 } else {
                     "xdg-open"
                 };
@@ -653,7 +655,7 @@ async fn ask_once(root: PathBuf, model: Option<String>, prompt: String) -> anyho
     if let Some(p) = std::env::var_os("PATH") {
         path.extend(std::env::split_paths(&p));
     }
-    let mut cmd = tokio::process::Command::new(&pi);
+    let mut cmd = tokio::process::Command::from(pide_runtime::process::command_for(&pi));
     cmd.args(["-p", "--no-session", "--no-tools", "--thinking", "low"]);
     if let Some(m) = model {
         cmd.args(["--model", &m]);
@@ -716,11 +718,7 @@ impl Drop for PiBackend {
 
 /// `pi` on PATH, or in the usual npm-global locations (a GUI launch may have a bare PATH).
 fn find_pi() -> Option<PathBuf> {
-    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).collect())
-        .unwrap_or_default();
-    dirs.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
-    dirs.into_iter().map(|d| d.join("pi")).find(|p| p.is_file())
+    pide_runtime::process::find_command("pi")
 }
 
 /// pide's pi extension (collaborator mode: `ide_pin`, `ide_explain_change`,
@@ -773,7 +771,8 @@ async fn supervise(
     if let Some(p) = std::env::var_os("PATH") {
         path.extend(std::env::split_paths(&p));
     }
-    let mut child = match tokio::process::Command::new(&pi)
+    let mut cmd = tokio::process::Command::from(pide_runtime::process::command_for(&pi));
+    let mut child = match cmd
         .args(&args)
         .current_dir(&cwd)
         .env("PATH", std::env::join_paths(path).unwrap_or_default())

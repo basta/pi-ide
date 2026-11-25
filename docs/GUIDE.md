@@ -23,11 +23,43 @@ Each pi session shows its cost, context use, thinking level and model at the top
 
 ## Language servers
 
-pide starts rust-analyzer for `.rs` files, pyright for `.py` files and typescript-language-server for `.ts` files. **Settings → Language Servers…** shows what's installed, installs what's missing (`rustup component add rust-analyzer`, `npm i -g pyright`, `npm i -g typescript-language-server typescript`) with the output in the tab, and restarts servers. A server that crashes restarts by itself up to 3 times in 3 minutes. Override a server's command in `settings.json`: `"lsp": { "rust-analyzer": { "command": "/path", "args": [] } }`.
+pide starts rust-analyzer for `.rs` files, pyright for `.py` files, typescript-language-server for `.ts` files and clangd for C, C++ and CUDA (`.c .h .cpp .cc .cxx .hpp .hxx .inl .cu .cuh` …). clangd needs a `compile_commands.json` (CMake: `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`); when there's none in the project root or `build/`, pide passes clangd the newest one in a build folder (`out/build/<preset>/`, `build*/`, `cmake-build-*/`). Choose one yourself with `"lsp": { "clangd": { "args": ["--compile-commands-dir=out/build/Debug"] } }` or a `.clangd` file with `CompilationDatabase:`. On Windows pide installs clangd with `winget install LLVM.LLVM`, and starts it in Visual Studio's developer environment (what `vcvars64.bat` sets, found with vswhere; skipped when pide itself runs in a Developer Prompt), so MSVC projects find ATL/MFC and the rest of the toolset's headers, as in CLion. **Settings → Language Servers…** shows what's installed, installs what's missing (`rustup component add rust-analyzer`, `npm i -g pyright`, `npm i -g typescript-language-server typescript`) with the output in the tab, and restarts servers. A server that crashes restarts by itself up to 3 times in 3 minutes. Override a server's command in `settings.json`: `"lsp": { "rust-analyzer": { "command": "/path", "args": [] } }`.
 
-Syntax highlighting: Rust, Python, TypeScript/TSX, JavaScript, JSON, TOML, YAML, Bash, HTML, CSS, Markdown.
+Syntax highlighting: Rust, Python, TypeScript/TSX, JavaScript, JSON, TOML, YAML, Bash, HTML, CSS, Markdown, C, C++ (CUDA too), CMake.
 
 **Settings → pide…** (Cmd+,) has switches for all of these. Settings live in `~/.config/pide/settings.json` (`"theme": "dark" | "light" | "system"`, `"agent.send_context": true`, `"agent.notify": true`, `"agent.save_before_send": true`, `"editor.format_on_save": false`); the Find Action commands "View: Theme: …" change them. Edits to the file apply as soon as it is saved. With `agent.notify` on, pide posts a macOS notification when pi finishes or asks a question while you are in another app (shown as coming from Script Editor; macOS asks once whether to allow it). With `agent.save_before_send` on, unsaved files are saved before a message goes to pi, since pi reads files from disk.
+
+## CMake
+
+The **CMake** tool window (bottom dock; **Build** menu, or View → Tool Windows) works like CLion's:
+
+- **Profile** (the ⚙ picker): one per configure preset in `CMakePresets.json` / `CMakeUserPresets.json` (with `inherits`, `include`, `condition` and the `${sourceDir}`-style macros); without presets, `Debug` and `Release` in `cmake-build-debug` / `cmake-build-release` (Ninja when it's there). The build preset that names the profile's configure preset is used for building.
+- **Reload CMake Project** (⟳) configures the profile with `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` and asks CMake's File API for the code model: the **target** picker lists its executables and libraries. **Reset Cache and Reload Project** (⋯) deletes `CMakeCache.txt` and `CMakeFiles/` first. Saving a `CMakeLists.txt`, `*.cmake` or preset file shows a notice to reload; nothing reloads by itself.
+- **Build** (Ctrl+F9 / ⌘F9) builds the selected target, or all targets; a profile that was never configured is configured first. **Rebuild** and **Clean** are in ⋯ and the Build menu.
+- **Run** (Shift+F10) builds the selected executable target, then runs it in the project folder with its **Run Arguments…** (⋯). **Stop** ends what runs; starting something new stops the old one (a running program would keep its `.exe` locked).
+- Errors and warnings in the output (MSVC, nvcc, clang, gcc, CMake, linkers) are listed on the left; click one, or a `file(line)` in the output, to open it there.
+- clangd follows the selected profile: it reads that build folder's `compile_commands.json` (unless `settings.json` gives clangd its own `--compile-commands-dir`).
+- On Windows everything runs in Visual Studio's developer environment (vswhere → `vcvars64.bat`), as CLion's Visual Studio toolchain does, so `cl`, `link` and `ninja` are found without a Developer Prompt.
+
+pide remembers the profile, target and run arguments per project (`~/.local/state/pide/cmake/`).
+
+## Terminal
+
+The **Terminal** tool window (Option+F12 / Alt+F12, bottom dock) runs your shell in the project folder: PowerShell 7 (`pwsh`, else Windows PowerShell) on Windows, your login shell (`$SHELL -l`) on macOS and Linux. Each **+** is another shell in its own tab; a tab takes the title the shell gives it.
+
+- Full-screen programs work: vim, less, htop, lazygit, with colours (256 and true colour) and the mouse. Hold Shift to select text in a program that takes the mouse.
+- While the terminal has focus, keys go to the shell: Ctrl+R, Ctrl+E, Ctrl+K and Esc are the shell's, not pide's. What still works: Find Action, Go to File, pide settings, the tool-window keys with a digit or an F-key, Option+F12 / Alt+F12, Shift+Esc (hide it).
+- **Copy** / **Paste**: ⌘C / ⌘V on macOS, Ctrl+Shift+C / Ctrl+Shift+V elsewhere. Ctrl+C copies when something is selected (otherwise it interrupts, as usual). Drag to select, double-click for a word, triple-click for a line. Pasting several lines doesn't run them one by one where the shell supports bracketed paste.
+- ⌘-click (Ctrl+click) a `file:line` or `file:line:col` in the output to open it there; relative paths are taken from the folder the shell started in.
+- Right-click: Copy, Paste, **Ask pi About This** (the selection, or the screen, into pi's message box), Clear, New Tab, Close Tab.
+- In the project tree, right-click a folder or file → **Open in Terminal** for a shell there.
+- `exit` closes the tab; closing the last one hides the tool window, and opening it again starts a fresh shell. A shell that ends with an error keeps its tab, so you can read why.
+
+Settings (`settings.json`):
+
+- `"terminal.shell"`: another shell, `"bash"` or with arguments, `["C:\\Program Files\\Git\\bin\\bash.exe", "-l"]`.
+- `"terminal.font_family"`: the editor's monospace font by default. Prompt themes like oh-my-posh and starship need a Nerd Font for their icons, e.g. `"CaskaydiaCove Nerd Font"`.
+- `"terminal.font_size"`: the editor's size by default.
 
 ## Where pide keeps its files
 

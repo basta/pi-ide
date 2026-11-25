@@ -27,7 +27,7 @@ impl EventEmitter<WorkspaceEvent> for Workspace {}
 /// Canonical form used as the buffer key (FSEvents reports canonical paths,
 /// e.g. `/private/tmp` for `/tmp`).
 fn canonical(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    crate::paths::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 impl Workspace {

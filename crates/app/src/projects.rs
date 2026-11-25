@@ -78,7 +78,7 @@ pub fn open(root: PathBuf, cx: &mut App) {
 }
 
 fn open_now(root: PathBuf, cx: &mut App) {
-    let root = std::fs::canonicalize(&root).unwrap_or(root);
+    let root = pide_core::paths::canonicalize(&root).unwrap_or(root);
     remember(&root, cx);
 
     if let Some(handle) = window_of(&root, cx) {
@@ -93,14 +93,21 @@ fn open_now(root: PathBuf, cx: &mut App) {
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default()
     );
+    let mut bounds = new_window_bounds(cx);
+    // A hidden window on Windows keeps CW_USEDEFAULT for its size and can't be
+    // drawn: under test control it's shown instead, far off every screen.
+    let offscreen = controlled() && cfg!(windows);
+    if offscreen {
+        bounds.origin = point(px(-30000.), px(-30000.));
+    }
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(new_window_bounds(cx))),
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
         titlebar: Some(TitlebarOptions {
             title: Some(title.into()),
             ..Default::default()
         }),
         // Under test control (devctl) windows stay hidden and never take focus.
-        show: !controlled(),
+        show: !controlled() || offscreen,
         focus: !controlled(),
         ..Default::default()
     };
@@ -281,7 +288,7 @@ fn rows(cx: &App) -> Vec<Row> {
 
 /// `/Users/ja/Projects/x` -> `~/Projects/x`.
 fn tilde(path: &Path) -> String {
-    match std::env::var_os("HOME").map(PathBuf::from) {
+    match pide_core::paths::home_dir() {
         Some(home) if path.starts_with(&home) => {
             format!("~/{}", path.strip_prefix(&home).unwrap().display())
         }

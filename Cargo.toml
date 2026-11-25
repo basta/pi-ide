@@ -18,6 +18,8 @@ members = [
     "crates/panels/run",
     "crates/panels/git",
     "crates/panels/structure",
+    "crates/panels/cmake",
+    "crates/panels/terminal",
     "spike",
 ]
 
@@ -44,6 +46,9 @@ gpui-kit = { version = "=0.9.0", features = [
     "tree-sitter-yaml",
     "tree-sitter-html",
     "tree-sitter-css",
+    "tree-sitter-c",
+    "tree-sitter-cpp",
+    "tree-sitter-cmake",
 ] }
 
 pide-core = { path = "crates/core" }
@@ -60,6 +65,8 @@ pide-search = { path = "crates/panels/search" }
 pide-run = { path = "crates/panels/run" }
 pide-git = { path = "crates/panels/git" }
 pide-structure = { path = "crates/panels/structure" }
+pide-cmake = { path = "crates/panels/cmake" }
+pide-terminal = { path = "crates/panels/terminal" }
 pide-preview = { path = "crates/panels/preview" }
 pide-pdf = { path = "crates/panels/pdf" }
 
@@ -87,7 +94,14 @@ tree-sitter = "0.26"
 codebook-tree-sitter-latex = "0.6.1"
 # Typst highlighting, same arrangement (editor/src/typst.rs).
 codebook-tree-sitter-typst = "0.12.1"
+# C++ highlighting: GPUI Kit uses tree-sitter-cpp's query alone, which upstream only
+# layers on top of C's (editor/src/cpp.rs). Same versions GPUI Kit pulls in.
+tree-sitter-c = "0.24.2"
+tree-sitter-cpp = "0.23.4"
 base64 = "0.22.1"
+# The terminal (panels/terminal): PTY (ConPTY on Windows), VT parser, grid and scrollback.
+# Apache-2.0; pide only draws it and maps keys.
+alacritty_terminal = { version = "0.26.0", default-features = false }
 tokio = { version = "1.54.1", features = ["rt", "process", "io-util", "sync", "time", "macros"] }
 
 # Dependencies optimised even in debug builds, so dev builds scroll and type like release;

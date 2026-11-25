@@ -130,6 +130,9 @@ pub struct LspStore {
     /// `spellcheck.enabled`: run the add-on servers.
     spellcheck: bool,
     missing_reported: Vec<&'static str>,
+    /// Arguments a panel added for this project (the CMake panel's
+    /// `--compile-commands-dir` for clangd). `settings.json` wins on the same flag.
+    project_args: HashMap<&'static str, Vec<String>>,
     _subs: Vec<Subscription>,
 }
 
@@ -174,6 +177,7 @@ impl LspStore {
             addon_diagnostics: BTreeMap::new(),
             spellcheck,
             missing_reported: Vec::new(),
+            project_args: HashMap::new(),
             _subs: vec![
                 cx.subscribe(workspace, Self::on_workspace_event),
                 cx.observe_global::<pide_core::settings::Settings>(|this, cx| {
@@ -523,6 +527,29 @@ impl LspStore {
         self.start(spec, cx);
     }
 
+    /// Arguments for server `id` in this project, on top of its spec (the flag
+    /// before `=` decides: one from `settings.json` stays). A running server
+    /// restarts with them; one not started yet gets them when it starts.
+    pub fn set_project_args(&mut self, id: &str, args: Vec<String>, cx: &mut Context<Self>) {
+        let Some(id) = self.specs.iter().find(|s| s.id == id).map(|s| s.id) else {
+            return;
+        };
+        if self.project_args.get(id) == Some(&args) {
+            return;
+        }
+        log::info!("{id}: project arguments {args:?}");
+        self.project_args.insert(id, args);
+        let live = self.servers.get(id).is_some_and(|s| {
+            !matches!(
+                s.state,
+                ServerState::Stopped | ServerState::NotInstalled { .. }
+            )
+        });
+        if live {
+            self.restart(id, cx);
+        }
+    }
+
     /// Re-check every server's install state (after an install finishes).
     pub fn redetect(&mut self, cx: &mut Context<Self>) {
         let wanted: Vec<&'static str> = self
@@ -562,8 +589,14 @@ impl LspStore {
         cx.notify();
     }
 
-    fn start(&mut self, spec: ServerSpec, cx: &mut Context<Self>) {
+    fn start(&mut self, mut spec: ServerSpec, cx: &mut Context<Self>) {
         let id = spec.id;
+        if let Some(extra) = self.project_args.get(id) {
+            let flag = |a: &str| a.split('=').next().unwrap_or(a).to_string();
+            let mine: Vec<String> = spec.args.iter().map(|a| flag(a)).collect();
+            spec.args
+                .extend(extra.iter().filter(|a| !mine.contains(&flag(a))).cloned());
+        }
         let server = self.servers.entry(id).or_insert_with(|| Server {
             spec: spec.clone(),
             state: ServerState::Starting,

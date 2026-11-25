@@ -532,6 +532,11 @@ impl PdfPanel {
             lines: vec![format!("Downloading {url}")],
             done: None,
         });
+        // Windows' own bsdtar: Git's GNU tar, often first on PATH, reads `D:\…` as host `D`.
+        let tar = match std::env::var("SystemRoot") {
+            Ok(root) if cfg!(windows) => format!("{root}\\System32\\tar.exe"),
+            _ => "tar".to_string(),
+        };
         let steps = vec![
             vec![
                 "curl".to_string(),
@@ -541,7 +546,7 @@ impl PdfPanel {
                 url,
             ],
             vec![
-                "tar".to_string(),
+                tar,
                 "-xzf".into(),
                 tgz.display().to_string(),
                 "-C".into(),
