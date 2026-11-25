@@ -68,7 +68,7 @@ It's written in Rust on [GPUI](https://www.gpui.rs/), so it is a native app, not
 <img src="docs/images/git-log.png" alt="The Git Log tool window with branch graph and commit details under the editor" width="900">
 
 - **Language servers**: completion, go to definition, usages, rename, quick fixes, inline errors.
-  rust-analyzer, pyright and typescript-language-server out of the box, installed from inside pide.
+  rust-analyzer, pyright, typescript-language-server and clangd (C, C++, CUDA) out of the box, installed from inside pide.
 - **Git**: gutter marks, partial commits, a log with a branch graph, blame, push and pull, branches.
   **✦ Draft with pi** writes the commit message.
 - **LaTeX**: build on save, the PDF beside the source, SyncTeX both ways, errors in Problems.
