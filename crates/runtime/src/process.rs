@@ -104,6 +104,22 @@ fn kill_tree(pid: u32) {
     };
 }
 
+/// Each directory once, first place kept (case-insensitively on Windows,
+/// trailing separators ignored). `vcvars64.bat`'s PATH already contains the
+/// parent's, and cmd.exe ignores a PATH over 8191 characters altogether:
+/// nvcc, which runs `cl.exe` through cmd, would find nothing.
+pub fn dedup_dirs(dirs: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen = std::collections::HashSet::new();
+    dirs.into_iter()
+        .filter(|d| {
+            let s = d.to_string_lossy();
+            let s = s.trim_end_matches(['/', '\\']);
+            let key = if cfg!(windows) { s.to_lowercase() } else { s.to_string() };
+            !key.is_empty() && seen.insert(key)
+        })
+        .collect()
+}
+
 /// A running command: output lines (stdout and stderr interleaved) and the exit.
 pub struct Streaming {
     pub lines: mpsc::UnboundedReceiver<String>,
@@ -141,6 +157,7 @@ pub fn run_streaming_with(
             .flat_map(|(_, v)| std::env::split_paths(v).collect::<Vec<_>>())
             .collect();
         dirs.extend(search_path());
+        let dirs = dedup_dirs(dirs);
         let program = if Path::new(program).components().count() > 1 {
             PathBuf::from(program)
         } else {
@@ -207,6 +224,16 @@ pub fn run_streaming_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_entries_once() {
+        let d = |s: &str| PathBuf::from(s);
+        let got = dedup_dirs(vec![d("/a"), d("/b/"), d("/a/"), d(""), d("/b"), d("/c")]);
+        assert_eq!(got, [d("/a"), d("/b/"), d("/c")]);
+        if cfg!(windows) {
+            assert_eq!(dedup_dirs(vec![d(r"C:\X"), d(r"c:\x\")]).len(), 1);
+        }
+    }
 
     #[test]
     fn streams_output_and_reports_the_exit_code() {

@@ -85,6 +85,7 @@ Dependencies only go downward: `app` → panels/`editor`/`agent-pi` → `core`/`
   accent blue `colors::accent` (checked checkbox, active tab marker, links, busy/starting) · file status `colors::change` (modified blue, added green, deleted gray, untracked/conflict red, JetBrains) ·
   `danger`/`warning`/`success` for problem states only, as text or dots, not fills · notice bars `colors::notice_bg` + body text · no red buttons on list rows (red = final confirm or Stop).
 - **Math in markdown:** every `TextView` showing markdown passes `.markdown_extensions(pide_core::math::markdown_extensions())`, and text goes through `pide_core::math::normalize_delimiters` (streamed text: `math::stream`, which says append or replace) before it reaches the `TextViewState`. Formulas RaTeX can't parse stay text; `$5 and $10` isn't math (pandoc's rule). Copy gives the LaTeX source.
+- **Windows environment:** a pide started from Explorer has no `HOME`: use `pide_core::paths::home_dir()` (`HOME`, else `USERPROFILE`), never `var_os("HOME")`. Child processes get a deduplicated `PATH` (`process::dedup_dirs`): cmd.exe ignores a `PATH` over 8191 characters, and `vcvars64.bat`'s already contains the parent's (nvcc runs `cl.exe` through cmd).
 - **`taffy` must stay at 0.15.0** in `Cargo.lock` (GPUI's `profiler` feature needs it). After `cargo update`, run `cargo update -p taffy --precise 0.15.0`.
 
 ## Running and logs

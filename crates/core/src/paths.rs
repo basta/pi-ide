@@ -16,10 +16,16 @@ pub fn canonicalize(path: &Path) -> std::io::Result<PathBuf> {
     Ok(p)
 }
 
-fn home() -> PathBuf {
+/// The user's home: `HOME`, else (Windows, started from Explorer) `USERPROFILE`.
+pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|h| !h.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn home() -> PathBuf {
+    home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
 fn xdg(var: &str, fallback: &str) -> PathBuf {

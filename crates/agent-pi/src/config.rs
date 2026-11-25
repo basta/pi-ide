@@ -39,8 +39,7 @@ impl PiConfig {
         let agent_dir = std::env::var_os("PI_CODING_AGENT_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| {
-                std::env::var_os("HOME")
-                    .map(PathBuf::from)
+                pide_core::paths::home_dir()
                     .unwrap_or_default()
                     .join(".pi/agent")
             });

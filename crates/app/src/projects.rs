@@ -288,7 +288,7 @@ fn rows(cx: &App) -> Vec<Row> {
 
 /// `/Users/ja/Projects/x` -> `~/Projects/x`.
 fn tilde(path: &Path) -> String {
-    match std::env::var_os("HOME").map(PathBuf::from) {
+    match pide_core::paths::home_dir() {
         Some(home) if path.starts_with(&home) => {
             format!("~/{}", path.strip_prefix(&home).unwrap().display())
         }

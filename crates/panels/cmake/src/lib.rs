@@ -1491,3 +1491,4 @@ mod tests {
         assert_eq!(strip_ansi("[1/9] a\r[2/9] b"), "[2/9] b");
     }
 }
+
