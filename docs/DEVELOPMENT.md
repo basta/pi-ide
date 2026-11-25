@@ -4,7 +4,7 @@ pide is built with Rust on [GPUI](https://www.gpui.rs/) and GPUI Kit. The contri
 
 ## Status
 
-Milestones **M0–M5** are built. M6 (scripted panels) has its options written up in [M6-SCRIPTED-PANELS.md](M6-SCRIPTED-PANELS.md) and waits on a decision. Collaborator mode, the notes-in-the-code work that came after, is described in [COLLAB.md](COLLAB.md).
+Milestones **M0–M5** are built. M6 (scripted panels) has its options written up in [M6-SCRIPTED-PANELS.md](M6-SCRIPTED-PANELS.md) and waits on a decision. Collaborator mode, the notes-in-the-code work that came after, is described in [COLLAB.md](COLLAB.md). The terminal (2026-11, outside the milestones) is `alacritty_terminal` under a GPUI view: `crates/panels/terminal`.
 
 - [GAPS.md](GAPS.md): what GPUI Kit or pi can't do yet.
 - [IDEAS.md](IDEAS.md): what is deliberately not built.

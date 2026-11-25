@@ -74,6 +74,8 @@ It's written in Rust on [GPUI](https://www.gpui.rs/), so it is a native app, not
 - **Git**: gutter marks, partial commits, a log with a branch graph, blame, push and pull, branches.
   **✦ Draft with pi** writes the commit message.
 - **LaTeX**: build on save, the PDF beside the source, SyncTeX both ways, errors in Problems.
+- **Terminal**: your shell in tabs, full-screen programs with colours and the mouse, ⌘-click a
+  `file:line` to open it, **Ask pi About This** on the output.
 - **PDF, Markdown and image previews**, find in files with replace, a run panel with clickable
   `file:line`.
 - JetBrains-style shortcuts, a keymap you can rebind by typing, light and dark themes.

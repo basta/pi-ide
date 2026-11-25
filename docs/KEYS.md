@@ -14,6 +14,7 @@ Every command is also in **Find Action** (Cmd+Shift+A), with its shortcut beside
 | Cmd+W / Cmd+Shift+T | Close tab / reopen the last closed tab |
 | Cmd+1 / Cmd+6 | Project panel / Problems panel |
 | Ctrl+Alt+R | Run a shell command in the project folder (Run panel: output with clickable `file:line`, Stop, Rerun, Ask pi) |
+| Option+F12 (Alt+F12) | Terminal (keys go to the shell while it has focus) |
 | Cmd+F9 (Ctrl+F9) | Build the selected CMake target (CMake tool window; configures first if needed) |
 | Shift+F10 | Build and run the selected CMake executable target |
 | Cmd+Q | Quit |
@@ -66,6 +67,15 @@ Every command is also in **Find Action** (Cmd+Shift+A), with its shortcut beside
 | Ctrl+Tab / Ctrl+Shift+Tab | Next / previous session |
 
 View → Move Tab to Right Split puts two files side by side.
+
+## Terminal
+
+| Key | Command |
+| --- | --- |
+| Cmd+C / Cmd+V (Ctrl+Shift+C / Ctrl+Shift+V) | Copy / paste |
+| Ctrl+C (Linux, Windows) | Copy when something is selected, otherwise interrupt |
+| Cmd+click (Ctrl+click) | Open the `file:line` under the mouse |
+| Shift+drag | Select text in a program that takes the mouse (vim, htop) |
 
 ## Changing shortcuts
 

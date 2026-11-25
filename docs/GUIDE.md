@@ -43,6 +43,24 @@ The **CMake** tool window (bottom dock; **Build** menu, or View → Tool Windows
 
 pide remembers the profile, target and run arguments per project (`~/.local/state/pide/cmake/`).
 
+## Terminal
+
+The **Terminal** tool window (Option+F12 / Alt+F12, bottom dock) runs your shell in the project folder: PowerShell 7 (`pwsh`, else Windows PowerShell) on Windows, your login shell (`$SHELL -l`) on macOS and Linux. Each **+** is another shell in its own tab; a tab takes the title the shell gives it.
+
+- Full-screen programs work: vim, less, htop, lazygit, with colours (256 and true colour) and the mouse. Hold Shift to select text in a program that takes the mouse.
+- While the terminal has focus, keys go to the shell: Ctrl+R, Ctrl+E, Ctrl+K and Esc are the shell's, not pide's. What still works: Find Action, Go to File, pide settings, the tool-window keys with a digit or an F-key, Option+F12 / Alt+F12, Shift+Esc (hide it).
+- **Copy** / **Paste**: ⌘C / ⌘V on macOS, Ctrl+Shift+C / Ctrl+Shift+V elsewhere. Ctrl+C copies when something is selected (otherwise it interrupts, as usual). Drag to select, double-click for a word, triple-click for a line. Pasting several lines doesn't run them one by one where the shell supports bracketed paste.
+- ⌘-click (Ctrl+click) a `file:line` or `file:line:col` in the output to open it there; relative paths are taken from the folder the shell started in.
+- Right-click: Copy, Paste, **Ask pi About This** (the selection, or the screen, into pi's message box), Clear, New Tab, Close Tab.
+- In the project tree, right-click a folder or file → **Open in Terminal** for a shell there.
+- `exit` closes the tab; closing the last one hides the tool window, and opening it again starts a fresh shell. A shell that ends with an error keeps its tab, so you can read why.
+
+Settings (`settings.json`):
+
+- `"terminal.shell"`: another shell, `"bash"` or with arguments, `["C:\\Program Files\\Git\\bin\\bash.exe", "-l"]`.
+- `"terminal.font_family"`: the editor's monospace font by default. Prompt themes like oh-my-posh and starship need a Nerd Font for their icons, e.g. `"CaskaydiaCove Nerd Font"`.
+- `"terminal.font_size"`: the editor's size by default.
+
 ## Where pide keeps its files
 
 - Logs: `~/.local/state/pide/pide.log`, pi traffic `~/.local/state/pide/pi-rpc.jsonl`, pi stderr `~/.local/state/pide/pi-stderr.log`.
