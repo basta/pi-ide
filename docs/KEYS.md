@@ -14,6 +14,8 @@ Every command is also in **Find Action** (Cmd+Shift+A), with its shortcut beside
 | Cmd+W / Cmd+Shift+T | Close tab / reopen the last closed tab |
 | Cmd+1 / Cmd+6 | Project panel / Problems panel |
 | Ctrl+Alt+R | Run a shell command in the project folder (Run panel: output with clickable `file:line`, Stop, Rerun, Ask pi) |
+| Cmd+F9 (Ctrl+F9) | Build the selected CMake target (CMake tool window; configures first if needed) |
+| Shift+F10 | Build and run the selected CMake executable target |
 | Cmd+Q | Quit |
 
 ## Navigation

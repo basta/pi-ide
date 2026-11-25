@@ -18,6 +18,7 @@ members = [
     "crates/panels/run",
     "crates/panels/git",
     "crates/panels/structure",
+    "crates/panels/cmake",
     "spike",
 ]
 
@@ -63,6 +64,7 @@ pide-search = { path = "crates/panels/search" }
 pide-run = { path = "crates/panels/run" }
 pide-git = { path = "crates/panels/git" }
 pide-structure = { path = "crates/panels/structure" }
+pide-cmake = { path = "crates/panels/cmake" }
 pide-preview = { path = "crates/panels/preview" }
 pide-pdf = { path = "crates/panels/pdf" }
 

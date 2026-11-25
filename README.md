@@ -69,6 +69,8 @@ It's written in Rust on [GPUI](https://www.gpui.rs/), so it is a native app, not
 
 - **Language servers**: completion, go to definition, usages, rename, quick fixes, inline errors.
   rust-analyzer, pyright, typescript-language-server and clangd (C, C++, CUDA) out of the box, installed from inside pide.
+- **CMake**, the CLion way: profiles from your presets, targets from CMake itself, Build (Ctrl+F9) and Run (Shift+F10),
+  errors listed and linked, clangd following the profile you build. On Windows it sets up Visual Studio's compiler by itself.
 - **Git**: gutter marks, partial commits, a log with a branch graph, blame, push and pull, branches.
   **✦ Draft with pi** writes the commit message.
 - **LaTeX**: build on save, the PDF beside the source, SyncTeX both ways, errors in Problems.

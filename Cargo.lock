@@ -6482,6 +6482,7 @@ dependencies = [
  "nucleo-matcher",
  "pide-agent-chat",
  "pide-agent-pi",
+ "pide-cmake",
  "pide-core",
  "pide-editor",
  "pide-file-tree",
@@ -6526,6 +6527,21 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "pide-cmake"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gpui-kit",
+ "log",
+ "pide-core",
+ "pide-lsp",
+ "pide-runtime",
+ "regex",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
