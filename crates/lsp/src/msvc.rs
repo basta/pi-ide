@@ -10,8 +10,8 @@
 
 use std::sync::OnceLock;
 
-/// Variables `vcvars64.bat` sets or changes, minus `PATH` (servers get pide's
-/// search path). Empty off Windows, when `INCLUDE` is already set (pide started
+/// Variables `vcvars64.bat` sets or changes, `PATH` (spelled `Path`) included:
+/// builds need its cl, link and ninja. Empty off Windows, when `INCLUDE` is already set (pide started
 /// from a Developer Prompt), or when there's no Visual Studio with C++.
 /// Blocking the first time (about a second): call off the UI thread.
 pub fn dev_env() -> &'static [(String, String)] {
@@ -93,7 +93,7 @@ fn changed(set_output: &str, current: impl Fn(&str) -> Option<String>) -> Vec<(S
     set_output
         .lines()
         .filter_map(|l| l.split_once('='))
-        .filter(|(k, _)| !k.is_empty() && !k.eq_ignore_ascii_case("PATH"))
+        .filter(|(k, _)| !k.is_empty())
         .filter(|(k, v)| current(k).as_deref() != Some(*v))
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect()
@@ -105,11 +105,12 @@ mod tests {
 
     #[test]
     fn keeps_only_what_vcvars_changed() {
-        let out = "Path=C:\\x\nINCLUDE=C:\\vc\\include;C:\\vc\\atlmfc\\include\nUSERNAME=me\nVCToolsVersion=14.44\n";
+        let out = "Path=C:\\vc\\bin;C:\\x\nINCLUDE=C:\\vc\\include;C:\\vc\\atlmfc\\include\nUSERNAME=me\nVCToolsVersion=14.44\n";
         let env = changed(out, |k| (k == "USERNAME").then(|| "me".to_string()));
         assert_eq!(
             env,
             [
+                ("Path".into(), "C:\\vc\\bin;C:\\x".into()),
                 ("INCLUDE".into(), "C:\\vc\\include;C:\\vc\\atlmfc\\include".into()),
                 ("VCToolsVersion".into(), "14.44".into()),
             ]

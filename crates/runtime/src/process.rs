@@ -115,6 +115,17 @@ pub struct Streaming {
 
 /// Start `command` (program + args, no shell) on the runtime, in `cwd` if given.
 pub fn run_streaming(command: Vec<String>, cwd: Option<std::path::PathBuf>) -> Streaming {
+    run_streaming_with(command, cwd, Vec::new())
+}
+
+/// `run_streaming` with extra environment variables. A `PATH` among them goes
+/// in front of pide's search path, and the program is looked up there too
+/// (Visual Studio's developer environment brings cl, link and ninja).
+pub fn run_streaming_with(
+    command: Vec<String>,
+    cwd: Option<std::path::PathBuf>,
+    env: Vec<(String, String)>,
+) -> Streaming {
     let (line_tx, lines) = mpsc::unbounded_channel();
     let (done_tx, done) = oneshot::channel();
     let (stop, mut stop_rx) = oneshot::channel::<()>();
@@ -123,8 +134,23 @@ pub fn run_streaming(command: Vec<String>, cwd: Option<std::path::PathBuf>) -> S
             let _ = done_tx.send(Err("empty install command".into()));
             return;
         };
-        let program = find_command(program).unwrap_or_else(|| program.into());
+        let is_path = |k: &str| k.eq_ignore_ascii_case("PATH");
+        let mut dirs: Vec<PathBuf> = env
+            .iter()
+            .filter(|(k, _)| is_path(k))
+            .flat_map(|(_, v)| std::env::split_paths(v).collect::<Vec<_>>())
+            .collect();
+        dirs.extend(search_path());
+        let program = if Path::new(program).components().count() > 1 {
+            PathBuf::from(program)
+        } else {
+            dirs.iter()
+                .flat_map(|d| candidates(d, program))
+                .find(|c| c.is_file())
+                .unwrap_or_else(|| program.into())
+        };
         let mut cmd = tokio::process::Command::from(command_for(&program));
+        cmd.envs(env.iter().filter(|(k, _)| !is_path(k)).map(|(k, v)| (k, v)));
         if let Some(cwd) = &cwd {
             cmd.current_dir(cwd);
         }
@@ -133,10 +159,7 @@ pub fn run_streaming(command: Vec<String>, cwd: Option<std::path::PathBuf>) -> S
         cmd.process_group(0);
         let mut child = match cmd
             .args(args)
-            .env(
-                "PATH",
-                std::env::join_paths(search_path()).unwrap_or_default(),
-            )
+            .env("PATH", std::env::join_paths(&dirs).unwrap_or_default())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

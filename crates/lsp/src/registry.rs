@@ -258,12 +258,16 @@ pub fn extra_args(id: &str, args: &[String], root: &Path) -> Vec<String> {
 /// Environment added when a server starts. Blocking the first time: call off
 /// the UI thread. clangd on Windows gets Visual Studio's developer environment
 /// (`msvc::dev_env`), so cl.exe command lines find ATL/MFC and friends.
-pub fn extra_env(id: &str) -> &'static [(String, String)] {
-    if id == CLANGD {
-        crate::msvc::dev_env()
-    } else {
-        &[]
+/// Its `PATH` stays out: servers get pide's search path.
+pub fn extra_env(id: &str) -> Vec<(String, String)> {
+    if id != CLANGD {
+        return vec![];
     }
+    crate::msvc::dev_env()
+        .iter()
+        .filter(|(k, _)| !k.eq_ignore_ascii_case("PATH"))
+        .cloned()
+        .collect()
 }
 
 /// The folder of the newest `compile_commands.json` in the project's build
