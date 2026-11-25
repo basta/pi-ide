@@ -38,6 +38,8 @@ impl Global for ToolWindows {}
 pub struct ToolWindowHost {
     /// Show and focus it; hide it if it's already the one showing in its dock.
     pub toggle: Rc<dyn Fn(&'static str, &mut Window, &mut App)>,
+    /// Show it (never hide); `focus`: also move the focus there.
+    pub show: Rc<dyn Fn(&'static str, bool, &mut Window, &mut App)>,
 }
 impl Global for ToolWindowHost {}
 
@@ -72,5 +74,14 @@ pub fn get(id: &str, cx: &App) -> Option<ToolWindowSpec> {
 pub fn toggle(id: &'static str, window: &mut Window, cx: &mut App) {
     if let Some(t) = cx.try_global::<ToolWindowHost>().map(|h| h.toggle.clone()) {
         t(id, window, cx);
+    }
+}
+
+/// Show tool window `id` (creating it the first time) without hiding it when
+/// it's already showing: a build shows its output, the focus stays in the
+/// editor unless `focus`.
+pub fn show(id: &'static str, focus: bool, window: &mut Window, cx: &mut App) {
+    if let Some(s) = cx.try_global::<ToolWindowHost>().map(|h| h.show.clone()) {
+        s(id, focus, window, cx);
     }
 }
