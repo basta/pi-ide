@@ -1,7 +1,8 @@
 //! Driving pide from the background, for testing without taking over the
 //! screen (build with `--features devctl`, run with `PIDE_CTL=<socket path>`).
 //! Windows open hidden and the app never activates; `dev/pidectl` sends one
-//! JSON request per line over the Unix socket and prints the JSON reply.
+//! JSON request per line over the Unix socket and prints the JSON reply. On
+//! Windows `PIDE_CTL` is a TCP address on localhost (`127.0.0.1:47123`).
 //!
 //! Requests (`window` picks a window by index, default 0; coordinates are
 //! window points from the top left):
@@ -17,7 +18,10 @@
 //! Every request draws the window first, so clicks hit what a shot shows.
 
 use std::io::{BufRead as _, BufReader, Write as _};
-use std::os::unix::net::UnixListener;
+#[cfg(windows)]
+use std::net::{TcpListener as Listener, TcpStream as Stream};
+#[cfg(unix)]
+use std::os::unix::net::{UnixListener as Listener, UnixStream as Stream};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -34,8 +38,13 @@ pub fn socket() -> Option<PathBuf> {
 
 pub fn start(cx: &mut App) {
     let Some(path) = socket() else { return };
+    #[cfg(unix)]
     let _ = std::fs::remove_file(&path);
-    let listener = match UnixListener::bind(&path) {
+    #[cfg(unix)]
+    let addr = path.clone();
+    #[cfg(windows)]
+    let addr = path.to_string_lossy().into_owned();
+    let listener = match Listener::bind(&addr) {
         Ok(l) => l,
         Err(e) => {
             log::error!("devctl: bind {}: {e}", path.display());
@@ -48,6 +57,7 @@ pub fn start(cx: &mut App) {
         for stream in listener.incoming().flatten() {
             let tx = tx.clone();
             std::thread::spawn(move || {
+                let stream: Stream = stream;
                 let Ok(read) = stream.try_clone() else { return };
                 let mut out = stream;
                 for line in BufReader::new(read).lines() {

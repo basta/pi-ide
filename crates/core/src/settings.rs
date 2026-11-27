@@ -48,6 +48,14 @@ pub struct Settings {
     /// e.g. `git_log`, `script:user/todos`). A project can turn one back on
     /// (see [`ProjectSettings`]).
     pub tool_windows_off: Vec<String>,
+    /// `"terminal.shell"`: the terminal's shell, `"bash"` or `["bash", "-l"]`. Default:
+    /// pwsh (else Windows PowerShell) on Windows, `$SHELL -l` elsewhere.
+    pub terminal_shell: Option<Vec<String>>,
+    /// `"terminal.font_family"`: default the editor's mono font. A Nerd Font here
+    /// draws the glyphs prompt themes (oh-my-posh, starship) use.
+    pub terminal_font_family: Option<String>,
+    /// `"terminal.font_size"`: default the editor's.
+    pub terminal_font_size: Option<f32>,
 }
 
 impl Default for Settings {
@@ -64,6 +72,9 @@ impl Default for Settings {
             typst_pdf_follow: true,
             spellcheck: true,
             tool_windows_off: Vec::new(),
+            terminal_shell: None,
+            terminal_font_family: None,
+            terminal_font_size: None,
         }
     }
 }
@@ -126,6 +137,17 @@ pub fn load() -> Settings {
             .and_then(|v| v.as_bool())
             .unwrap_or(true),
         tool_windows_off: string_list(raw.get(TOOL_WINDOWS_OFF)),
+        terminal_shell: raw.get("terminal.shell").and_then(command_line),
+        terminal_font_family: raw
+            .get("terminal.font_family")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        terminal_font_size: raw
+            .get("terminal.font_size")
+            .and_then(|v| v.as_f64())
+            .map(|v| v as f32)
+            .filter(|v| (6.0..=72.0).contains(v)),
     }
 }
 
@@ -202,6 +224,16 @@ pub fn save_project_key(root: &std::path::Path, key: &str, value: Value) -> std:
     )
 }
 
+/// `"program"` or `["program", "arg", …]`.
+fn command_line(v: &Value) -> Option<Vec<String>> {
+    let parts: Vec<String> = match v {
+        Value::String(s) => vec![s.clone()],
+        Value::Array(a) => a.iter().map(|x| x.as_str().map(str::to_string)).collect::<Option<_>>()?,
+        _ => return None,
+    };
+    parts.first().is_some_and(|p| !p.is_empty()).then_some(parts)
+}
+
 /// Persist one key, keeping everything else in the file. Call off the UI thread.
 pub fn save_key(key: &str, value: Value) -> std::io::Result<()> {
     let mut raw = read_raw();
@@ -214,4 +246,21 @@ pub fn save_key(key: &str, value: Value) -> std::io::Result<()> {
         path,
         serde_json::to_string_pretty(&Value::Object(raw))? + "\n",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_setting_is_a_string_or_a_list() {
+        assert_eq!(command_line(&serde_json::json!("bash")), Some(vec!["bash".into()]));
+        assert_eq!(
+            command_line(&serde_json::json!(["bash", "-l"])),
+            Some(vec!["bash".into(), "-l".into()])
+        );
+        assert_eq!(command_line(&serde_json::json!("")), None);
+        assert_eq!(command_line(&serde_json::json!(["bash", 1])), None);
+        assert_eq!(command_line(&serde_json::json!([])), None);
+    }
 }

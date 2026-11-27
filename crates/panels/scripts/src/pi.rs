@@ -597,7 +597,16 @@ pub(crate) fn watch(id: WindowId, services: &Services, cx: &mut App) -> Vec<Subs
         move |sessions: &Entity<pide_core::Sessions>, cx: &mut App| {
             let all = sessions.read(cx).all().to_vec();
             let mut subs = subs.borrow_mut();
-            subs.retain(|e, _| all.iter().any(|a| a.entity_id() == *e));
+            // Drop closed sessions' subscriptions after this event, not inside it.
+            let gone: Vec<EntityId> = subs
+                .keys()
+                .filter(|e| !all.iter().any(|a| a.entity_id() == **e))
+                .copied()
+                .collect();
+            let gone: Vec<Subscription> = gone.iter().filter_map(|e| subs.remove(e)).collect();
+            if !gone.is_empty() {
+                cx.defer(move |_| drop(gone));
+            }
             for a in all {
                 if subs.contains_key(&a.entity_id()) {
                     continue;
@@ -647,8 +656,10 @@ pub(crate) fn watch(id: WindowId, services: &Services, cx: &mut App) -> Vec<Subs
             );
         },
     );
-    // The per-session subscriptions live in `follow`, held by this one.
-    vec![s]
+    // The per-session subscriptions are dropped by their own guard, after `s`:
+    // dropping them from inside `s`'s closure would re-enter GPUI's subscriber set.
+    let guard = Subscription::new(move || drop(std::mem::take(&mut *subs.borrow_mut())));
+    vec![s, guard]
 }
 
 #[cfg(test)]

@@ -2,6 +2,7 @@
 //! it shows a workspace [`Buffer`], pushes edits back to the workspace, and
 //! shows the bars around it (read-only, conflict, deleted). Also the pi diff tab.
 
+mod cpp;
 pub mod diff_panel;
 mod follow;
 mod git_gutter;
@@ -69,6 +70,7 @@ impl Global for OpenEditors {}
 
 pub fn init(cx: &mut App) {
     cx.set_global(OpenEditors::default());
+    cpp::init();
     latex::init();
     typst::init();
     tex::init(cx);
@@ -623,6 +625,13 @@ fn save_buffer(
 
 /// GPUI Kit language name for a file, by extension.
 pub(crate) fn language_for(path: &Path) -> &'static str {
+    if path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.eq_ignore_ascii_case("CMakeLists.txt"))
+    {
+        return "cmake";
+    }
     match path
         .extension()
         .and_then(|e| e.to_str())
@@ -640,6 +649,12 @@ pub(crate) fn language_for(path: &Path) -> &'static str {
         "yml" | "yaml" => "yaml",
         "html" | "htm" => "html",
         "css" | "scss" => "css",
+        "c" => "c",
+        // Headers are C++ more often than not, and the C++ grammar reads C fine.
+        // CUDA is C++ with a few qualifiers.
+        "h" | "cpp" | "cc" | "cxx" | "c++" | "hpp" | "hh" | "hxx" | "h++" | "inl" | "ipp"
+        | "tpp" | "ixx" | "cppm" | "cu" | "cuh" => "cpp",
+        "cmake" => "cmake",
         e if latex::is_latex_ext(e) => latex::NAME,
         e if typst::is_typst_ext(e) => typst::NAME,
         _ => "text",
@@ -1614,4 +1629,27 @@ pub fn run_benchmark(path: PathBuf, window: &mut Window, cx: &mut App) {
             let _ = cx.update(|_, cx| cx.quit());
         })
         .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::language_for;
+    use gpui_kit::component::highlighter::LanguageRegistry;
+    use std::path::Path;
+
+    /// A name GPUI Kit has no grammar for means a missing tree-sitter feature.
+    #[::core::prelude::v1::test]
+    fn c_family_has_grammars() {
+        for (file, lang) in [
+            ("a.c", "c"),
+            ("a.h", "cpp"),
+            ("a.cpp", "cpp"),
+            ("k.cuh", "cpp"),
+            ("CMakeLists.txt", "cmake"),
+            ("x.cmake", "cmake"),
+        ] {
+            assert_eq!(language_for(Path::new(file)), lang, "{file}");
+            assert!(LanguageRegistry::singleton().language(lang).is_some(), "{lang}");
+        }
+    }
 }

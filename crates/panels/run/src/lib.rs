@@ -97,45 +97,7 @@ pub fn strip_ansi(s: &str) -> String {
     out
 }
 
-/// A `path:line[:col]` reference in an output line (compiler errors, test
-/// failures): byte range in the line, path, 1-based line and column.
-pub fn find_location(line: &str) -> Option<(std::ops::Range<usize>, String, u32, u32)> {
-    let is_sep = |c: char| c.is_whitespace() || "()[]{}<>'\",;`".contains(c);
-    let mut start = 0;
-    for token in line.split(is_sep) {
-        let begin = start;
-        start += token.len() + 1;
-        let t = token.trim_end_matches(['.', ':']);
-        let mut parts = t.splitn(3, ':');
-        let (Some(path), Some(l)) = (parts.next(), parts.next()) else {
-            continue;
-        };
-        let Ok(l) = l.parse::<u32>() else { continue };
-        let col = parts
-            .next()
-            .and_then(|c| c.parse::<u32>().ok())
-            .unwrap_or(1);
-        // Looks like a file: has an extension, not a URL or a time.
-        let name = path.rsplit('/').next().unwrap_or(path);
-        if path.contains("://") || !name.contains('.') {
-            continue;
-        }
-        if name
-            .rsplit('.')
-            .next()
-            .is_none_or(|ext| ext.is_empty() || !ext.chars().all(|c| c.is_ascii_alphanumeric()))
-        {
-            continue;
-        }
-        return Some((
-            begin..begin + t.len(),
-            path.to_string(),
-            l.max(1),
-            col.max(1),
-        ));
-    }
-    None
-}
+pub use pide_core::location::find_location;
 
 pub struct RunPanel {
     root: PathBuf,
@@ -190,12 +152,19 @@ impl RunPanel {
         self.lines.clear();
         self.status = None;
         self.started = Some(Instant::now());
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-        // A login shell, so PATH matches the terminal's.
-        let run = pide_runtime::process::run_streaming(
-            vec![shell, "-lc".into(), command],
-            Some(self.root.clone()),
-        );
+        let argv = if cfg!(windows) {
+            let shell = if pide_runtime::process::find_command("pwsh").is_some() {
+                "pwsh"
+            } else {
+                "powershell"
+            };
+            vec![shell.into(), "-NoLogo".into(), "-Command".into(), command]
+        } else {
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+            // A login shell, so PATH matches the terminal's.
+            vec![shell, "-lc".into(), command]
+        };
+        let run = pide_runtime::process::run_streaming(argv, Some(self.root.clone()));
         let pide_runtime::process::Streaming {
             mut lines,
             done,
@@ -528,27 +497,6 @@ pub fn prompt(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[::core::prelude::v1::test]
-    fn finds_file_locations() {
-        let l = "  --> src/main.rs:10:5";
-        let (r, p, line, col) = find_location(l).unwrap();
-        assert_eq!(
-            (&l[r], p.as_str(), line, col),
-            ("src/main.rs:10:5", "src/main.rs", 10, 5)
-        );
-        assert_eq!(
-            find_location("error at (app.py:3)").map(|x| (x.1, x.2)),
-            Some(("app.py".into(), 3))
-        );
-        assert_eq!(
-            find_location("thread 'main' panicked at src/lib.rs:7:9:").map(|x| x.2),
-            Some(7)
-        );
-        assert!(find_location("see https://x.dev:443/a").is_none());
-        assert!(find_location("at 12:30:01 done").is_none());
-        assert!(find_location("plain text").is_none());
-    }
 
     #[::core::prelude::v1::test]
     fn strips_colors_and_progress_redraws() {

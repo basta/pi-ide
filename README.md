@@ -68,10 +68,14 @@ It's written in Rust on [GPUI](https://www.gpui.rs/), so it is a native app, not
 <img src="docs/images/git-log.png" alt="The Git Log tool window with branch graph and commit details under the editor" width="900">
 
 - **Language servers**: completion, go to definition, usages, rename, quick fixes, inline errors.
-  rust-analyzer, pyright and typescript-language-server out of the box, installed from inside pide.
+  rust-analyzer, pyright, typescript-language-server and clangd (C, C++, CUDA) out of the box, installed from inside pide.
+- **CMake**, the CLion way: profiles from your presets, targets from CMake itself, Build (Ctrl+F9) and Run (Shift+F10),
+  errors listed and linked, clangd following the profile you build. On Windows it sets up Visual Studio's compiler by itself.
 - **Git**: gutter marks, partial commits, a log with a branch graph, blame, push and pull, branches.
   **✦ Draft with pi** writes the commit message.
 - **LaTeX**: build on save, the PDF beside the source, SyncTeX both ways, errors in Problems.
+- **Terminal**: your shell in tabs, full-screen programs with colours and the mouse, ⌘-click a
+  `file:line` to open it, **Ask pi About This** on the output.
 - **PDF, Markdown and image previews**, find in files with replace, a run panel with clickable
   `file:line`.
 - JetBrains-style shortcuts, a keymap you can rebind by typing, light and dark themes.

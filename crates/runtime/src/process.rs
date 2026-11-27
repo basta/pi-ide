@@ -13,7 +13,10 @@ pub fn search_path() -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();
-    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+    if let Some(home) = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+    {
         for extra in [".cargo/bin", ".local/bin", ".npm-global/bin"] {
             dirs.push(home.join(extra));
         }
@@ -34,8 +37,87 @@ pub fn find_command(command: &str) -> Option<PathBuf> {
     }
     search_path()
         .into_iter()
-        .map(|d| d.join(command))
+        .flat_map(|d| candidates(&d, command))
         .find(|c| c.is_file())
+}
+
+/// On Windows a bare name is `name.exe`, `name.cmd` or `name.bat`; npm's extensionless
+/// `name` next to them is a shell script Windows can't start.
+fn candidates(dir: &Path, command: &str) -> Vec<PathBuf> {
+    if cfg!(windows) && Path::new(command).extension().is_none() {
+        ["exe", "cmd", "bat"]
+            .map(|ext| dir.join(command).with_extension(ext))
+            .to_vec()
+    } else {
+        vec![dir.join(command)]
+    }
+}
+
+/// A command for `program`. On Windows an npm `.cmd` shim runs as `node <script>`:
+/// batch files reject arguments with newlines (prompts given to `pi -p` have them), and
+/// killing the shim's `cmd.exe` would leave its node process running.
+pub fn command_for(program: &Path) -> std::process::Command {
+    match npm_shim_target(program) {
+        Some((node, script)) => {
+            let mut c = std::process::Command::new(node);
+            c.arg(script);
+            c
+        }
+        None => std::process::Command::new(program),
+    }
+}
+
+/// `(node, script)` that an npm cmd-shim runs: its last `"%dp0%\….js"`.
+fn npm_shim_target(program: &Path) -> Option<(PathBuf, PathBuf)> {
+    if !cfg!(windows)
+        || !program
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("cmd"))
+    {
+        return None;
+    }
+    let shim = std::fs::read_to_string(program).ok()?;
+    let script = shim
+        .split("\"%dp0%\\")
+        .skip(1)
+        .filter_map(|s| s.split('"').next())
+        .filter(|s| s.ends_with(".js") || s.ends_with(".cjs") || s.ends_with(".mjs"))
+        .last()?;
+    let dir = program.parent()?;
+    let node = Some(dir.join("node.exe"))
+        .filter(|p| p.is_file())
+        .or_else(|| find_command("node"))?;
+    Some((node, dir.join(script)))
+}
+
+/// Stop `pid` and everything it started.
+fn kill_tree(pid: u32) {
+    let _ = if cfg!(windows) {
+        std::process::Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .output()
+    } else {
+        // Its own process group (see `run_streaming`), so this reaches what a shell started.
+        std::process::Command::new("/bin/kill")
+            .args(["-TERM", "--", &format!("-{pid}")])
+            .output()
+    };
+}
+
+/// Each directory once, first place kept (case-insensitively on Windows,
+/// trailing separators ignored). `vcvars64.bat`'s PATH already contains the
+/// parent's, and cmd.exe ignores a PATH over 8191 characters altogether:
+/// nvcc, which runs `cl.exe` through cmd, would find nothing.
+pub fn dedup_dirs(dirs: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen = std::collections::HashSet::new();
+    dirs.into_iter()
+        .filter(|d| {
+            let s = d.to_string_lossy();
+            let s = s.trim_end_matches(['/', '\\']);
+            let key = if cfg!(windows) { s.to_lowercase() } else { s.to_string() };
+            !key.is_empty() && seen.insert(key)
+        })
+        .collect()
 }
 
 /// A running command: output lines (stdout and stderr interleaved) and the exit.
@@ -49,6 +131,17 @@ pub struct Streaming {
 
 /// Start `command` (program + args, no shell) on the runtime, in `cwd` if given.
 pub fn run_streaming(command: Vec<String>, cwd: Option<std::path::PathBuf>) -> Streaming {
+    run_streaming_with(command, cwd, Vec::new())
+}
+
+/// `run_streaming` with extra environment variables. A `PATH` among them goes
+/// in front of pide's search path, and the program is looked up there too
+/// (Visual Studio's developer environment brings cl, link and ninja).
+pub fn run_streaming_with(
+    command: Vec<String>,
+    cwd: Option<std::path::PathBuf>,
+    env: Vec<(String, String)>,
+) -> Streaming {
     let (line_tx, lines) = mpsc::unbounded_channel();
     let (done_tx, done) = oneshot::channel();
     let (stop, mut stop_rx) = oneshot::channel::<()>();
@@ -57,23 +150,37 @@ pub fn run_streaming(command: Vec<String>, cwd: Option<std::path::PathBuf>) -> S
             let _ = done_tx.send(Err("empty install command".into()));
             return;
         };
-        let program = find_command(program).unwrap_or_else(|| program.into());
-        let mut cmd = tokio::process::Command::new(&program);
+        let is_path = |k: &str| k.eq_ignore_ascii_case("PATH");
+        let mut dirs: Vec<PathBuf> = env
+            .iter()
+            .filter(|(k, _)| is_path(k))
+            .flat_map(|(_, v)| std::env::split_paths(v).collect::<Vec<_>>())
+            .collect();
+        dirs.extend(search_path());
+        let dirs = dedup_dirs(dirs);
+        let program = if Path::new(program).components().count() > 1 {
+            PathBuf::from(program)
+        } else {
+            dirs.iter()
+                .flat_map(|d| candidates(d, program))
+                .find(|c| c.is_file())
+                .unwrap_or_else(|| program.into())
+        };
+        let mut cmd = tokio::process::Command::from(command_for(&program));
+        cmd.envs(env.iter().filter(|(k, _)| !is_path(k)).map(|(k, v)| (k, v)));
         if let Some(cwd) = &cwd {
             cmd.current_dir(cwd);
         }
+        // Its own process group, so Stop reaches what a shell started too.
+        #[cfg(unix)]
+        cmd.process_group(0);
         let mut child = match cmd
             .args(args)
-            .env(
-                "PATH",
-                std::env::join_paths(search_path()).unwrap_or_default(),
-            )
+            .env("PATH", std::env::join_paths(&dirs).unwrap_or_default())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
-            // Its own process group, so Stop reaches what a shell started too.
-            .process_group(0)
             .spawn()
         {
             Ok(c) => c,
@@ -102,9 +209,7 @@ pub fn run_streaming(command: Vec<String>, cwd: Option<std::path::PathBuf>) -> S
                 if r.is_ok()
                     && let Some(pid) = child.id()
                 {
-                    let _ = std::process::Command::new("/bin/kill")
-                        .args(["-TERM", "--", &format!("-{pid}")])
-                        .status();
+                    kill_tree(pid);
                 }
                 child.wait().await
             }
@@ -119,6 +224,16 @@ pub fn run_streaming(command: Vec<String>, cwd: Option<std::path::PathBuf>) -> S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_entries_once() {
+        let d = |s: &str| PathBuf::from(s);
+        let got = dedup_dirs(vec![d("/a"), d("/b/"), d("/a/"), d(""), d("/b"), d("/c")]);
+        assert_eq!(got, [d("/a"), d("/b/"), d("/c")]);
+        if cfg!(windows) {
+            assert_eq!(dedup_dirs(vec![d(r"C:\X"), d(r"c:\x\")]).len(), 1);
+        }
+    }
 
     #[test]
     fn streams_output_and_reports_the_exit_code() {

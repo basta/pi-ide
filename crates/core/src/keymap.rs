@@ -83,6 +83,32 @@ pub fn apply(cx: &mut App) -> Vec<String> {
         }
     }
 
+    let over_terminal: std::collections::HashSet<&'static str> = CommandRegistry::all(cx)
+        .into_iter()
+        .filter(|s| s.over_terminal)
+        .map(|s| s.id)
+        .collect();
+    let to_shell = map
+        .iter()
+        .filter_map(|(key, cmd)| Some((key, cmd.as_deref()?)))
+        .filter(|(key, cmd)| {
+            !contexts.contains_key(cmd) && !over_terminal.contains(cmd) && goes_to_shell(key)
+        })
+        .filter_map(|(key, _)| {
+            KeyBinding::load(
+                key,
+                Box::new(NoAction),
+                Some(std::rc::Rc::new(
+                    gpui_kit::KeyBindingContextPredicate::parse(crate::commands::TERMINAL).ok()?,
+                )),
+                false,
+                None,
+                cx,
+            )
+            .ok()
+        })
+        .collect::<Vec<_>>();
+
     let base = cx
         .try_global::<BaseBindings>()
         .map(|b| b.0.clone())
@@ -90,6 +116,9 @@ pub fn apply(cx: &mut App) -> Vec<String> {
     cx.clear_key_bindings();
     cx.bind_keys(base);
     cx.bind_keys(ours);
+    // After `ours`: a global binding matches as deep as the terminal's context,
+    // and GPUI breaks that tie in favour of the later binding.
+    cx.bind_keys(to_shell);
 
     for e in &errors {
         log::error!("{e}");
@@ -99,6 +128,14 @@ pub fn apply(cx: &mut App) -> Vec<String> {
         map.values().flatten().count()
     );
     errors
+}
+
+/// Whether a terminal sends `keys` to its shell rather than to pide. ⌘ never
+/// reaches a shell on macOS; elsewhere every key does (Ctrl+R, Ctrl+E, F-keys).
+fn goes_to_shell(keys: &str) -> bool {
+    let first = keys.split(' ').next().unwrap_or(keys);
+    let has_cmd = first.split('-').any(|p| p == "cmd" || p == "secondary");
+    !(cfg!(target_os = "macos") && has_cmd)
 }
 
 /// The registry's default keys (`key -> command id`). Cheap, UI thread.

@@ -34,10 +34,16 @@ pub struct CommandSpec {
     /// Key on Linux/Windows when the plain `cmd`→`ctrl` translation of
     /// `default_key` would clash with a text-input or another default key.
     pub other_key: Option<&'static str>,
+    /// Its key keeps working while a terminal has focus. Every other key goes
+    /// to the shell there (Ctrl+E, Ctrl+K… are the shell's off macOS).
+    pub over_terminal: bool,
 }
 
 /// GPUI Kit's code editor (`Input mode=editor`).
 pub const EDITOR: &str = "Input && mode == editor";
+
+/// A terminal tab (`pide-terminal`).
+pub const TERMINAL: &str = "Terminal";
 
 impl CommandSpec {
     pub fn new(id: &'static str, title: impl Into<SharedString>) -> Self {
@@ -47,6 +53,7 @@ impl CommandSpec {
             default_key: None,
             key_context: None,
             other_key: None,
+            over_terminal: false,
         }
     }
 
@@ -71,6 +78,12 @@ impl CommandSpec {
         self.other_key
             .map(str::to_string)
             .or_else(|| self.default_key.map(crate::keymap::cmd_to_ctrl))
+    }
+
+    /// Keep the key for pide while a terminal has focus (see [`Self::over_terminal`]).
+    pub fn over_terminal(mut self) -> Self {
+        self.over_terminal = true;
+        self
     }
 
     /// Only bind the key inside this context (see [`EDITOR`]).

@@ -63,6 +63,8 @@ pub struct ToolWindowHost {
     pub toggle: Rc<dyn Fn(&'static str, &mut Window, &mut App)>,
     /// Take it out of the window's dock, if it's there.
     pub close: Rc<dyn Fn(&str, &mut Window, &mut App)>,
+    /// Show it (never hide); `focus`: also move the focus there.
+    pub show: Rc<dyn Fn(&'static str, bool, &mut Window, &mut App)>,
 }
 impl Global for ToolWindowHost {}
 
@@ -71,6 +73,12 @@ pub fn register(cx: &mut App, spec: ToolWindowSpec) {
     let mut command = CommandSpec::new(spec.command, format!("View: {}", spec.title));
     if let Some(key) = spec.key {
         command = command.key(key);
+        // Digit and F-key toggles keep working in a terminal; a letter one
+        // (Commit's Cmd+K, Ctrl+K off macOS) is the shell's there.
+        let last = key.rsplit('-').next().unwrap_or(key);
+        if !(last.len() == 1 && last.chars().all(|c| c.is_ascii_alphabetic())) {
+            command = command.over_terminal();
+        }
     }
     let id = spec.id;
     CommandRegistry::register(cx, command, move |window, cx| toggle(id, window, cx));
@@ -105,6 +113,15 @@ pub fn get(id: &str, cx: &App) -> Option<ToolWindowSpec> {
 pub fn toggle(id: &'static str, window: &mut Window, cx: &mut App) {
     if let Some(t) = cx.try_global::<ToolWindowHost>().map(|h| h.toggle.clone()) {
         t(id, window, cx);
+    }
+}
+
+/// Show tool window `id` (creating it the first time) without hiding it when
+/// it's already showing: a build shows its output, the focus stays in the
+/// editor unless `focus`.
+pub fn show(id: &'static str, focus: bool, window: &mut Window, cx: &mut App) {
+    if let Some(s) = cx.try_global::<ToolWindowHost>().map(|h| h.show.clone()) {
+        s(id, focus, window, cx);
     }
 }
 

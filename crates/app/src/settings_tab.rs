@@ -37,7 +37,9 @@ pub fn init(cx: &mut App) {
     });
     CommandRegistry::register(
         cx,
-        CommandSpec::new("settings.pide", "Settings…").key("cmd-,"),
+        CommandSpec::new("settings.pide", "Settings…")
+            .key("cmd-,")
+            .over_terminal(),
         |window, cx| open(None, window, cx),
     );
     CommandRegistry::register(cx, CommandSpec::new("pi.settings", "Settings: pi…"), |window, cx| {

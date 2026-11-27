@@ -82,6 +82,8 @@ pub struct Openers {
     pub panel: Rc<CenterPanelFn>,
     /// See [`PdfRequest`]. Keeps the focus where it is.
     pub pdf: Rc<dyn Fn(PdfRequest, &mut Window, &mut App)>,
+    /// Open a terminal tab in a folder.
+    pub terminal: Rc<dyn Fn(PathBuf, &mut Window, &mut App)>,
 }
 
 pub type CenterPanelFn = dyn Fn(
@@ -108,6 +110,13 @@ pub fn open_panel(
 ) {
     if let Some(o) = cx.try_global::<Openers>().map(|o| o.panel.clone()) {
         o(view, id, window, cx);
+    }
+}
+
+/// See [`Openers::terminal`].
+pub fn open_terminal(dir: PathBuf, window: &mut Window, cx: &mut App) {
+    if let Some(o) = cx.try_global::<Openers>().map(|o| o.terminal.clone()) {
+        o(dir, window, cx);
     }
 }
 

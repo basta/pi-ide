@@ -106,7 +106,7 @@ pub fn draft_prompt(diff: &str, recent_subjects: &[String]) -> String {
 /// Ask pi once (`pi -p`, no session, no tools) and return its answer.
 pub fn ask_pi(cwd: &Path, prompt: &str) -> anyhow::Result<String> {
     let pi = pide_runtime::process::find_command("pi").context("pi isn't installed")?;
-    let out = std::process::Command::new(pi)
+    let out = pide_runtime::process::command_for(&pi)
         .args(["-p", "--no-session", "--no-tools", "--thinking", "low"])
         .arg(prompt)
         .current_dir(cwd)

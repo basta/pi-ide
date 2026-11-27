@@ -64,7 +64,10 @@ const FILE_TOOLS: &[&str] = &["edit", "write"];
 /// (so it matches the workspace's paths, e.g. /tmp vs /private/tmp).
 fn resolve(cwd: &Path, rel: &str) -> PathBuf {
     let path = cwd.join(rel);
-    match path.parent().and_then(|p| std::fs::canonicalize(p).ok()) {
+    match path
+        .parent()
+        .and_then(|p| pide_core::paths::canonicalize(p).ok())
+    {
         Some(dir) => dir.join(path.file_name().unwrap_or_default()),
         None => path,
     }

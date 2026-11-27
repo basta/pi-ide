@@ -347,7 +347,8 @@ impl Render for FileTree {
                     .strip_prefix(root.as_path())
                     .map(|r| r.display().to_string())
                     .unwrap_or_else(|_| path.display().to_string());
-                let (d1, d2, p1, p2, p3) = (dir.clone(), dir, path.clone(), path.clone(), path);
+                let (d1, d2, d3) = (dir.clone(), dir.clone(), dir);
+                let (p1, p2, p3) = (path.clone(), path.clone(), path);
                 menu.item(
                     PopupMenuItem::new("New File…").on_click(move |_, window, cx| {
                         ops::new_entry(d1.clone(), false, window, cx)
@@ -379,6 +380,9 @@ impl Render for FileTree {
                     })
                     .on_click(move |_, _, _| ops::reveal(&p3)),
                 )
+                .item(PopupMenuItem::new("Open in Terminal").on_click(move |_, window, cx| {
+                    pide_core::opener::open_terminal(d3.clone(), window, cx)
+                }))
             })
             .size_full()
             .text_sm()
