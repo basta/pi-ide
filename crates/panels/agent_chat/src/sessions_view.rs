@@ -33,7 +33,9 @@ impl AgentChat {
         cx.spawn_in(window, async move |_, cx| {
             for _ in 0..30 {
                 let started = cx
-                    .update(|window, cx| pide_core::collab::start_tour(&agent, &call_id, window, cx))
+                    .update(|window, cx| {
+                        pide_core::collab::start_tour(&agent, &call_id, window, cx)
+                    })
                     .unwrap_or(true);
                 if started {
                     return;
@@ -228,14 +230,19 @@ impl AgentChat {
                             .whitespace_nowrap()
                             .child(a.name.clone()),
                     )
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(format!(
-                        "{unseen} to step through{}",
-                        match files {
-                            0 => String::new(),
-                            1 => " · 1 file".to_string(),
-                            n => format!(" · {n} files"),
-                        }
-                    )))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(format!(
+                                "{unseen} to step through{}",
+                                match files {
+                                    0 => String::new(),
+                                    1 => " · 1 file".to_string(),
+                                    n => format!(" · {n} files"),
+                                }
+                            )),
+                    )
                     .into_any_element()
             })
             .collect();
@@ -362,11 +369,19 @@ impl AgentChat {
                 .saved
                 .iter()
                 .find(|s| &s.path == file)
-                .map(|s| s.name.clone().unwrap_or_else(|| s.preview.chars().take(40).collect()))
+                .map(|s| {
+                    s.name
+                        .clone()
+                        .unwrap_or_else(|| s.preview.chars().take(40).collect())
+                })
                 .unwrap_or_default()
                 .into();
             for t in tours {
-                tour_rows.push((name.clone(), t.clone(), TourSource::Saved(file.clone(), name.clone())));
+                tour_rows.push((
+                    name.clone(),
+                    t.clone(),
+                    TourSource::Saved(file.clone(), name.clone()),
+                ));
             }
         }
         let tours: Vec<AnyElement> = tour_rows
@@ -386,12 +401,23 @@ impl AgentChat {
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.open_tour(source.clone(), call.clone(), window, cx)
                     }))
-                    .child(div().flex_none().text_color(pide_core::colors::pi_note(cx)).child("◇"))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_color(pide_core::colors::pi_note(cx))
+                            .child("◇"),
+                    )
                     .child(
                         v_flex()
                             .flex_1()
                             .min_w_0()
-                            .child(div().overflow_hidden().text_ellipsis().whitespace_nowrap().child(t.title.clone()))
+                            .child(
+                                div()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .whitespace_nowrap()
+                                    .child(t.title.clone()),
+                            )
                             .child(
                                 div()
                                     .text_xs()
@@ -402,10 +428,13 @@ impl AgentChat {
                                     .child(session),
                             ),
                     )
-                    .child(div().flex_none().text_xs().text_color(theme.muted_foreground).child(format!(
-                        "{}/{} seen",
-                        t.seen, t.stops
-                    )))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(format!("{}/{} seen", t.seen, t.stops)),
+                    )
                     .into_any_element()
             })
             .collect();
@@ -429,7 +458,9 @@ impl AgentChat {
             })
             .when(!open.is_empty(), |this| this.child(heading("OPEN")))
             .children(open)
-            .when(!tours.is_empty(), |this| this.child(heading("TOURS")).children(tours))
+            .when(!tours.is_empty(), |this| {
+                this.child(heading("TOURS")).children(tours)
+            })
             .child(heading("SAVED IN THIS PROJECT"))
             .when(saved.is_empty(), |this| {
                 this.child(

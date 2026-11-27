@@ -1023,7 +1023,10 @@ mod tests {
     #[::core::prelude::v1::test]
     fn a_progress_title_drops_old_percentages() {
         assert_eq!(super::progress_title("Indexing 0% 57%"), "Indexing");
-        assert_eq!(super::progress_title("Indexing · 4/21 (core) 19%"), "Indexing");
+        assert_eq!(
+            super::progress_title("Indexing · 4/21 (core) 19%"),
+            "Indexing"
+        );
         assert_eq!(super::progress_title("Fetching"), "Fetching");
         assert_eq!(super::progress_title("Build 2 of 3"), "Build 2 of 3");
     }

@@ -525,7 +525,12 @@ mod tests {
         assert_eq!(cur, None);
         assert_eq!(stops(&changes, &pins).len(), 1);
         assert!(!changes[0].reviewed);
-        dismiss(&mut changes, &mut pins, &mut cur, &StopRef::Hunk { file: 0, note: 1 });
+        dismiss(
+            &mut changes,
+            &mut pins,
+            &mut cur,
+            &StopRef::Hunk { file: 0, note: 1 },
+        );
         assert!(changes[0].reviewed);
     }
 
@@ -534,7 +539,12 @@ mod tests {
         let mut changes = vec![change("/a")];
         changes[0].notes = vec![note(1, "x")];
         let mut cur = None;
-        visit(&mut changes, &mut [], &mut cur, &StopRef::Hunk { file: 0, note: 0 });
+        visit(
+            &mut changes,
+            &mut [],
+            &mut cur,
+            &StopRef::Hunk { file: 0, note: 0 },
+        );
         assert!(changes[0].reviewed);
         touched_again(&mut changes[0]);
         assert!(!changes[0].reviewed);
@@ -547,7 +557,15 @@ mod tests {
         changes[0].notes = vec![note(1, "x"), note(2, "y")];
         let mut pins = vec![];
         let mut cur = Some(StopRef::Hunk { file: 0, note: 1 });
-        explain(&mut changes, &mut pins, &mut cur, Path::new("/a"), "why", &[note(4, "z")], 1);
+        explain(
+            &mut changes,
+            &mut pins,
+            &mut cur,
+            Path::new("/a"),
+            "why",
+            &[note(4, "z")],
+            1,
+        );
         assert_eq!(cur, None);
         assert_eq!(changes[0].summary.as_deref(), Some("why"));
         assert_eq!(at(&stops(&changes, &pins)), [("/a".to_string(), 4)]);
@@ -557,7 +575,15 @@ mod tests {
     fn explaining_an_untracked_file_replaces_its_pins() {
         let mut pins = vec![];
         let mut cur = None;
-        explain(&mut [], &mut pins, &mut cur, Path::new("/u"), "s", &[note(3, "n")], 1);
+        explain(
+            &mut [],
+            &mut pins,
+            &mut cur,
+            Path::new("/u"),
+            "s",
+            &[note(3, "n")],
+            1,
+        );
         explain(&mut [], &mut pins, &mut cur, Path::new("/u"), "s2", &[], 2);
         let s = stops(&[], &pins);
         assert_eq!(s.len(), 1);
@@ -587,8 +613,14 @@ mod tests {
         let mut current = None;
         visit(&mut [], &mut pins, &mut current, &StopRef::Pin(0));
         assert!(pins[0].seen);
-        assert!(!stops(&[], &pins)[0].seen, "seen, but the question is still open");
-        pins[0].thread.push(Reply { pi: false, text: "yes".into() });
+        assert!(
+            !stops(&[], &pins)[0].seen,
+            "seen, but the question is still open"
+        );
+        pins[0].thread.push(Reply {
+            pi: false,
+            text: "yes".into(),
+        });
         assert!(stops(&[], &pins)[0].seen);
         let mut pins = vec![pin("p1", "/a.rs", 3)];
         dismiss(&mut [], &mut pins, &mut current, &StopRef::Pin(0));
@@ -676,21 +708,49 @@ mod tests {
         let mut changes = vec![a];
         let mut pins = vec![pin("p", "/a", 5)];
         let at = StopRef::Hunk { file: 0, note: 0 };
-        thread_mut(&mut changes, &mut pins, &at).unwrap().push(Reply {
-            pi: false,
-            text: "why?".into(),
-        });
+        thread_mut(&mut changes, &mut pins, &at)
+            .unwrap()
+            .push(Reply {
+                pi: false,
+                text: "why?".into(),
+            });
         // pi re-explains while answering: new order, same line text.
         let mut cur = None;
-        explain(&mut changes, &mut pins, &mut cur, Path::new("/a"), "s", &[note(1, "new"), note(3, "keep")], 1);
-        assert_eq!(changes[0].notes[1].thread.len(), 1, "the thread moved with its line");
+        explain(
+            &mut changes,
+            &mut pins,
+            &mut cur,
+            Path::new("/a"),
+            "s",
+            &[note(1, "new"), note(3, "keep")],
+            1,
+        );
+        assert_eq!(
+            changes[0].notes[1].thread.len(),
+            1,
+            "the thread moved with its line"
+        );
         let target = resolve_reply_target(&changes, &at, Some("keep"));
         assert_eq!(target, Some(StopRef::Hunk { file: 0, note: 1 }));
         assert_eq!(resolve_reply_target(&changes, &at, Some("nowhere")), None);
-        assert_eq!(resolve_reply_target(&changes, &StopRef::Pin(0), None), Some(StopRef::Pin(0)));
-        thread_mut(&mut changes, &mut pins, &StopRef::Pin(0)).unwrap().push(Reply { pi: true, text: "a".into() });
+        assert_eq!(
+            resolve_reply_target(&changes, &StopRef::Pin(0), None),
+            Some(StopRef::Pin(0))
+        );
+        thread_mut(&mut changes, &mut pins, &StopRef::Pin(0))
+            .unwrap()
+            .push(Reply {
+                pi: true,
+                text: "a".into(),
+            });
         let s = stops(&changes, &pins);
-        assert_eq!(s.iter().find(|s| s.at == StopRef::Pin(0)).unwrap().thread.len(), 1);
+        assert_eq!(
+            s.iter()
+                .find(|s| s.at == StopRef::Pin(0))
+                .unwrap()
+                .thread
+                .len(),
+            1
+        );
     }
-
 }

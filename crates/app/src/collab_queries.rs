@@ -30,7 +30,6 @@ struct Check {
     missing: bool,
 }
 
-
 type Checking = std::rc::Rc<std::cell::RefCell<std::collections::HashMap<PathBuf, Check>>>;
 
 /// After a file's text changes, its old diagnostics may still be the server's
@@ -184,7 +183,11 @@ fn diagnostics(
         _ => 2,
     };
     items.sort_by(|a, b| {
-        (rank(a), a["path"].as_str(), a["line"].as_u64()).cmp(&(rank(b), b["path"].as_str(), b["line"].as_u64()))
+        (rank(a), a["path"].as_str(), a["line"].as_u64()).cmp(&(
+            rank(b),
+            b["path"].as_str(),
+            b["line"].as_u64(),
+        ))
     });
     if items.len() > MAX_ITEMS {
         notes.push(format!("{} more not shown.", items.len() - MAX_ITEMS));
@@ -229,5 +232,8 @@ fn diagnostics(
 }
 
 fn rel(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root).unwrap_or(path).display().to_string()
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
 }

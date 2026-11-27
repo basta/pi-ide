@@ -27,7 +27,10 @@ pub fn init(cx: &mut App) {
             dock: pide_core::DockPosition::Bottom,
             command: "view.problems",
             key: Some("cmd-6"),
-            create: |window, cx| panel_handle(cx.new(|cx| Problems::new(window, cx))),
+            create: std::rc::Rc::new(|window, cx| {
+                panel_handle(cx.new(|cx| Problems::new(window, cx)))
+            }),
+            remove: pide_core::toolwindow::remover::<Problems>(),
         },
     );
 }
@@ -92,9 +95,12 @@ impl Problems {
         Self {
             _subs: vec![cx.observe(&store, |this, store, cx| {
                 if store.read(cx).diagnostics().len() == this.shown.len()
-                    && store.read(cx).diagnostics().iter().zip(this.shown.iter()).all(|(a, b)| {
-                        a.0 == b.0 && a.1.items == b.1.items
-                    })
+                    && store
+                        .read(cx)
+                        .diagnostics()
+                        .iter()
+                        .zip(this.shown.iter())
+                        .all(|(a, b)| a.0 == b.0 && a.1.items == b.1.items)
                 {
                     cx.notify(); // server status only
                     return;

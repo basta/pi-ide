@@ -54,7 +54,10 @@ pub fn init(cx: &mut App) {
             dock: DockPosition::Left,
             command: "git.changes",
             key: Some("cmd-k"),
-            create: |window, cx| panel_handle(cx.new(|cx| GitPanel::new(window, cx))),
+            create: std::rc::Rc::new(|window, cx| {
+                panel_handle(cx.new(|cx| GitPanel::new(window, cx)))
+            }),
+            remove: pide_core::toolwindow::remover::<GitPanel>(),
         },
     );
 }
@@ -212,8 +215,9 @@ impl GitPanel {
             pi_revs: Vec::new(),
             sessions: sessions.clone(),
         };
-        this._subs
-            .push(cx.observe(&sessions, |this, sessions, cx| this.refresh_pi_unseen(&sessions, cx)));
+        this._subs.push(cx.observe(&sessions, |this, sessions, cx| {
+            this.refresh_pi_unseen(&sessions, cx)
+        }));
         this.refresh_pi_unseen(&sessions, cx);
         this.refresh(cx);
         this
@@ -221,7 +225,11 @@ impl GitPanel {
 
     /// Recount unseen pi notes per file, only when some session's notes changed
     /// (sessions notify on every streamed token).
-    fn refresh_pi_unseen(&mut self, sessions: &Entity<pide_core::Sessions>, cx: &mut Context<Self>) {
+    fn refresh_pi_unseen(
+        &mut self,
+        sessions: &Entity<pide_core::Sessions>,
+        cx: &mut Context<Self>,
+    ) {
         let agents: Vec<Entity<pide_core::Agent>> = sessions.read(cx).all().to_vec();
         let revs: Vec<(EntityId, u64)> = agents
             .iter()
@@ -239,7 +247,10 @@ impl GitPanel {
                 let Ok(rel) = stop.path.strip_prefix(&self.root) else {
                     continue;
                 };
-                let per = self.pi_unseen.entry(rel.to_string_lossy().to_string()).or_default();
+                let per = self
+                    .pi_unseen
+                    .entry(rel.to_string_lossy().to_string())
+                    .or_default();
                 match per.iter_mut().find(|(g, _)| *g == agent) {
                     Some((_, n)) => *n += 1,
                     None => per.push((agent.clone(), 1)),
@@ -321,11 +332,14 @@ impl GitPanel {
     }
 
     fn include_of(&self, e: &Entry) -> Include {
-        self.include.get(&e.rel).cloned().unwrap_or(if e.kind == Kind::Untracked {
-            Include::Nothing
-        } else {
-            Include::All
-        })
+        self.include
+            .get(&e.rel)
+            .cloned()
+            .unwrap_or(if e.kind == Kind::Untracked {
+                Include::Nothing
+            } else {
+                Include::All
+            })
     }
 
     fn set_include(&mut self, rel: &str, inc: Include, cx: &mut Context<Self>) {
@@ -399,9 +413,7 @@ impl GitPanel {
                 Include::All => full.push(e.rel.clone()),
                 Include::Nothing => {}
                 Include::Changes(v) => match self.hunks.get(&e.rel) {
-                    Some(Some(h)) => {
-                        partial.push((e.rel.clone(), commit::partial_content(h, &v)))
-                    }
+                    Some(Some(h)) => partial.push((e.rel.clone(), commit::partial_content(h, &v))),
                     _ => full.push(e.rel.clone()),
                 },
             }
@@ -463,7 +475,9 @@ impl GitPanel {
                 entries.len(),
                 if entries.len() == 1 { "" } else { "s" }
             ),
-            Some(&format!("Their uncommitted changes are thrown away:\n{detail}")),
+            Some(&format!(
+                "Their uncommitted changes are thrown away:\n{detail}"
+            )),
             &["Roll Back", "Cancel"],
             cx,
         );
@@ -608,10 +622,8 @@ impl GitPanel {
                     Ok(text) => this
                         .message
                         .update(cx, |m, cx| m.set_value(text, window, cx)),
-                    Err(e) => window.push_notification(
-                        Notification::error(format!("No draft: {e:#}")),
-                        cx,
-                    ),
+                    Err(e) => window
+                        .push_notification(Notification::error(format!("No draft: {e:#}")), cx),
                 }
                 cx.notify();
             });
@@ -663,7 +675,9 @@ impl GitPanel {
             .cursor_pointer()
             .when(on, |d| {
                 let accent = pide_core::colors::accent(cx);
-                d.bg(accent).border_color(accent).text_color(theme.background)
+                d.bg(accent)
+                    .border_color(accent)
+                    .text_color(theme.background)
             })
             .when(!on, |d| d.border_color(theme.input))
             .child(match tri {
@@ -738,9 +752,9 @@ impl GitPanel {
                             .text_ellipsis()
                             .child(dir),
                     )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.show_diff(&rel, window, cx)
-                    }))
+                    .on_click(
+                        cx.listener(move |this, _, window, cx| this.show_diff(&rel, window, cx)),
+                    )
             })
             // pi left notes here you haven't stepped through: click to walk them.
             .when_some(self.pi_unseen.get(&e.rel).cloned(), |row, per| {
@@ -845,9 +859,11 @@ impl GitPanel {
                                                 },
                                                 cx,
                                             )
-                                            .on_click(cx.listener(move |this, _, _, cx| {
-                                                this.toggle_hunk(&entry, i, cx)
-                                            })),
+                                            .on_click(
+                                                cx.listener(move |this, _, _, cx| {
+                                                    this.toggle_hunk(&entry, i, cx)
+                                                }),
+                                            ),
                                         )
                                         .child(head),
                                 )
@@ -904,11 +920,15 @@ impl GitPanel {
                     .text_sm()
                     .child(
                         self.checkbox(format!("g-{title}").into(), tri, cx)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.toggle_group(&list, cx)
-                            })),
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.toggle_group(&list, cx)),
+                            ),
                     )
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child(title.to_string()))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(title.to_string()),
+                    )
                     .child(
                         div()
                             .text_xs()
@@ -1007,9 +1027,9 @@ impl Render for GitPanel {
                         .icon(gpui_kit::component::IconName::Undo2)
                         .tooltip("Roll back the checked files to HEAD…")
                         .disabled(!any_tracked_checked || self.busy)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.rollback_checked(window, cx)
-                        })),
+                        .on_click(
+                            cx.listener(|this, _, window, cx| this.rollback_checked(window, cx)),
+                        ),
                 )
                 .child(div().flex_1())
                 .when(self.busy, |this| {
@@ -1090,7 +1110,9 @@ impl Render for GitPanel {
                                 })
                                 .disabled(self.drafting || checked == 0)
                                 .tooltip("pi writes a message for the checked changes")
-                                .on_click(cx.listener(|this, _, window, cx| this.draft(window, cx))),
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.draft(window, cx)),
+                                ),
                         ),
                 )
                 .child(Textarea::new(&self.message))
@@ -1132,14 +1154,17 @@ impl Render for GitPanel {
                                         .small()
                                         .label(if self.amend { "Amend Commit" } else { "Commit" })
                                         .disabled(!can_commit)
-                                        .tooltip(if full.is_empty() && partial.is_empty() && !self.amend {
-                                            "Check files to commit".to_string()
-                                        } else {
-                                            format!(
-                                                "Commit the checked changes ({})",
-                                                pide_core::keymap::label("secondary-enter")
-                                            )
-                                        })
+                                        .tooltip(
+                                            if full.is_empty() && partial.is_empty() && !self.amend
+                                            {
+                                                "Check files to commit".to_string()
+                                            } else {
+                                                format!(
+                                                    "Commit the checked changes ({})",
+                                                    pide_core::keymap::label("secondary-enter")
+                                                )
+                                            },
+                                        )
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             this.commit(false, window, cx)
                                         })),

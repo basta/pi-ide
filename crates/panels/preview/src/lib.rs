@@ -77,7 +77,9 @@ impl MarkdownPreview {
 
     fn attach(&mut self, buffer: Entity<Buffer>, cx: &mut Context<Self>) {
         let text = buffer.read(cx).text().to_string();
-        self.view.update(cx, |v, cx| v.set_text(&pide_core::math::normalize_delimiters(&text), cx));
+        self.view.update(cx, |v, cx| {
+            v.set_text(&pide_core::math::normalize_delimiters(&text), cx)
+        });
         self._subs
             .push(cx.observe(&buffer, |this, buffer, cx| this.schedule(buffer, cx)));
         cx.emit(PanelEvent::LayoutChanged);
@@ -92,7 +94,9 @@ impl MarkdownPreview {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 let text = buffer.read(cx).text().to_string();
-                this.view.update(cx, |v, cx| v.set_text(&pide_core::math::normalize_delimiters(&text), cx));
+                this.view.update(cx, |v, cx| {
+                    v.set_text(&pide_core::math::normalize_delimiters(&text), cx)
+                });
                 cx.notify();
             });
         }));

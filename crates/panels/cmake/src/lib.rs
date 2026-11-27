@@ -59,7 +59,8 @@ pub fn init(cx: &mut App) {
             dock: DockPosition::Bottom,
             command: "view.cmake",
             key: None,
-            create: |window, cx| panel_handle(cx.new(|cx| CMakePanel::new(window, cx))),
+            create: std::rc::Rc::new(|window, cx| panel_handle(cx.new(|cx| CMakePanel::new(window, cx)))),
+            remove: pide_core::toolwindow::remover::<CMakePanel>(),
         },
     );
     let commands: [(CommandSpec, fn(&mut CMakePanel, &mut Context<CMakePanel>)); 7] = [

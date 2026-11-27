@@ -1,24 +1,34 @@
-//! Language Servers tab (spec M3): every server pide knows, whether it's
+//! Language Servers page of the Settings tab (spec M3): every server pide knows, whether it's
 //! installed, its state in this project, the install command with an Install
 //! button (output streams in), and Restart.
 
 use std::collections::HashMap;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::dock::{PanelEvent, PanelState, panel_handle, register_panel};
 use gpui_kit::component::{ActiveTheme, Disableable as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use pide_core::{DockPosition, Panel, Services};
+use pide_core::Services;
 use pide_lsp::registry::{self, Installed, ServerSpec};
 use pide_lsp::{LspStore, ServerState};
 
-pub const PANEL_NAME: &str = "language_servers";
-
 pub fn init(cx: &mut App) {
-    register_panel(cx, PANEL_NAME, |_, window, cx| {
-        panel_handle(cx.new(|cx| LanguageServers::new(window, cx)))
-    });
+    pide_core::settings_page::register(
+        cx,
+        pide_core::settings_page::SettingsPage {
+            id: "lsp",
+            group: Some("Languages"),
+            title: "Language Servers",
+            keywords: &[
+                "LSP", "Install", "rust-analyzer", "Codebook", "Spelling", "texlab", "tinymist",
+            ],
+            scoped: false,
+            order: 50,
+            create: std::rc::Rc::new(|window, cx| {
+                cx.new(|cx| LanguageServers::new(window, cx)).into()
+            }),
+        },
+    );
 }
 
 enum InstallRun {
@@ -51,12 +61,9 @@ pub struct LanguageServers {
     /// Fresh `--version` checks, for servers this project hasn't started.
     detected: HashMap<&'static str, Installed>,
     installs: HashMap<&'static str, InstallRun>,
-    focus: FocusHandle,
     _subs: Vec<Subscription>,
     _tasks: Vec<Task<()>>,
 }
-
-impl EventEmitter<PanelEvent> for LanguageServers {}
 
 impl LanguageServers {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -71,7 +78,6 @@ impl LanguageServers {
             store,
             detected: HashMap::new(),
             installs: HashMap::new(),
-            focus: cx.focus_handle(),
             _tasks: Vec::new(),
         };
         this.detect_all(cx);
@@ -164,7 +170,9 @@ impl LanguageServers {
                     spec.extensions[0]
                 ),
             ),
-            (_, Some(Installed::No { .. })) => (theme.muted_foreground, "not installed".to_string()),
+            (_, Some(Installed::No { .. })) => {
+                (theme.muted_foreground, "not installed".to_string())
+            }
             (_, None) => (theme.muted_foreground, "checking…".to_string()),
         };
         let detail = match &installed {
@@ -304,52 +312,16 @@ impl LanguageServers {
     }
 }
 
-impl Focusable for LanguageServers {
-    fn focus_handle(&self, _: &App) -> FocusHandle {
-        self.focus.clone()
-    }
-}
-
-impl gpui_kit::component::dock::BasePanel for LanguageServers {
-    fn panel_name(&self) -> &'static str {
-        PANEL_NAME
-    }
-    fn dump(&self, _: &App) -> PanelState {
-        PanelState::new(PANEL_NAME)
-    }
-}
-
-impl gpui_kit::component::dock::Panel for LanguageServers {
-    fn title(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.title_text(cx)
-    }
-}
-
-impl Panel for LanguageServers {
-    fn title_text(&self, _: &App) -> SharedString {
-        "Language Servers".into()
-    }
-    fn default_dock(&self) -> DockPosition {
-        DockPosition::Center
-    }
-}
-
 impl Render for LanguageServers {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let specs = self.store.read(cx).specs().to_vec();
         let settings = pide_core::settings::settings_file();
         v_flex()
-            .id("language-servers")
-            .size_full()
-            .overflow_y_scroll()
-            .track_focus(&self.focus)
-            .p_4()
             .gap_3()
             .child(
                 h_flex()
-                    .justify_between()
-                    .child(div().text_base().font_weight(FontWeight::SEMIBOLD).child("Language Servers"))
+                    .justify_end()
                     .child(
                         h_flex()
                             .gap_2()

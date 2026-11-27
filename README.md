@@ -60,7 +60,7 @@ It's written in Rust on [GPUI](https://www.gpui.rs/), so it is a native app, not
 - Steer pi while it works, or queue a follow-up.
 - pi can read the errors your language servers report and fix them before it says it's done.
 - **Ask pi** buttons on problems, run output, commits and blame lines.
-- Settings → pi… manages pi's packages, tools, skills, MCP servers and models without touching its
+- One Settings tab (Cmd+,), searchable, with Everyone / This project where it matters. Its pi pages manage pi's packages, tools, skills, MCP servers and models without touching its
   config files.
 
 ## And a proper IDE

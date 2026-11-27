@@ -34,7 +34,10 @@ pub fn init(cx: &mut App) {
             dock: pide_core::DockPosition::Bottom,
             command: "view.run",
             key: Some("cmd-4"),
-            create: |window, cx| panel_handle(cx.new(|cx| RunPanel::new(window, cx))),
+            create: std::rc::Rc::new(|window, cx| {
+                panel_handle(cx.new(|cx| RunPanel::new(window, cx)))
+            }),
+            remove: pide_core::toolwindow::remover::<RunPanel>(),
         },
     );
 }
@@ -314,7 +317,10 @@ impl Render for RunPanel {
                             .child(if has_command {
                                 format!("$ {}", self.command)
                             } else {
-                                format!("Run: Run Command… ({}) runs a shell command here.", pide_core::keymap::label("ctrl-alt-r"))
+                                format!(
+                                    "Run: Run Command… ({}) runs a shell command here.",
+                                    pide_core::keymap::label("ctrl-alt-r")
+                                )
                             }),
                     )
                     .when_some(self.status.clone(), |this, s| {
@@ -322,7 +328,11 @@ impl Render for RunPanel {
                         let failed = s.starts_with('✗') || s.starts_with("couldn't");
                         this.child(
                             div()
-                                .text_color(if failed { theme.danger } else { theme.muted_foreground })
+                                .text_color(if failed {
+                                    theme.danger
+                                } else {
+                                    theme.muted_foreground
+                                })
                                 .child(s),
                         )
                     })

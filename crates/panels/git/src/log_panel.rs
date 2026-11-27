@@ -39,7 +39,10 @@ pub fn init(cx: &mut App) {
             dock: DockPosition::Bottom,
             command: "git.log",
             key: Some("cmd-9"),
-            create: |window, cx| panel_handle(cx.new(|cx| GitLogPanel::new(window, cx))),
+            create: std::rc::Rc::new(|window, cx| {
+                panel_handle(cx.new(|cx| GitLogPanel::new(window, cx)))
+            }),
+            remove: pide_core::toolwindow::remover::<GitLogPanel>(),
         },
     );
 }
@@ -349,7 +352,9 @@ impl GitLogPanel {
 
     /// Up / down move the selection through the visible commits.
     fn step(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let Some(loaded) = self.loaded.clone() else { return };
+        let Some(loaded) = self.loaded.clone() else {
+            return;
+        };
         let pos = self
             .selected
             .and_then(|id| {
@@ -456,7 +461,12 @@ impl GitLogPanel {
                         .text_ellipsis()
                         .child(label),
                 )
-                .child(div().text_xs().text_color(theme.muted_foreground).child(hint))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(hint),
+                )
                 .on_click(cx.listener(move |this, _, _, cx| this.set_only(full.clone(), cx)))
         };
         let heading = |text: &str| {
@@ -501,7 +511,11 @@ impl GitLogPanel {
                 col = col.child(item(
                     SharedString::from(format!("log-{prefix}-{}", br.full)),
                     label,
-                    if current { "HEAD".into() } else { String::new() },
+                    if current {
+                        "HEAD".into()
+                    } else {
+                        String::new()
+                    },
                     Some(br.full.clone()),
                     on,
                     cx,
@@ -552,11 +566,18 @@ impl GitLogPanel {
                             "{} FILE{} CHANGED{}",
                             files.len(),
                             if files.len() == 1 { "" } else { "S" },
-                            if c.parents.len() > 1 { " (vs first parent)" } else { "" }
+                            if c.parents.len() > 1 {
+                                " (vs first parent)"
+                            } else {
+                                ""
+                            }
                         )),
                 )
                 .children(files.iter().enumerate().map(|(i, f)| {
-                    let color = pide_core::colors::change(pide_core::colors::Change::from_letter(f.kind), cx);
+                    let color = pide_core::colors::change(
+                        pide_core::colors::Change::from_letter(f.kind),
+                        cx,
+                    );
                     let (dir, name) = match f.path.rsplit_once('/') {
                         Some((d, n)) => (d.to_string(), n.to_string()),
                         None => (String::new(), f.path.clone()),
@@ -653,9 +674,9 @@ impl GitLogPanel {
                                     .small()
                                     .label("Ask pi: explain")
                                     .tooltip("Draft a question about this commit in the pi box")
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.explain(window, cx)
-                                    })),
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| this.explain(window, cx)),
+                                    ),
                             )
                             .child(
                                 Button::new("log-copy")
@@ -705,7 +726,12 @@ impl GitLogPanel {
                         .child(
                             h_flex()
                                 .gap_2()
-                                .child(div().font_family(theme.mono_font_family.clone()).text_xs().child(f.path.clone()))
+                                .child(
+                                    div()
+                                        .font_family(theme.mono_font_family.clone())
+                                        .text_xs()
+                                        .child(f.path.clone()),
+                                )
                                 .child(
                                     div()
                                         .id(("pi-session", i))
@@ -720,7 +746,11 @@ impl GitLogPanel {
                                                 sessions.update(cx, |s, cx| {
                                                     s.add(Some(file), Some(name), cx);
                                                 });
-                                                pide_core::CommandRegistry::run("agent.ask", window, cx);
+                                                pide_core::CommandRegistry::run(
+                                                    "agent.ask",
+                                                    window,
+                                                    cx,
+                                                );
                                             })
                                         }),
                                 ),
@@ -832,7 +862,10 @@ impl Render for GitLogPanel {
             let text = match (&self.error, self.read_once) {
                 (Some(e), _) => e.clone(),
                 (None, false) => "Reading history…".into(),
-                (None, true) => "No history: this project isn't in a git repository, or it has no commits yet.".into(),
+                (None, true) => {
+                    "No history: this project isn't in a git repository, or it has no commits yet."
+                        .into()
+                }
             };
             return root.child(
                 div()
@@ -903,19 +936,17 @@ impl Render for GitLogPanel {
                             .cursor_pointer()
                             .when(on, |d| d.bg(theme.list_active))
                             .hover(|d| d.bg(theme.list_hover))
-                            .child(
-                                div().w(graph_w).h_full().flex_none().when(!searching, |d| {
-                                    d.child(
-                                        canvas(
-                                            |_, _, _| {},
-                                            move |bounds, _, window, _| {
-                                                paint_graph(bounds, &row, head, &colors, bg, window)
-                                            },
-                                        )
-                                        .size_full(),
+                            .child(div().w(graph_w).h_full().flex_none().when(!searching, |d| {
+                                d.child(
+                                    canvas(
+                                        |_, _, _| {},
+                                        move |bounds, _, window, _| {
+                                            paint_graph(bounds, &row, head, &colors, bg, window)
+                                        },
                                     )
-                                }),
-                            )
+                                    .size_full(),
+                                )
+                            }))
                             .child(
                                 h_flex()
                                     .flex_1()
@@ -1050,12 +1081,7 @@ impl Render for GitLogPanel {
                         .when_some(self.error.clone(), |d, e| {
                             d.child(div().px_2().text_xs().text_color(theme.danger).child(e))
                         })
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_h_0()
-                                .child(list),
-                        ),
+                        .child(div().flex_1().min_h_0().child(list)),
                 )
                 .child(
                     div()

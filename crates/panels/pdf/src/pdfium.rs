@@ -131,4 +131,3 @@ fn search(
     }
     Ok(hits)
 }
-

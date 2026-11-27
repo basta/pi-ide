@@ -186,8 +186,11 @@ impl Render for Locations {
                     .text_xs()
                     .text_color(theme.muted_foreground)
                     .child(if self.items.is_empty() {
-                        format!("Put the cursor on a symbol and use Code → Find Usages ({}).", pide_core::keymap::label("alt-f7"))
-                            .to_string()
+                        format!(
+                            "Put the cursor on a symbol and use Code → Find Usages ({}).",
+                            pide_core::keymap::label("alt-f7")
+                        )
+                        .to_string()
                     } else {
                         format!(
                             "{} in {} file{}",

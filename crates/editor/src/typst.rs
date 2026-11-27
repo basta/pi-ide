@@ -201,7 +201,11 @@ impl Global for AskedIgnore {}
 /// The generated PDF would show up as an unversioned file (a git project, not
 /// ignored, not tracked): offer once to add `*.pdf` to the project's .gitignore.
 fn offer_ignore(project: &Path, pdf: &Path, window: &mut Window, cx: &mut App) {
-    if !cx.default_global::<AskedIgnore>().0.insert(project.to_path_buf()) {
+    if !cx
+        .default_global::<AskedIgnore>()
+        .0
+        .insert(project.to_path_buf())
+    {
         return;
     }
     let (project, pdf) = (project.to_path_buf(), pdf.to_path_buf());
@@ -230,7 +234,10 @@ fn offer_ignore(project: &Path, pdf: &Path, window: &mut Window, cx: &mut App) {
                 return;
             }
             let _ = cx.update(|window, cx| {
-                let name = pdf.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                let name = pdf
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
                 let note = Notification::info(format!(
                     "{name} is generated from Typst and would be listed as a new file to commit."
                 ))
@@ -327,7 +334,9 @@ fn export(
             });
             if let Ok(task) = export {
                 let result = task.await;
-                let _ = cx.update(|window, cx| show(result, root, &project, phrases, trigger, window, cx));
+                let _ = cx.update(|window, cx| {
+                    show(result, root, &project, phrases, trigger, window, cx)
+                });
             }
         }
         let _ = this.update_in(cx, |p, window, cx| {
@@ -435,12 +444,10 @@ pub(crate) fn pin_main(
     let path = panel.path.clone();
     let project = panel.workspace.read(cx).root().to_path_buf();
     let store = pide_lsp::LspStore::for_workspace(&panel.workspace, cx);
-    let find = cx
-        .background_executor()
-        .spawn({
-            let project = project.clone();
-            async move { root_document(&path, &project).map(|r| (path, r)) }
-        });
+    let find = cx.background_executor().spawn({
+        let project = project.clone();
+        async move { root_document(&path, &project).map(|r| (path, r)) }
+    });
     cx.spawn_in(window, async move |this, cx| {
         let pinned = match find.await {
             Some((path, root)) => {

@@ -18,30 +18,30 @@ impl AgentChat {
                     None => (None, text.clone()),
                 };
                 v_flex()
-                .gap_1()
-                .px_3()
-                .py_2()
-                .rounded(theme.radius)
-                .bg(theme.secondary)
-                .when_some(reply_to, |this, loc| {
-                    this.child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(format!("↪ {loc} · reply to a note")),
-                    )
-                })
-                .when_some(chip.clone(), |this, c| {
-                    this.child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .font_family(theme.mono_font_family.clone())
-                            .child(format!("⌁ {c}")),
-                    )
-                })
-                .child(text)
-                .into_any_element()
+                    .gap_1()
+                    .px_3()
+                    .py_2()
+                    .rounded(theme.radius)
+                    .bg(theme.secondary)
+                    .when_some(reply_to, |this, loc| {
+                        this.child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(format!("↪ {loc} · reply to a note")),
+                        )
+                    })
+                    .when_some(chip.clone(), |this, c| {
+                        this.child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .font_family(theme.mono_font_family.clone())
+                                .child(format!("⌁ {c}")),
+                        )
+                    })
+                    .child(text)
+                    .into_any_element()
             }
             Item::Assistant {
                 markdown,

@@ -29,8 +29,8 @@ use gpui_kit::component::dock::{
     register_panel,
 };
 use gpui_kit::component::input::{Editor, EditorState, InputEditsEvent, InputEvent, TabSize};
-use gpui_kit::component::notification::Notification;
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
+use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ActiveTheme, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -142,7 +142,11 @@ pub fn init(cx: &mut App) {
     // Cmd+Shift+F is Find in Files (JetBrains); GPUI Kit's in-file replace moves to
     // JetBrains' Cmd+R. Bound before keymap::init, so it survives keymap reloads.
     cx.bind_keys([KeyBinding::new(
-        if cfg!(target_os = "macos") { "cmd-r" } else { "ctrl-r" },
+        if cfg!(target_os = "macos") {
+            "cmd-r"
+        } else {
+            "ctrl-r"
+        },
         gpui_kit::component::input::Replace,
         Some(pide_core::commands::EDITOR),
     )]);
@@ -270,7 +274,9 @@ pub fn init(cx: &mut App) {
     );
     CommandRegistry::register(
         cx,
-        CommandSpec::new("editor.go_to_symbol", "Navigate: Go to Symbol…").key("cmd-alt-o").other_key("ctrl-alt-shift-n"),
+        CommandSpec::new("editor.go_to_symbol", "Navigate: Go to Symbol…")
+            .key("cmd-alt-o")
+            .other_key("ctrl-alt-shift-n"),
         symbols::go_to_symbol,
     );
     CommandRegistry::register(
@@ -726,23 +732,27 @@ impl EditorPanel {
         let focus = editor.focus_handle(cx);
 
         let mut subs = vec![
-            cx.subscribe_in(&editor, window, |this, editor, ev: &InputEvent, window, cx| match ev {
-                InputEvent::Change => {
-                    if let Some(buffer) = this.buffer.clone() {
-                        let text = editor.read(cx).text().clone();
-                        this.workspace
-                            .update(cx, |w, cx| w.edited(&buffer, text, cx));
+            cx.subscribe_in(
+                &editor,
+                window,
+                |this, editor, ev: &InputEvent, window, cx| match ev {
+                    InputEvent::Change => {
+                        if let Some(buffer) = this.buffer.clone() {
+                            let text = editor.read(cx).text().clone();
+                            this.workspace
+                                .update(cx, |w, cx| w.edited(&buffer, text, cx));
+                        }
+                        this.signature_after_edit(cx);
+                        this.refresh_git_marks(std::time::Duration::from_millis(250), cx);
+                        this.pi_text_changed(cx);
+                        if this.typst_base.is_some() {
+                            typst::export_on_type(this, window, cx);
+                        }
                     }
-                    this.signature_after_edit(cx);
-                    this.refresh_git_marks(std::time::Duration::from_millis(250), cx);
-                    this.pi_text_changed(cx);
-                    if this.typst_base.is_some() {
-                        typst::export_on_type(this, window, cx);
-                    }
-                }
-                InputEvent::Blur => this.hide_signature(cx),
-                _ => {}
-            }),
+                    InputEvent::Blur => this.hide_signature(cx),
+                    _ => {}
+                },
+            ),
             cx.subscribe_in(&workspace, window, Self::on_workspace_event),
         ];
         let weak = cx.weak_entity();
@@ -892,8 +902,7 @@ impl EditorPanel {
             }),
         );
         self.apply_diagnostics(&store, cx);
-        let has_main =
-            pide_lsp::registry::spec_for(store.read(cx).specs(), &self.path).is_some();
+        let has_main = pide_lsp::registry::spec_for(store.read(cx).specs(), &self.path).is_some();
         // Add-on servers (spelling) by spec, not by setting: their providers
         // ask the running server each time, so turning it on later just works.
         let addons: Vec<std::rc::Rc<lsp::Providers>> =
@@ -905,7 +914,9 @@ impl EditorPanel {
             self.editor.update(cx, |e, _| {
                 e.lsp_mut().code_action_providers = addons
                     .iter()
-                    .map(|p| p.clone() as std::rc::Rc<dyn gpui_kit::component::input::CodeActionProvider>)
+                    .map(|p| {
+                        p.clone() as std::rc::Rc<dyn gpui_kit::component::input::CodeActionProvider>
+                    })
                     .collect();
             });
         }
@@ -1341,7 +1352,9 @@ impl gpui_kit::component::dock::Panel for EditorPanel {
                 move |_, window, cx| {
                     cx.stop_propagation();
                     let path = path.clone();
-                    window.defer(cx, move |window, cx| pide_core::opener::close_file(path, window, cx));
+                    window.defer(cx, move |window, cx| {
+                        pide_core::opener::close_file(path, window, cx)
+                    });
                 }
             })
             .context_menu(move |menu, _, _| {
@@ -1363,11 +1376,19 @@ impl gpui_kit::component::dock::Panel for EditorPanel {
                 };
                 let rel = rel.clone();
                 menu.item(PopupMenuItem::new("Close").on_click(close))
-                    .item(PopupMenuItem::new("Close Other Tabs").on_click(on("editor.close_others")))
+                    .item(
+                        PopupMenuItem::new("Close Other Tabs").on_click(on("editor.close_others")),
+                    )
                     .item(PopupMenuItem::new("Close All Tabs").on_click(on("editor.close_all")))
                     .separator()
-                    .item(PopupMenuItem::new("Move to Right Split").on_click(on("editor.split_right")))
-                    .item(PopupMenuItem::new("Select in Project Tree").on_click(on("project.select_opened")))
+                    .item(
+                        PopupMenuItem::new("Move to Right Split")
+                            .on_click(on("editor.split_right")),
+                    )
+                    .item(
+                        PopupMenuItem::new("Select in Project Tree")
+                            .on_click(on("project.select_opened")),
+                    )
                     .item(PopupMenuItem::new("Copy Path").on_click(move |_, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(rel.clone()))
                     }))

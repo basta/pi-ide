@@ -23,6 +23,7 @@ pub mod paths;
 pub mod recent;
 pub mod sessions;
 pub mod settings;
+pub mod settings_page;
 pub mod toolwindow;
 pub mod walk;
 pub mod workspace;

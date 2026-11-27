@@ -10,9 +10,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::dock::{
-    PanelEvent, PanelInfo, PanelState, panel_handle, register_panel,
-};
+use gpui_kit::component::dock::{PanelEvent, PanelInfo, PanelState, panel_handle, register_panel};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ActiveTheme, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -75,15 +73,17 @@ pub fn init(cx: &mut App) {
                     let r = task.await;
                     let _ = cx.update(|window, cx| match r {
                         Ok((c, text, orig_line, rel, notes)) => {
-                            let reason = notes.and_then(|n| n.files.into_iter().find(|f| f.path == rel));
+                            let reason =
+                                notes.and_then(|n| n.files.into_iter().find(|f| f.path == rel));
                             match reason {
                                 // Notes carry the commit's line numbers: match on the line's number there.
                                 Some(f) => show_reason(&c, &f, orig_line, window, cx),
                                 None => ask_why(&c, &rel, line, &text, window, cx),
                             }
                         }
-                        Err(e) => window
-                            .push_notification(Notification::error(format!("{e:#}")), cx),
+                        Err(e) => {
+                            window.push_notification(Notification::error(format!("{e:#}")), cx)
+                        }
                     });
                 })
                 .detach();
@@ -92,7 +92,11 @@ pub fn init(cx: &mut App) {
 }
 
 fn root(window: &Window, cx: &App) -> PathBuf {
-    Services::of(window, cx).workspace.read(cx).root().to_path_buf()
+    Services::of(window, cx)
+        .workspace
+        .read(cx)
+        .root()
+        .to_path_buf()
 }
 
 /// Lines away from a note that still count as "this line".
@@ -143,7 +147,11 @@ fn show_reason(
     // Stays until closed: it's the answer to a question, not a status.
     window.push_notification(
         Notification::info(text)
-            .title(format!("{} · pi in \u{201c}{}\u{201d}", c.short(), f.session))
+            .title(format!(
+                "{} · pi in \u{201c}{}\u{201d}",
+                c.short(),
+                f.session
+            ))
             .autohide(false),
         cx,
     );
@@ -226,13 +234,15 @@ impl AnnotatePanel {
         let workspace = Services::of(window, cx).workspace;
         let root = workspace.read(cx).root().to_path_buf();
         let watched = path.clone();
-        let subs = vec![cx.subscribe(&workspace, move |this, _, ev: &WorkspaceEvent, cx| {
-            if let WorkspaceEvent::BufferSaved(b) = ev
-                && b.read(cx).path == watched
-            {
-                this.reload(cx);
-            }
-        })];
+        let subs = vec![
+            cx.subscribe(&workspace, move |this, _, ev: &WorkspaceEvent, cx| {
+                if let WorkspaceEvent::BufferSaved(b) = ev
+                    && b.read(cx).path == watched
+                {
+                    this.reload(cx);
+                }
+            }),
+        ];
         let mut this = Self {
             path,
             root,
@@ -259,7 +269,9 @@ impl AnnotatePanel {
 
     fn reload(&mut self, cx: &mut Context<Self>) {
         let (root, rel) = (self.root.clone(), self.rel());
-        let work = cx.background_executor().spawn(async move { blame::blame(&root, &rel) });
+        let work = cx
+            .background_executor()
+            .spawn(async move { blame::blame(&root, &rel) });
         self._load = Some(cx.spawn(async move |this, cx| {
             let r = work.await;
             let _ = this.update(cx, |this, cx| {
@@ -281,7 +293,9 @@ impl AnnotatePanel {
     }
 
     fn selected_commit(&self) -> Option<(BlameCommit, usize, String)> {
-        let Some(Ok(b)) = &self.blame else { return None };
+        let Some(Ok(b)) = &self.blame else {
+            return None;
+        };
         let ix = self.selected?;
         let line = b.lines.get(ix)?;
         Some((b.commits[line.commit].clone(), ix, line.text.clone()))
@@ -289,7 +303,9 @@ impl AnnotatePanel {
 
     /// This file's change in the selected commit, as a diff tab.
     fn show_diff(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((c, _, _)) = self.selected_commit() else { return };
+        let Some((c, _, _)) = self.selected_commit() else {
+            return;
+        };
         if c.uncommitted() {
             return;
         }
@@ -389,7 +405,13 @@ impl Render for AnnotatePanel {
                 );
             }
             Some(Err(e)) => {
-                return root.child(div().p_3().text_sm().text_color(theme.danger).child(e.clone()));
+                return root.child(
+                    div()
+                        .p_3()
+                        .text_sm()
+                        .text_color(theme.danger)
+                        .child(e.clone()),
+                );
             }
             Some(Ok(b)) => b.clone(),
         };
@@ -406,11 +428,15 @@ impl Render for AnnotatePanel {
                 .gap_1()
                 .border_b_1()
                 .border_color(theme.border)
-                .child(div().font_weight(FontWeight::SEMIBOLD).child(if c.uncommitted() {
-                    "Not committed yet".to_string()
-                } else {
-                    c.summary.clone()
-                }))
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(if c.uncommitted() {
+                            "Not committed yet".to_string()
+                        } else {
+                            c.summary.clone()
+                        }),
+                )
                 .when(!c.uncommitted(), |d| {
                     d.child(
                         div()

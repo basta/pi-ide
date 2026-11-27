@@ -42,7 +42,10 @@ pub fn init(cx: &mut App) {
             dock: DockPosition::Left,
             command: "view.structure",
             key: Some("cmd-7"),
-            create: |window, cx| panel_handle(cx.new(|cx| Structure::new(window, cx))),
+            create: std::rc::Rc::new(|window, cx| {
+                panel_handle(cx.new(|cx| Structure::new(window, cx)))
+            }),
+            remove: pide_core::toolwindow::remover::<Structure>(),
         },
     );
 }
@@ -92,7 +95,8 @@ impl Structure {
         let subs = vec![
             cx.subscribe(&workspace, |this, ws, ev: &WorkspaceEvent, cx| match ev {
                 WorkspaceEvent::ActiveBufferChanged => this.load(Duration::ZERO, cx),
-                WorkspaceEvent::BufferChanged(b) | WorkspaceEvent::FileChangedOnDisk { buffer: b, .. }
+                WorkspaceEvent::BufferChanged(b)
+                | WorkspaceEvent::FileChangedOnDisk { buffer: b, .. }
                     if Some(&b.read(cx).path) == this.path.as_ref() =>
                 {
                     this.load(EDIT_DELAY, cx)
@@ -177,22 +181,21 @@ impl Structure {
             if !delay.is_zero() {
                 cx.background_executor().timer(delay).await;
             }
-            let server = cx
-                .update(|cx| {
-                    let s = store.read(cx).server_for(&path).map(|s| s.encoding);
-                    let task = s.map(|_| {
-                        store.update(cx, |s, cx| {
-                            s.request(
-                                &path,
-                                Some(&rope),
-                                "textDocument/documentSymbol",
-                                json!({ "textDocument": { "uri": file_uri(&path) } }),
-                                cx,
-                            )
-                        })
-                    });
-                    s.zip(task)
+            let server = cx.update(|cx| {
+                let s = store.read(cx).server_for(&path).map(|s| s.encoding);
+                let task = s.map(|_| {
+                    store.update(cx, |s, cx| {
+                        s.request(
+                            &path,
+                            Some(&rope),
+                            "textDocument/documentSymbol",
+                            json!({ "textDocument": { "uri": file_uri(&path) } }),
+                            cx,
+                        )
+                    })
                 });
+                s.zip(task)
+            });
             let had_server = server.is_some();
             let from_server = match server {
                 Some((enc, task)) => {
@@ -203,8 +206,7 @@ impl Structure {
                             let resp = answer.ok().and_then(|v| {
                                 serde_json::from_value::<Option<DocumentSymbolResponse>>(v).ok()?
                             })?;
-                            let to_chars =
-                                |p| pide_lsp::convert::from_server(&r, p, enc);
+                            let to_chars = |p| pide_lsp::convert::from_server(&r, p, enc);
                             Some(outline::from_lsp(resp, prose, &to_chars))
                         })
                         .await
@@ -285,7 +287,9 @@ impl Structure {
     fn follow_cursor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self._poll = Some(cx.spawn_in(window, async move |this, cx| {
             loop {
-                cx.background_executor().timer(Duration::from_millis(250)).await;
+                cx.background_executor()
+                    .timer(Duration::from_millis(250))
+                    .await;
                 let alive = this.update_in(cx, |this, window, cx| {
                     let Some(ctx) = pide_core::context::current(window, cx) else {
                         return;
@@ -359,7 +363,9 @@ impl Structure {
 
     /// Collapse everything below the top level, or expand it all.
     fn collapse_all(&mut self, collapse: bool, cx: &mut Context<Self>) {
-        let Some(path) = self.path.clone() else { return };
+        let Some(path) = self.path.clone() else {
+            return;
+        };
         let set = self.collapsed.entry(path).or_default();
         set.clear();
         if collapse {
@@ -405,8 +411,9 @@ impl Structure {
                 let Some(s) = self.selected else { return };
                 if outline::has_children(&self.entries, s) && !self.is_collapsed(s) {
                     self.set_collapsed(s, true, cx);
-                } else if let Some(parent) =
-                    (0..s).rev().find(|&j| self.entries[j].depth < self.entries[s].depth)
+                } else if let Some(parent) = (0..s)
+                    .rev()
+                    .find(|&j| self.entries[j].depth < self.entries[s].depth)
                 {
                     self.select(parent, cx);
                 }
@@ -536,55 +543,60 @@ impl Render for Structure {
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().to_string());
         let any_parent = (0..self.entries.len()).any(|i| outline::has_children(&self.entries, i));
-        let header = h_flex()
-            .flex_none()
-            .h(px(30.))
-            .px_2()
-            .gap_1()
-            .border_b_1()
-            .border_color(theme.border)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .children(name),
-            )
-            // Only when there's something besides headings to hide.
-            .when(prose && self.all.iter().any(|e| !e.heading), |h| {
-                h.child(
-                    pide_core::colors::toggle(
-                        Button::new("structure-headings").label("Headings").xsmall(),
-                        self.headings_only,
-                        cx,
-                    )
-                    .tooltip("Only headings (hide labels, figures and definitions)")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.headings_only = !this.headings_only;
-                        this.apply(cx);
-                    })),
+        let header =
+            h_flex()
+                .flex_none()
+                .h(px(30.))
+                .px_2()
+                .gap_1()
+                .border_b_1()
+                .border_color(theme.border)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .children(name),
                 )
-            })
-            .when(any_parent, |h| {
-                // One button: collapse everything, or expand it all again.
-                let any_collapsed = self
-                    .path
-                    .as_ref()
-                    .and_then(|p| self.collapsed.get(p))
-                    .is_some_and(|s| !s.is_empty());
-                h.child(
-                    Button::new("structure-fold-all")
-                        .icon(IconName::ChevronsUpDown)
-                        .ghost()
-                        .xsmall()
-                        .tooltip(if any_collapsed { "Expand All" } else { "Collapse All" })
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.collapse_all(!any_collapsed, cx)
+                // Only when there's something besides headings to hide.
+                .when(prose && self.all.iter().any(|e| !e.heading), |h| {
+                    h.child(
+                        pide_core::colors::toggle(
+                            Button::new("structure-headings").label("Headings").xsmall(),
+                            self.headings_only,
+                            cx,
+                        )
+                        .tooltip("Only headings (hide labels, figures and definitions)")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.headings_only = !this.headings_only;
+                            this.apply(cx);
                         })),
-                )
-            });
+                    )
+                })
+                .when(any_parent, |h| {
+                    // One button: collapse everything, or expand it all again.
+                    let any_collapsed = self
+                        .path
+                        .as_ref()
+                        .and_then(|p| self.collapsed.get(p))
+                        .is_some_and(|s| !s.is_empty());
+                    h.child(
+                        Button::new("structure-fold-all")
+                            .icon(IconName::ChevronsUpDown)
+                            .ghost()
+                            .xsmall()
+                            .tooltip(if any_collapsed {
+                                "Expand All"
+                            } else {
+                                "Collapse All"
+                            })
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.collapse_all(!any_collapsed, cx)
+                            })),
+                    )
+                });
         let empty = |text: String| {
             div()
                 .p_3()

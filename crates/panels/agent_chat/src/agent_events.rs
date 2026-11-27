@@ -114,7 +114,10 @@ impl AgentChat {
                 // A tour's stops: one card for the whole tour.
                 Some(rest) => {
                     let call = rest.rsplit_once(':').map_or(rest, |(c, _)| c).to_string();
-                    if !items.iter().any(|i| matches!(i, Item::Tour(c) if *c == call)) {
+                    if !items
+                        .iter()
+                        .any(|i| matches!(i, Item::Tour(c) if *c == call))
+                    {
                         items.push(Item::Tour(call.clone()));
                         // An "Update tour" answer: hide the tour it replaces.
                         if let Some(old) = self.replacing_tour.remove(&agent.entity_id()) {

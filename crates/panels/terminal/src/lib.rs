@@ -36,7 +36,8 @@ pub fn init(cx: &mut App) {
             dock: DockPosition::Bottom,
             command: "view.terminal",
             key: Some("alt-f12"),
-            create: |window, cx| panel_handle(cx.new(|cx| TerminalPanel::new(window, cx))),
+            create: std::rc::Rc::new(|window, cx| panel_handle(cx.new(|cx| TerminalPanel::new(window, cx)))),
+            remove: pide_core::toolwindow::remover::<TerminalPanel>(),
         },
     );
     let on_panel = |f: fn(&mut TerminalPanel, &mut Window, &mut Context<TerminalPanel>)| {

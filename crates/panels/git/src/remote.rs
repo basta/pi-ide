@@ -71,9 +71,7 @@ fn parse_branches(out: &str) -> Vec<BranchInfo> {
             })
         })
         .collect();
-    list.sort_by(|a, b| {
-        (a.remote, !a.current, &a.name).cmp(&(b.remote, !b.current, &b.name))
-    });
+    list.sort_by(|a, b| (a.remote, !a.current, &a.name).cmp(&(b.remote, !b.current, &b.name)));
     list
 }
 
@@ -109,7 +107,12 @@ pub fn outgoing(workdir: &Path) -> anyhow::Result<Outgoing> {
     }
     let upstream = git_out(
         workdir,
-        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+        &[
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ],
     )
     .ok()
     .map(|s| s.trim().to_string());
@@ -221,7 +224,11 @@ pub fn pull(workdir: &Path) -> anyhow::Result<String> {
     }
     let n = git_out(
         workdir,
-        &["rev-list", "--count", &format!("{}..{}", before.trim(), after.trim())],
+        &[
+            "rev-list",
+            "--count",
+            &format!("{}..{}", before.trim(), after.trim()),
+        ],
     )
     .map(|s| s.trim().to_string())
     .unwrap_or_default();
@@ -242,7 +249,12 @@ pub fn checkout(workdir: &Path, b: &BranchInfo) -> anyhow::Result<String> {
     let local = b.name.split_once('/').map_or(b.name.as_str(), |(_, n)| n);
     let exists = git_out(
         workdir,
-        &["rev-parse", "--verify", "-q", &format!("refs/heads/{local}")],
+        &[
+            "rev-parse",
+            "--verify",
+            "-q",
+            &format!("refs/heads/{local}"),
+        ],
     )
     .is_ok();
     if exists {
@@ -294,7 +306,10 @@ mod tests {
         assert_eq!(b[0].upstream.as_deref(), Some("origin/main"));
         assert!(b[2].remote);
         assert_eq!(parse_offset("2026-11-10 15:27:00 +0900"), 9 * 3600);
-        assert_eq!(parse_offset("2026-11-10 15:27:00 -0530"), -(5 * 3600 + 30 * 60));
+        assert_eq!(
+            parse_offset("2026-11-10 15:27:00 -0530"),
+            -(5 * 3600 + 30 * 60)
+        );
     }
 
     fn sh(dir: &Path, args: &[&str]) {
@@ -358,7 +373,12 @@ mod tests {
         rename(&a, "side", "side2").unwrap();
         merge(&a, "side2").unwrap();
         delete(&a, "side2").unwrap();
-        assert!(!branches(&a).unwrap().iter().any(|b| b.name.starts_with("side")));
+        assert!(
+            !branches(&a)
+                .unwrap()
+                .iter()
+                .any(|b| b.name.starts_with("side"))
+        );
         let _ = std::fs::remove_dir_all(&base);
     }
 }

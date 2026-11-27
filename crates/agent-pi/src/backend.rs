@@ -631,7 +631,10 @@ impl AgentBackend for PiBackend {
         cx: &mut Context<Agent>,
     ) -> Task<anyhow::Result<String>> {
         // One-shot pi: no session, no tools, the session's model, little thinking.
-        let model = agent.model.as_ref().map(|m| format!("{}/{}", m.provider, m.id));
+        let model = agent
+            .model
+            .as_ref()
+            .map(|m| format!("{}/{}", m.provider, m.id));
         let root = self.root.clone();
         let (tx, rx) = oneshot::channel();
         pide_runtime::spawn(async move {
@@ -651,7 +654,11 @@ impl AgentBackend for PiBackend {
 /// `pi -p` once (runtime thread): its stdout, trimmed.
 async fn ask_once(root: PathBuf, model: Option<String>, prompt: String) -> anyhow::Result<String> {
     let pi = find_pi().ok_or_else(|| anyhow::anyhow!("pi isn't installed"))?;
-    let mut path = pi.parent().map(Path::to_path_buf).into_iter().collect::<Vec<_>>();
+    let mut path = pi
+        .parent()
+        .map(Path::to_path_buf)
+        .into_iter()
+        .collect::<Vec<_>>();
     if let Some(p) = std::env::var_os("PATH") {
         path.extend(std::env::split_paths(&p));
     }
@@ -672,7 +679,11 @@ async fn ask_once(root: PathBuf, model: Option<String>, prompt: String) -> anyho
         .map_err(|_| anyhow::anyhow!("pi didn't answer within {} s", ASIDE_TIMEOUT.as_secs()))??;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
-        let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+        let last = err
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("");
         anyhow::bail!("pi failed: {last}");
     }
     let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -759,7 +770,10 @@ async fn supervise(
     kill: oneshot::Receiver<()>,
     exit: oneshot::Sender<(Option<i32>, Vec<String>, Option<String>)>,
 ) {
-    if args.iter().any(|a| *a == extension_path().to_string_lossy()) {
+    if args
+        .iter()
+        .any(|a| *a == extension_path().to_string_lossy())
+    {
         write_extension();
     }
     // pi is a node script (`#!/usr/bin/env node`); make sure node's dir is on PATH.

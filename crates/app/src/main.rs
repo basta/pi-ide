@@ -9,6 +9,7 @@ mod menus;
 mod palette;
 mod projects;
 mod recent_files;
+mod settings_tab;
 mod settings_ui;
 mod shell;
 mod theme;
@@ -93,7 +94,10 @@ fn main() {
         pide_search::init(cx);
         pide_preview::init(cx);
         pide_pdf::init(cx);
+        pide_scripts::init(cx);
         tool_windows::init(cx);
+        settings_tab::init(cx);
+        settings_ui::init(cx);
         cx.set_global(pide_core::opener::Openers {
             // PDFs open in the PDF panel; everything else in an editor tab.
             file: Rc::new(|path, window, cx| {
@@ -165,12 +169,14 @@ fn watch_keymap(cx: &mut App) {
                                 .is_none_or(|old| old.theme != fresh.theme);
                             let theme = fresh.theme;
                             cx.set_global(fresh);
-                            if theme_changed {
-                                for w in cx.windows() {
-                                    let _ = w.update(cx, |_, window, cx| {
+                            for w in cx.windows() {
+                                let _ = w.update(cx, |_, window, cx| {
+                                    if theme_changed {
                                         theme::apply(theme, Some(window), cx)
-                                    });
-                                }
+                                    }
+                                    // tool_windows.disabled may have changed.
+                                    pide_core::toolwindow::close_disabled(window, cx);
+                                });
                             }
                         });
                     }
@@ -283,13 +289,6 @@ fn register_app_commands(cx: &mut App) {
             }
         },
     );
-    CommandRegistry::register(
-        cx,
-        CommandSpec::new("settings.pide", "Settings: pide…")
-            .key("cmd-,")
-            .over_terminal(),
-        settings_ui::open,
-    );
 
     CommandRegistry::register(
         cx,
@@ -335,16 +334,6 @@ fn register_app_commands(cx: &mut App) {
                 })
                 .detach();
         },
-    );
-    CommandRegistry::register(
-        cx,
-        CommandSpec::new("pi.settings", "Settings: pi…"),
-        shell::show_pi_settings,
-    );
-    CommandRegistry::register(
-        cx,
-        CommandSpec::new("lsp.servers", "Settings: Language Servers…"),
-        shell::show_language_servers,
     );
     CommandRegistry::register(
         cx,

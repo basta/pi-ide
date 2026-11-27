@@ -256,7 +256,10 @@ pub fn collab_events(tool_call_id: &str, d: &Value) -> Vec<AgentEvent> {
     if d.get("pide").and_then(Value::as_u64) == Some(1)
         && d.get("kind").and_then(Value::as_str) == Some("tour")
     {
-        return tour_pins(tool_call_id, d).into_iter().map(AgentEvent::Pin).collect();
+        return tour_pins(tool_call_id, d)
+            .into_iter()
+            .map(AgentEvent::Pin)
+            .collect();
     }
     collab_event(tool_call_id, d).into_iter().collect()
 }
@@ -279,7 +282,11 @@ fn anchor_at(v: &Value, line: usize) -> pide_core::collab::Anchor {
 pub fn tour_pins(tool_call_id: &str, d: &Value) -> Vec<pide_core::collab::Pin> {
     use pide_core::collab::Pin;
     let title = s(d, "title");
-    let stops = d.get("stops").and_then(Value::as_array).cloned().unwrap_or_default();
+    let stops = d
+        .get("stops")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let n = stops.len();
     stops
         .iter()
@@ -298,7 +305,12 @@ pub fn tour_pins(tool_call_id: &str, d: &Value) -> Vec<pide_core::collab::Pin> {
                 snippet: st
                     .get("snippet")
                     .and_then(Value::as_array)
-                    .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
                     .unwrap_or_default(),
                 seen: false,
                 dismissed: false,
@@ -327,7 +339,12 @@ pub fn collab_event(tool_call_id: &str, d: &Value) -> Option<AgentEvent> {
                 snippet: d
                     .get("snippet")
                     .and_then(Value::as_array)
-                    .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
                     .unwrap_or_default(),
                 seen: false,
                 dismissed: false,

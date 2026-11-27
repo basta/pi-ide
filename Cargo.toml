@@ -18,6 +18,7 @@ members = [
     "crates/panels/run",
     "crates/panels/git",
     "crates/panels/structure",
+    "crates/panels/scripts",
     "crates/panels/cmake",
     "crates/panels/terminal",
     "spike",
@@ -32,7 +33,7 @@ version = "0.1.0"
 [workspace.dependencies]
 # GPUI only through gpui-kit, never a direct `gpui`/`gpui-pre` dependency (spec, Tech stack).
 # Features live here so every crate sees one unified set.
-gpui-kit = { version = "=0.9.0", features = [
+gpui-kit = { version = "=0.10.0", features = [
     "profiler",
     "tree-sitter-rust",
     "tree-sitter-python",
@@ -65,12 +66,17 @@ pide-search = { path = "crates/panels/search" }
 pide-run = { path = "crates/panels/run" }
 pide-git = { path = "crates/panels/git" }
 pide-structure = { path = "crates/panels/structure" }
+pide-scripts = { path = "crates/panels/scripts" }
 pide-cmake = { path = "crates/panels/cmake" }
 pide-terminal = { path = "crates/panels/terminal" }
 pide-preview = { path = "crates/panels/preview" }
 pide-pdf = { path = "crates/panels/pdf" }
 
 anyhow = "1.0.104"
+# Script panels (crates/panels/scripts): JavaScript tool windows on QuickJS, drawn as GPUI elements.
+# No `webview` (it pulls wry and gpui-fast, which would switch GPUI Kit to another GPUI build).
+gpui-shell = { version = "=0.10.0", default-features = false, features = ["quickjs", "components"] }
+futures = "0.3"
 env_logger = "0.11.11"
 ignore = "0.4.34"
 log = "0.4.35"

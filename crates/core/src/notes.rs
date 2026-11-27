@@ -125,11 +125,23 @@ mod tests {
         let t = tours(&[
             pin("tour:functions.ide_tour:3:0", "Resume: flow · 1/2: a", true),
             pin("x", "not a tour", false),
-            pin("tour:functions.ide_tour:3:1", "Resume: flow · 2/2: b", false),
+            pin(
+                "tour:functions.ide_tour:3:1",
+                "Resume: flow · 2/2: b",
+                false,
+            ),
             pin("tour:c2:0", "Other · 1/1: c", false),
         ]);
         assert_eq!(t.len(), 2);
-        assert_eq!((t[0].title.as_str(), t[0].call_id.as_str(), t[0].stops, t[0].seen), ("Resume: flow", "functions.ide_tour:3", 2, 1));
+        assert_eq!(
+            (
+                t[0].title.as_str(),
+                t[0].call_id.as_str(),
+                t[0].stops,
+                t[0].seen
+            ),
+            ("Resume: flow", "functions.ide_tour:3", 2, 1)
+        );
         assert_eq!(t[1].title, "Other");
     }
 }

@@ -218,7 +218,13 @@ pub fn cmd_to_ctrl(keys: &str) -> String {
     keys.split_whitespace()
         .map(|k| {
             k.split('-')
-                .map(|p| if p == "cmd" || p == "secondary" { "ctrl" } else { p })
+                .map(|p| {
+                    if p == "cmd" || p == "secondary" {
+                        "ctrl"
+                    } else {
+                        p
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join("-")
         })
@@ -244,7 +250,12 @@ fn label_for(keys: &str, mac: bool) -> String {
             let cmd = has("cmd") || has("super") || has("win") || (mac && has("secondary"));
             if mac {
                 let mut out = String::new();
-                for (on, sym) in [(ctrl, '⌃'), (has("alt"), '⌥'), (has("shift"), '⇧'), (cmd, '⌘')] {
+                for (on, sym) in [
+                    (ctrl, '⌃'),
+                    (has("alt"), '⌥'),
+                    (has("shift"), '⇧'),
+                    (cmd, '⌘'),
+                ] {
                     if on {
                         out.push(sym);
                     }
@@ -252,7 +263,12 @@ fn label_for(keys: &str, mac: bool) -> String {
                 out + &key_name(key, true)
             } else {
                 let mut out: Vec<String> = Vec::new();
-                for (on, name) in [(ctrl, "Ctrl"), (has("alt"), "Alt"), (has("shift"), "Shift"), (cmd, "Super")] {
+                for (on, name) in [
+                    (ctrl, "Ctrl"),
+                    (has("alt"), "Alt"),
+                    (has("shift"), "Shift"),
+                    (cmd, "Super"),
+                ] {
                     if on {
                         out.push(name.to_string());
                     }

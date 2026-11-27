@@ -33,7 +33,10 @@ pub fn init(cx: &mut App) {
             dock: pide_core::DockPosition::Left,
             command: "view.toggle_project",
             key: Some("cmd-1"),
-            create: |window, cx| panel_handle(cx.new(|cx| FileTree::new(window, cx))),
+            create: std::rc::Rc::new(|window, cx| {
+                panel_handle(cx.new(|cx| FileTree::new(window, cx)))
+            }),
+            remove: pide_core::toolwindow::remover::<FileTree>(),
         },
     );
 }
@@ -310,7 +313,9 @@ impl Render for FileTree {
                             .child(div().flex_1().child(item.label.clone()))
                             .when_some(badge, |this, b| {
                                 let color = pide_core::colors::change(
-                                    pide_core::colors::Change::from_letter(b.chars().next().unwrap_or('M')),
+                                    pide_core::colors::Change::from_letter(
+                                        b.chars().next().unwrap_or('M'),
+                                    ),
                                     cx,
                                 );
                                 this.child(

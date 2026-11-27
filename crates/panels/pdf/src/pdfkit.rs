@@ -155,7 +155,12 @@ fn to_shown(page: &PDFPage, r: NSRect) -> Rect {
     let (x, y) = (r.origin.x as f32 - x0, r.origin.y as f32 - y0);
     let (w, h) = (r.size.width as f32, r.size.height as f32);
     match unsafe { page.rotation() }.rem_euclid(360) {
-        90 => Rect { x: y, y: x, w: h, h: w },
+        90 => Rect {
+            x: y,
+            y: x,
+            w: h,
+            h: w,
+        },
         180 => Rect {
             x: bw - x - w,
             y: y,

@@ -1,0 +1,6 @@
+{
+  "title": "Codebase map",
+  "dock": "right",
+  "icon": "map",
+  "permissions": { "run": ["git"] }
+}

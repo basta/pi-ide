@@ -179,10 +179,12 @@ fn menus() -> Vec<Menu> {
         Menu {
             name: "Settings".into(),
             items: vec![
-                cmd("pide…", "settings.pide"),
-                cmd("Keymap…", "settings.keymap"),
+                cmd("Settings…", "settings.pide"),
+                MenuItem::separator(),
                 cmd("pi…", "pi.settings"),
                 cmd("Language Servers…", "lsp.servers"),
+                cmd("Tool Windows…", "settings.tool_windows"),
+                cmd("Keyboard Shortcuts…", "settings.keymap"),
                 MenuItem::separator(),
                 cmd("Open settings.json", "settings.open"),
                 cmd("Open Keymap File", "keymap.open"),

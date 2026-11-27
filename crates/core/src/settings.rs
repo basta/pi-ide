@@ -44,6 +44,10 @@ pub struct Settings {
     /// alongside each file's language server. Default on (nothing happens
     /// until it's installed).
     pub spellcheck: bool,
+    /// `"tool_windows.disabled"`: tool windows turned off everywhere (by id,
+    /// e.g. `git_log`, `script:user/todos`). A project can turn one back on
+    /// (see [`ProjectSettings`]).
+    pub tool_windows_off: Vec<String>,
     /// `"terminal.shell"`: the terminal's shell, `"bash"` or `["bash", "-l"]`. Default:
     /// pwsh (else Windows PowerShell) on Windows, `$SHELL -l` elsewhere.
     pub terminal_shell: Option<Vec<String>>,
@@ -67,6 +71,7 @@ impl Default for Settings {
             typst_pdf_on_type: true,
             typst_pdf_follow: true,
             spellcheck: true,
+            tool_windows_off: Vec::new(),
             terminal_shell: None,
             terminal_font_family: None,
             terminal_font_size: None,
@@ -131,6 +136,7 @@ pub fn load() -> Settings {
             .get("spellcheck.enabled")
             .and_then(|v| v.as_bool())
             .unwrap_or(true),
+        tool_windows_off: string_list(raw.get(TOOL_WINDOWS_OFF)),
         terminal_shell: raw.get("terminal.shell").and_then(command_line),
         terminal_font_family: raw
             .get("terminal.font_family")
@@ -143,6 +149,79 @@ pub fn load() -> Settings {
             .map(|v| v as f32)
             .filter(|v| (6.0..=72.0).contains(v)),
     }
+}
+
+pub const TOOL_WINDOWS_OFF: &str = "tool_windows.disabled";
+pub const TOOL_WINDOWS_ON: &str = "tool_windows.enabled";
+
+fn string_list(v: Option<&Value>) -> Vec<String> {
+    v.and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| s.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+// ---------------------------------------------------------------------------
+// This project: `<project>/.pide/settings.json`. Only what can differ per
+// project lives there (for now, which tool windows are on).
+
+/// One project's own settings, overriding the user's.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ProjectSettings {
+    /// Tool windows off in this project, and ones on here though off everywhere.
+    pub tool_windows_off: Vec<String>,
+    pub tool_windows_on: Vec<String>,
+}
+
+pub fn project_file(root: &std::path::Path) -> std::path::PathBuf {
+    root.join(".pide").join("settings.json")
+}
+
+fn read_project_raw(root: &std::path::Path) -> Map<String, Value> {
+    std::fs::read_to_string(project_file(root))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default()
+}
+
+/// A project's settings. Tiny; read when its window opens.
+pub fn load_project(root: &std::path::Path) -> ProjectSettings {
+    let raw = read_project_raw(root);
+    ProjectSettings {
+        tool_windows_off: string_list(raw.get(TOOL_WINDOWS_OFF)),
+        tool_windows_on: string_list(raw.get(TOOL_WINDOWS_ON)),
+    }
+}
+
+/// Persist one key of a project's settings (an empty list removes the key, and
+/// an empty file isn't written). Call off the UI thread.
+pub fn save_project_key(root: &std::path::Path, key: &str, value: Value) -> std::io::Result<()> {
+    let mut raw = read_project_raw(root);
+    let empty = value.as_array().is_some_and(|a| a.is_empty()) || value.is_null();
+    if empty {
+        raw.remove(key);
+    } else {
+        raw.insert(key.to_string(), value);
+    }
+    let path = project_file(root);
+    if raw.is_empty() {
+        // Nothing set for this project any more: no file either.
+        return match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        };
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(
+        path,
+        serde_json::to_string_pretty(&Value::Object(raw))? + "\n",
+    )
 }
 
 /// `"program"` or `["program", "arg", …]`.

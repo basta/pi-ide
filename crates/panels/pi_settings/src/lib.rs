@@ -6,7 +6,6 @@
 use std::path::PathBuf;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::dock::{PanelEvent, PanelState, panel_handle, register_panel};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::switch::Switch;
@@ -18,15 +17,37 @@ use gpui_kit::*;
 use pide_agent_pi::config::{
     self, InstructionFile, McpServer, Model, Package, PiCommand, PiConfig, Scope,
 };
-use pide_core::{DockPosition, Panel, Services, Sessions};
+use pide_core::{Services, Sessions};
 use serde_json::{Map, Value};
 
-pub const PANEL_NAME: &str = "pi_settings";
-
 pub fn init(cx: &mut App) {
-    register_panel(cx, PANEL_NAME, |_, window, cx| {
-        panel_handle(cx.new(|cx| PiSettings::new(window, cx)))
-    });
+    use pide_core::settings_page::{SettingsPage, register};
+    let keywords = |s: Section| -> &'static [&'static str] {
+        match s {
+            Section::Packages => &["pi install", "npm", "git"],
+            Section::Tools => &["defaultTools", "extensions", "bash", "edit"],
+            Section::Skills => &["skills", "prompts", "slash commands"],
+            Section::Mcp => &["MCP", "servers"],
+            Section::Model => &["provider", "thinking", "default model"],
+            Section::Instructions => &["AGENTS.md", "system prompt"],
+        }
+    };
+    for (i, s) in Section::ALL.into_iter().enumerate() {
+        register(
+            cx,
+            SettingsPage {
+                id: s.id(),
+                group: Some("pi"),
+                title: s.title(),
+                keywords: keywords(s),
+                scoped: true,
+                order: 61 + i as u32,
+                create: std::rc::Rc::new(move |window, cx| {
+                    cx.new(|cx| PiPage::new(s, window, cx)).into()
+                }),
+            },
+        );
+    }
 }
 
 #[derive(Default)]
@@ -60,6 +81,16 @@ impl Section {
         Self::Model,
         Self::Instructions,
     ];
+    fn id(self) -> &'static str {
+        match self {
+            Self::Packages => "pi.packages",
+            Self::Tools => "pi.tools",
+            Self::Skills => "pi.skills",
+            Self::Mcp => "pi.mcp",
+            Self::Model => "pi.model",
+            Self::Instructions => "pi.instructions",
+        }
+    }
     fn title(self) -> &'static str {
         match self {
             Self::Packages => "Packages",
@@ -140,12 +171,9 @@ pub struct PiSettings {
     mcp_name: Entity<InputState>,
     mcp_target: Entity<InputState>,
     model_filter: Entity<InputState>,
-    focus: FocusHandle,
     _tasks: Vec<Task<()>>,
     _subs: Vec<Subscription>,
 }
-
-impl EventEmitter<PanelEvent> for PiSettings {}
 
 impl PiSettings {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -182,7 +210,6 @@ impl PiSettings {
             mcp_target: input("command and arguments, or https:// URL", window, cx),
             _subs: vec![cx.observe(&model_filter, |_, _, cx| cx.notify())],
             model_filter,
-            focus: cx.focus_handle(),
             _tasks: Vec::new(),
         };
         this.reload(cx);
@@ -1126,7 +1153,12 @@ impl PiSettings {
                 }
                 let grouped: Vec<&Model> = order
                     .iter()
-                    .flat_map(|p| matches[..shown].iter().copied().filter(move |m| m.provider == *p))
+                    .flat_map(|p| {
+                        matches[..shown]
+                            .iter()
+                            .copied()
+                            .filter(move |m| m.provider == *p)
+                    })
                     .collect();
                 let mut last_provider: Option<&str> = None;
                 for m in grouped {
@@ -1325,85 +1357,49 @@ impl PiSettings {
     }
 }
 
-impl Focusable for PiSettings {
-    fn focus_handle(&self, _: &App) -> FocusHandle {
-        self.focus.clone()
+/// One section of pi's setup as a page of the Settings tab. Every section in a
+/// window shares one [`PiSettings`] (one read of pi's files).
+pub struct PiPage {
+    section: Section,
+    inner: Entity<PiSettings>,
+    _sub: Subscription,
+}
+
+impl PiPage {
+    fn new(section: Section, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let inner = match existing(window, cx) {
+            Some(e) => e,
+            None => cx.new(|cx| PiSettings::new(window, cx)),
+        };
+        // Models and slash commands load the first time their section shows.
+        inner.update(cx, |s, cx| s.show(section, cx));
+        Self {
+            section,
+            _sub: cx.observe(&inner, |_, _, cx| cx.notify()),
+            inner,
+        }
     }
 }
 
-impl gpui_kit::component::dock::BasePanel for PiSettings {
-    fn panel_name(&self) -> &'static str {
-        PANEL_NAME
-    }
-    fn dump(&self, _: &App) -> PanelState {
-        PanelState::new(PANEL_NAME)
-    }
-}
-
-impl gpui_kit::component::dock::Panel for PiSettings {
-    fn title(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.title_text(cx)
-    }
-}
-
-impl Panel for PiSettings {
-    fn title_text(&self, _: &App) -> SharedString {
-        "pi Settings".into()
-    }
-    fn default_dock(&self) -> DockPosition {
-        DockPosition::Center
+impl Render for PiPage {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let scope = match pide_core::settings_page::scope(window, cx) {
+            pide_core::settings_page::Scope::Everyone => Scope::User,
+            pide_core::settings_page::Scope::Project => Scope::Project,
+        };
+        let section = self.section;
+        self.inner.update(cx, |s, cx| {
+            s.scope = scope;
+            s.section = section;
+            s.render_page(cx)
+        })
     }
 }
 
-impl Render for PiSettings {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+impl PiSettings {
+    fn render_page(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let scope = self.scope;
-        let mut nav = v_flex()
-            .gap_0p5()
-            .w(px(190.))
-            .h_full()
-            .flex_none()
-            .p_2()
-            .border_r_1()
-            .border_color(theme.border);
-        for s in Section::ALL {
-            let count = match s {
-                Section::Packages => Some(
-                    self.snap
-                        .packages
-                        .iter()
-                        .filter(|p| p.scope == scope)
-                        .count(),
-                ),
-                Section::Mcp => Some(self.snap.mcp().len()),
-                _ => None,
-            };
-            nav = nav.child(
-                h_flex()
-                    .id(SharedString::from(format!("nav-{}", s.title())))
-                    .justify_between()
-                    .px_2()
-                    .py_1()
-                    .rounded(theme.radius)
-                    .cursor_pointer()
-                    .text_sm()
-                    .hover(|st| st.bg(theme.list_hover))
-                    .when(self.section == s, |st| {
-                        st.bg(theme.list_active).font_weight(FontWeight::SEMIBOLD)
-                    })
-                    .child(s.title())
-                    .when_some(count.filter(|c| *c > 0), |t, c| {
-                        t.child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .child(c.to_string()),
-                        )
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| this.show(s, cx))),
-            );
-        }
         let body = if !self.loaded {
             muted("Reading pi's settings…", cx).into_any_element()
         } else {
@@ -1420,45 +1416,15 @@ impl Render for PiSettings {
         let settings_path = self.cfg.settings_path(scope);
 
         v_flex()
-            .size_full()
-            .track_focus(&self.focus)
-            .child(
-                h_flex()
-                    .justify_between()
-                    .gap_3()
-                    .px_4()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .child(div().text_base().font_weight(FontWeight::SEMIBOLD).child("pi Settings"))
-                    .child(
-                        h_flex()
-                            .gap_1()
-                            .children([Scope::User, Scope::Project].map(|s| {
-                                Button::new(SharedString::from(format!("scope-{}", s.label())))
-                                    .small()
-                                    .label(s.label())
-                                    .map(|b| pide_core::colors::toggle(b, scope == s, cx))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.scope = s;
-                                        cx.notify();
-                                    }))
-                            }))
-                            .child(Button::new("open-settings-json").small().ghost().label("settings.json").on_click(move |_, window, cx| {
-                                Self::open(settings_path.clone(), window, cx)
-                            })),
-                    ),
-            )
+            .gap_3()
             .when(self.changed, |this| {
                 this.child(
                     h_flex()
                         .gap_3()
-                        .px_4()
+                        .px_3()
                         .py_1p5()
-                        .bg(theme.secondary)
-                        .border_b_1()
-                        .border_color(theme.border)
-                        .text_sm()
+                        .rounded(theme.radius)
+                        .bg(pide_core::colors::notice_bg(false, cx))
                         .child(div().flex_1().child("Saved. pi reads these when a session starts; restart the sessions to use them now."))
                         .child(Button::new("restart-sessions").small().primary().label("Restart sessions").on_click(cx.listener(
                             |this, _, window, cx| {
@@ -1471,53 +1437,47 @@ impl Render for PiSettings {
                 )
             })
             .when(scope == Scope::Project, |this| {
-                this.child(div().px_4().pt_2().child(muted(
+                this.child(muted(
                     format!("Project settings live in {}/.pi and apply once you trust the project in pi.", tilde(&self.cfg.root)),
                     cx,
-                )))
+                ))
             })
-            .children(errors.into_iter().map(|e| div().px_4().pt_2().text_sm().text_color(theme.danger).child(e)))
+            .children(errors.into_iter().map(|e| div().text_sm().text_color(theme.danger).child(e)))
+            .child(body)
+            .when_some(self.run.as_ref(), |this, run| {
+                let tail: Vec<String> = run.lines.iter().rev().take(14).rev().cloned().collect();
+                this.child(
+                    v_flex()
+                        .gap_1()
+                        .p_2()
+                        .rounded(theme.radius)
+                        .bg(theme.secondary)
+                        .child(
+                            h_flex()
+                                .justify_between()
+                                .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(run.title.clone()))
+                                .when(run.done.is_some(), |t| {
+                                    t.child(Button::new("run-close").xsmall().ghost().label("Close").on_click(cx.listener(|this, _, _, cx| {
+                                        this.run = None;
+                                        cx.notify();
+                                    })))
+                                }),
+                        )
+                        .child(mono(tail.join("\n"), cx))
+                        .when_some(run.done.clone(), |t, (ok, msg)| {
+                            t.child(div().text_sm().text_color(if ok { theme.success } else { theme.danger }).child(msg))
+                        }),
+                )
+            })
             .child(
-                h_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .child(nav)
-                    .child(
-                        v_flex()
-                            .id("pi-settings-body")
-                            .flex_1()
-                            .min_w_0()
-                            .h_full()
-                            .overflow_y_scroll()
-                            .p_4()
-                            .gap_3()
-                            .child(body)
-                            .when_some(self.run.as_ref(), |this, run| {
-                                let tail: Vec<String> = run.lines.iter().rev().take(14).rev().cloned().collect();
-                                this.child(
-                                    v_flex()
-                                        .gap_1()
-                                        .p_2()
-                                        .rounded(theme.radius)
-                                        .bg(theme.secondary)
-                                        .child(
-                                            h_flex()
-                                                .justify_between()
-                                                .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(run.title.clone()))
-                                                .when(run.done.is_some(), |t| {
-                                                    t.child(Button::new("run-close").xsmall().ghost().label("Close").on_click(cx.listener(|this, _, _, cx| {
-                                                        this.run = None;
-                                                        cx.notify();
-                                                    })))
-                                                }),
-                                        )
-                                        .child(mono(tail.join("\n"), cx))
-                                        .when_some(run.done.clone(), |t, (ok, msg)| {
-                                            t.child(div().text_sm().text_color(if ok { theme.success } else { theme.danger }).child(msg))
-                                        }),
-                                )
-                            }),
-                    ),
+                h_flex().pt_2().child(
+                    Button::new("open-settings-json")
+                        .small()
+                        .ghost()
+                        .label(format!("Open {}", tilde(&settings_path)))
+                        .on_click(move |_, window, cx| Self::open(settings_path.clone(), window, cx)),
+                ),
             )
+            .into_any_element()
     }
 }

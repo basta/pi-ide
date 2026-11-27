@@ -21,7 +21,9 @@ use std::time::{Duration, Instant, SystemTime};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dock::{PanelEvent, PanelInfo, PanelState, panel_handle, register_panel};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::{ActiveTheme, Disableable as _, Sizable as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{
+    ActiveTheme, Disableable as _, Sizable as _, WindowExt as _, h_flex, v_flex,
+};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use pide_core::opener::PdfSpot;
@@ -313,7 +315,9 @@ impl PdfPanel {
             // Not open yet: try again once it is.
             self._tasks.push(cx.spawn(async move |this, cx| {
                 for _ in 0..50 {
-                    cx.background_executor().timer(Duration::from_millis(100)).await;
+                    cx.background_executor()
+                        .timer(Duration::from_millis(100))
+                        .await;
                     let ready = this
                         .update(cx, |this, cx| {
                             let ready = matches!(this.doc, Doc::Ready(_));
@@ -335,7 +339,9 @@ impl PdfPanel {
 
     /// Where a spot is in the scrolled content, in logical pixels.
     fn content_y(&self, page: usize, y: f32) -> Option<f32> {
-        let Doc::Ready(sizes) = &self.doc else { return None };
+        let Doc::Ready(sizes) = &self.doc else {
+            return None;
+        };
         let size = sizes.get(page)?;
         let page_top: f32 = TOP_PAD
             + sizes[..page]
@@ -361,7 +367,9 @@ impl PdfPanel {
         mark_in_view: bool,
         cx: &mut Context<Self>,
     ) {
-        let Some(at) = self.content_y(spot.page, spot.y) else { return };
+        let Some(at) = self.content_y(spot.page, spot.y) else {
+            return;
+        };
         let (top, view_h) = self.view();
         let margin = (view_h / 6.).min(80.);
         if if_hidden && at > top + margin && at < top + view_h - margin {
@@ -390,7 +398,12 @@ impl PdfPanel {
     /// found several times, and of several hits the one nearest the view. Waits
     /// for an open or reload in flight (the PDF was just exported). A spot
     /// already in view is marked only if `mark_in_view` (not while typing).
-    pub fn reveal_text(&mut self, phrases: Vec<String>, mark_in_view: bool, cx: &mut Context<Self>) {
+    pub fn reveal_text(
+        &mut self,
+        phrases: Vec<String>,
+        mark_in_view: bool,
+        cx: &mut Context<Self>,
+    ) {
         if self.reloading || matches!(self.doc, Doc::Loading) {
             self.pending_find = Some((phrases, mark_in_view));
             return;
@@ -429,7 +442,11 @@ impl PdfPanel {
                     .filter_map(|h| {
                         let r = h.rects.first()?;
                         // The mark sits on a baseline; a hit's box is its line's.
-                        let spot = PdfSpot { page: h.page, x: r.x, y: r.y + r.h * 0.8 };
+                        let spot = PdfSpot {
+                            page: h.page,
+                            x: r.x,
+                            y: r.y + r.h * 0.8,
+                        };
                         let at = this.content_y(spot.page, spot.y)?;
                         Some((spot, (at - mid).abs()))
                     })
@@ -662,8 +679,9 @@ impl PdfPanel {
                         let evicted = this.cache.insert(key, img, size);
                         this.to_drop.extend(evicted);
                         // This page's pre-reload stand-in can go.
-                        let (gone, keep): (Vec<_>, Vec<_>) =
-                            std::mem::take(&mut this.stale).into_iter().partition(|((p, _), _)| *p == key.0);
+                        let (gone, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut this.stale)
+                            .into_iter()
+                            .partition(|((p, _), _)| *p == key.0);
                         this.stale = keep;
                         this.to_drop.extend(gone.into_iter().map(|(_, i)| i));
                         cx.notify();
@@ -973,7 +991,8 @@ impl PdfPanel {
                     // and the page showed at the old zoom first, then jumped).
                     .map(|d| {
                         if fit {
-                            d.w(relative(s.width / widest)).aspect_ratio(s.width / s.height.max(1.))
+                            d.w(relative(s.width / widest))
+                                .aspect_ratio(s.width / s.height.max(1.))
                         } else {
                             d.w(px(w)).h(px(h))
                         }
